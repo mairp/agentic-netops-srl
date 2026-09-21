@@ -1,0 +1,14 @@
+# provenance: source=https://raw.githubusercontent.com/sdcio/config-server/bcc56b045a689032c5123a9f50bcf56ed8c630dc/artifacts/pv-workspace-store.yaml version=v0.0.58 commit=bcc56b045a689032c5123a9f50bcf56ed8c630dc digest=sha256:24bf0f4dd8b958ee90b06039bb82c33a7240fa5c537ce2794c505529a2f1087f
+# vendored-by: scripts/lib/fetch_upstream.sh (T035, FR-098) - the bytes after the end marker are the upstream artefact, unmodified; never edit them, re-run the fetcher
+# --- end of provenance header ---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: pvc-workspace-store
+  namespace: sdc-system
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi

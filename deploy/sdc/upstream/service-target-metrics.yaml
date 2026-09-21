@@ -1,0 +1,18 @@
+# provenance: source=https://raw.githubusercontent.com/sdcio/config-server/bcc56b045a689032c5123a9f50bcf56ed8c630dc/artifacts/service-target-metrics.yaml version=v0.0.58 commit=bcc56b045a689032c5123a9f50bcf56ed8c630dc digest=sha256:74d57763680f71a845331396601c4f69721bccb6d51860281ecd7f8b464a36dd
+# vendored-by: scripts/lib/fetch_upstream.sh (T035, FR-098) - the bytes after the end marker are the upstream artefact, unmodified; never edit them, re-run the fetcher
+# --- end of provenance header ---
+apiVersion: v1
+kind: Service
+metadata:
+  name: sdc-controller-target-metrics
+  namespace: sdc-system
+  labels:
+    app.kubernetes.io/name: sdc-controller
+spec:
+  ports:
+  - name: targetmetrics
+    port: 9443
+    protocol: TCP
+    targetPort: 9443
+  selector:
+    app.kubernetes.io/name: sdc-controller

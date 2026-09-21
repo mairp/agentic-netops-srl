@@ -1,0 +1,2 @@
+#!/bin/sh
+echo "ffmpeg version 7.1.5-0+deb13u1 Copyright (c) 2000-2025 the FFmpeg developers"

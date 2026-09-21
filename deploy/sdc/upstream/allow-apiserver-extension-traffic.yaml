@@ -1,0 +1,23 @@
+# provenance: source=https://raw.githubusercontent.com/sdcio/config-server/bcc56b045a689032c5123a9f50bcf56ed8c630dc/artifacts/allow-apiserver-extension-traffic.yaml version=v0.0.58 commit=bcc56b045a689032c5123a9f50bcf56ed8c630dc digest=sha256:088318ab0d02dcb0c2afd48e5474c0780f33cf0d2efd3ab5fcb6f13f385ceccc
+# vendored-by: scripts/lib/fetch_upstream.sh (T035, FR-098) - the bytes after the end marker are the upstream artefact, unmodified; never edit them, re-run the fetcher
+# --- end of provenance header ---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  labels:
+    app.kubernetes.io/name: sdc-api-server
+  name: allow-traffic-to-apiserver-extension
+  namespace: sdc-system
+spec:
+  ingress:
+    - from:
+        - ipBlock:
+            cidr: 0.0.0.0/0 # Can be made more restrictive by only allowing from control plane node IPs
+      ports:
+        - port: api-service
+          protocol: TCP
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: sdc-api-server
+  policyTypes:
+    - Ingress

@@ -1,0 +1,16 @@
+# provenance: source=https://raw.githubusercontent.com/kuidio/kuid/7528e81528c2e9f586b6fe657907424ad93c7ead/artifacts/rbac-role-binding-auth-reader.yaml version=v0.0.13 commit=7528e81528c2e9f586b6fe657907424ad93c7ead digest=sha256:91ecca89328cd3fe96d610abacfdf859486eee41880388a5d218f941969219ca
+# vendored-by: scripts/lib/fetch_upstream.sh (T035, FR-098) - the bytes after the end marker are the upstream artefact, unmodified; never edit them, re-run the fetcher
+# --- end of provenance header ---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: kuid-server-auth-reader
+  namespace: kube-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: extension-apiserver-authentication-reader
+subjects:
+- kind: ServiceAccount
+  name: kuid-server
+  namespace: kuid-system

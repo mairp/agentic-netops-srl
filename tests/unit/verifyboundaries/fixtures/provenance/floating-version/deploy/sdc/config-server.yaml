@@ -1,0 +1,5 @@
+# provenance: source=https://github.com/sdcio/config-server version=main digest=sha256:6ab1250cbff4b536e0996e57d2d9c2a7bf3154028c21e4c978e13254add3c402
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: network-system

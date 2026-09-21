@@ -1,0 +1,24 @@
+# module<TAB>revision — the newest (latest-dated) revision statement of each module the gate requires (G1), read from
+# nokia/srlinux-yang-models tag v25.7.1 (commit badcf9977fe672437907cdae7daebb27a1361c36, versions.lock.yaml part 2).
+# G1 asserts each is advertised by gNMI Capabilities at exactly this revision. Regenerate only from the pinned tag.
+srl_nokia-interfaces	2025-07-31
+srl_nokia-network-instance	2025-03-31
+srl_nokia-bgp	2025-03-31
+srl_nokia-bgp-evpn	2023-03-31
+srl_nokia-bgp-vpn	2024-03-30
+srl_nokia-tunnel-interfaces	2021-03-31
+srl_nokia-acl	2025-03-31
+srl_nokia-bridge-table	2020-06-30
+srl_nokia-bridge-table-mac-table	2020-06-30
+srl_nokia-system-network-instance	2021-03-31
+srl_nokia-mtu	2020-06-30
+srl_nokia-configuration	2020-06-30
+srl_nokia-interfaces-vlans	2024-03-31
+srl_nokia-if-ip	2023-03-31
+srl_nokia-interfaces-nbr	2023-11-30
+srl_nokia-interfaces-nbr-evpn	2025-03-31
+srl_nokia-ip-route-tables	2020-06-30
+srl_nokia-rib-bgp	2020-06-30
+srl_nokia-routing-policy	2025-03-31
+srl_nokia-vxlan-tunnel-vtep	2020-10-31
+srl_nokia-features	2021-03-31

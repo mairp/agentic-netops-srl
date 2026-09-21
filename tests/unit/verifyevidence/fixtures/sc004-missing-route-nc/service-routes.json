@@ -1,0 +1,40 @@
+{
+  "attachments": [],
+  "check_id": "service-routes",
+  "cluster": {
+    "name": "agentic-netops",
+    "uid": "00000000-fixture-uid"
+  },
+  "command": [
+    "echo",
+    "routes present"
+  ],
+  "command_line": "echo routes\\ present",
+  "cwd": "/root/agentic-netops-srl",
+  "device_image_digest": "sha256:6ab1250cbff4b536e0996e57d2d9c2a7bf3154028c21e4c978e13254add3c402",
+  "exit_status": 0,
+  "id": "service-routes",
+  "kind": "run",
+  "lab": {
+    "name": "fixture-lab",
+    "topology_sha256": ""
+  },
+  "raw_output": {
+    "stderr": {
+      "file": "service-routes.stderr",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "stdout": {
+      "file": "service-routes.stdout",
+      "sha256": "d60e9a49d6ed991d64b0c9850782b84bcfe731a659033826f77e9caefdfb2ba1"
+    }
+  },
+  "readiness": false,
+  "record_sha256": "af0ccc4a38ad866f42ad49c51cdf1e4f0480bca9721acf28a794a994b6c5817f",
+  "records": [
+    "SC-004:route"
+  ],
+  "schema": "agentic-netops.evidence/v1",
+  "utc_finished": "2026-09-21T02:44:02Z",
+  "utc_time": "2026-09-21T02:44:02Z"
+}

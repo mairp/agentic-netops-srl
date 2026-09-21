@@ -1,0 +1,3 @@
+{"provenance": {"source": "first-party", "version": "v0.1.0"},
+ "panels": [{"type": "nokia-topology-panel",
+   "options": {"svgUrl": "https://raw.githubusercontent.com/example/lab/main/topology.svg"}}]}

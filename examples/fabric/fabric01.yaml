@@ -1,0 +1,33 @@
+# The Fabric of data-model.md §3a: two spines reflecting routes, two leaves, one access port each.
+apiVersion: fabric.agentic-netops.io/v1alpha1
+kind: Fabric
+metadata:
+  name: fabric01
+  namespace: agentic-netops-system
+spec:
+  nodes:
+  - {name: spine01, role: spine, platform: ixr-d3l, systemIPv4: 10.0.0.11/32, asn: 65100, routeReflector: true}
+  - {name: spine02, role: spine, platform: ixr-d3l, systemIPv4: 10.0.0.12/32, asn: 65100, routeReflector: true}
+  - {name: leaf01, role: leaf, platform: ixr-d2l, systemIPv4: 10.0.0.1/32, asn: 65101}
+  - {name: leaf02, role: leaf, platform: ixr-d2l, systemIPv4: 10.0.0.2/32, asn: 65102}
+  underlay:
+    addressFamilies: [ipv4, ipv6]
+    loopbackPoolRef: {group: ipam.be.kuid.dev, kind: IPIndex, name: fabric01-loopback, namespace: kuid-system}
+    linkPoolRef: {group: ipam.be.kuid.dev, kind: IPIndex, name: fabric01-p2p, namespace: kuid-system}
+    asnPoolRef: {group: as.be.kuid.dev, kind: ASIndex, name: fabric01-underlay, namespace: kuid-system}
+  overlay:
+    fabricASN: 65000
+    routeReflectors: [spine01, spine02]
+    interASVPN: true
+    tunnelInterface: vxlan0
+  mtu:
+    portMTU: 9412
+    underlayIPMTU: 9398
+    bridgedL2MTU: 9412
+    tenantIPMTU: 9348
+  inventory:
+  - {node: leaf01, accessPorts: [ethernet-1/1], fabricPorts: [ethernet-1/49, ethernet-1/50]}
+  - {node: leaf02, accessPorts: [ethernet-1/1], fabricPorts: [ethernet-1/49, ethernet-1/50]}
+  - {node: spine01, accessPorts: [], fabricPorts: [ethernet-1/1, ethernet-1/2]}
+  - {node: spine02, accessPorts: [], fabricPorts: [ethernet-1/1, ethernet-1/2]}
+  maintenance: []

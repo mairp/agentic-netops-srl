@@ -1,0 +1,38 @@
+# deploy/sdc/onboarding — the device onboarding objects (T036; FR-015, FR-086, AD-13, AD-34).
+# Applied by `make sdc-onboard` (scripts/lib/sdc_onboard.sh) after deploy/sdc is up and the lab
+# secrets exist:  kubectl apply --server-side -k deploy/sdc/onboarding
+# sdc_onboard.sh first refuses any manifest here that states a drift policy: none of Schema,
+# TargetConnectionProfile, TargetSyncProfile or DiscoveryRule has such a field at config-server
+# v0.0.58, so the policy has one home only — the provider's DRIFT_POLICY, stamped on the
+# `revertive` field of every Config it generates (T042).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+- schema.yaml
+- target-connection-profile.yaml
+- target-sync-profile.yaml
+- discovery-rule.yaml
+
+# The credentials Secret is referenced by NAME only. It is created in sdc-system at provisioning
+# time by scripts/lib/lab_secrets.sh (lab_secrets::ensure) and is never a manifest here. The name
+# is carried by a build-time-only ConfigMap (local-config: never applied) and substituted into
+# the DiscoveryRule's generator placeholder.
+configMapGenerator:
+- name: onboarding-references
+  literals:
+  - srlCredentialsSecret=srl-credentials
+  options:
+    disableNameSuffixHash: true
+    annotations:
+      config.kubernetes.io/local-config: "true"
+replacements:
+- source:
+    kind: ConfigMap
+    name: onboarding-references
+    fieldPath: data.srlCredentialsSecret
+  targets:
+  - select:
+      group: inv.sdcio.dev
+      kind: DiscoveryRule
+    fieldPaths:
+    - spec.targetConnectionProfiles.*.credentials

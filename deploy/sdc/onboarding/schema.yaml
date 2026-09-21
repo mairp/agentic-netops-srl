@@ -1,0 +1,32 @@
+# provenance: source=first-party version=v0.1.0
+# The device schema: exactly versions.lock.yaml compatibilitySet part 4 (T036; FR-015, NFR-003).
+# provider srl.nokia.sdcio.dev, version 25.7.1; the native models only (srl_nokia/models), with
+# ietf and openconfig for import resolution and tools excluded. Two repositories, both pinned —
+# the YANG models by tag (part 2, v25.7.1 = badcf9977fe672437907cdae7daebb27a1361c36) and the
+# deviation patch by commit (part 3). A branch reference is forbidden (crd-api.md). Field names
+# are config-server v0.0.58 inv.sdcio.dev/v1alpha1 SchemaSpec.
+apiVersion: inv.sdcio.dev/v1alpha1
+kind: Schema
+metadata:
+  name: srl.nokia.sdcio.dev-25.7.1
+  namespace: sdc-system
+spec:
+  provider: srl.nokia.sdcio.dev
+  version: 25.7.1
+  repositories:
+  - repoURL: https://github.com/nokia/srlinux-yang-models
+    kind: tag
+    ref: v25.7.1
+    dirs:
+    - {src: srlinux-yang-models, dst: .}
+    schema:
+      models: [srl_nokia/models]
+      includes: [ietf, openconfig]
+      excludes: ['.*tools.*']
+  - repoURL: https://github.com/sdcio/srlinux-yang-patch
+    kind: hash
+    ref: 7410316d34f1d393b82889c0caa1b5acef80fb60
+    dirs:
+    - {src: srl_nokia, dst: deviations}
+    schema:
+      models: [deviations]

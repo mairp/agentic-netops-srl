@@ -1,0 +1,17 @@
+# deploy/cert-manager — cert-manager, the pinned release's own install manifest (T035; FR-009, FR-098).
+# upstream/ is vendored by scripts/lib/fetch_upstream.sh and never edited; everything this
+# platform changes is stated here. Applied first: `kubectl apply --server-side -k deploy/cert-manager`.
+# Namespace: cert-manager (the upstream manifest's own).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+- upstream/cert-manager.yaml
+# (a) every image pinned to versions.lock.yaml platform.certManager.images.*.pinned (tag@digest);
+# scripts/ci/verify_upstream_artefacts.sh fails when an entry here drifts from the lock.
+images:
+- name: quay.io/jetstack/cert-manager-controller
+  newTag: "v1.20.4@sha256:d4d576c7e6ed3cfe5730f5458fa096b7d8713368d2ccb7ff01b2951861483838"
+- name: quay.io/jetstack/cert-manager-webhook
+  newTag: "v1.20.4@sha256:303a962e77acbed075716379ed8045de65a72fdd5514f9367f449a1f9a907aa7"
+- name: quay.io/jetstack/cert-manager-cainjector
+  newTag: "v1.20.4@sha256:30c8617ebb3b4a9054da555ee9c6389a7faa464fffe3c7679f80892a9cfbf213"

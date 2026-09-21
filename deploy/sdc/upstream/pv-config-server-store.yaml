@@ -1,0 +1,14 @@
+# provenance: source=https://raw.githubusercontent.com/sdcio/config-server/bcc56b045a689032c5123a9f50bcf56ed8c630dc/artifacts/pv-config-server-store.yaml version=v0.0.58 commit=bcc56b045a689032c5123a9f50bcf56ed8c630dc digest=sha256:aa29b65e5e0106ded6a32052a4d913f48c216f6c96db785f4a811dec460c8f59
+# vendored-by: scripts/lib/fetch_upstream.sh (T035, FR-098) - the bytes after the end marker are the upstream artefact, unmodified; never edit them, re-run the fetcher
+# --- end of provenance header ---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: pvc-config-store
+  namespace: sdc-system
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi

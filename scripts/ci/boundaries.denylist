@@ -1,0 +1,67 @@
+# boundaries.denylist — the term deny-lists of `make verify-boundaries`
+# (scripts/ci/verify_boundaries.sh; SC-017, FR-049, FR-085, FR-007). Reviewed
+# like code: adding or removing a line changes what CI enforces.
+#
+# Format: <category><TAB or spaces><Python regex>. Matching is case-insensitive
+# unless the regex scopes it off with (?-i:…). Lines starting with # are comments.
+#
+# Categories:
+#   migration        SC-017(a) / FR-049 — a proprietary vendor controller, network
+#                    services orchestrator, network controller product, vendor
+#                    fabric-automation product (incl. the NOS vendor's own, Nokia
+#                    Event Driven Automation — platform-coupling.md PC-21),
+#                    proprietary network element driver, or the retired system
+#                    name. Scanned over every first-party text file.
+#   retired-service  FR-085 — a retired service name (the migration aliases of
+#                    contracts/construct-vocabulary.md). Scanned over documentation
+#                    (*.md, and everything under docs/); a hit passes only in a
+#                    labelled context: its own line, or the nearest heading above
+#                    it, says alias / migration / provenance / historical / history
+#                    / retired.
+#   placement        SC-017(c) / FR-007 — a Compose or outside-Kubernetes
+#                    deployment of platform applications. Scanned over every
+#                    first-party non-Markdown text file (Compose files are also
+#                    refused by file name).
+#
+# Allowed contexts (never scanned): the specification under specs/ (SC-017's own
+# "Scope and interpretation", platform-coupling.md, research.md), this file, the
+# checker itself, its fixture tests under tests/unit/verifyboundaries/, and trees
+# that are not this repository's code — the upstream reference checkouts
+# config-server/, data-server/, kuid/, sdcio-docs/, and node_modules/, .venv/,
+# .specstride/, .specify/, .mixture-of-loops/, prompts/ (git-ignored scratch),
+# bin/, .evidence/.
+
+# --- (a) migration boundary: proprietary controllers, orchestrators, element drivers
+migration   \bEvent[- ]Driven Automation\b
+migration   \b(?-i:EDA)\b
+migration   \bdocs\.eda\.dev\b
+migration   \bFabric Services System\b
+migration   \bNokia (?:NSP|Network Services Platform)\b
+migration   \bNetwork Services Orchestrator\b
+migration   \b(?-i:NSO)\b
+migration   \bncs_cli\b
+migration   \bnetwork element drivers?\b
+migration   \bcisco-(?:ios|iosxr|nx|asa)-cli\b
+migration   \bApstra\b
+migration   \bCloudVision\b
+migration   \bArista CVP\b
+migration   \bCisco ACI\b
+migration   \b(?-i:APIC)\b
+migration   \bNexus Dashboard\b
+migration   \b(?-i:DCNM)\b
+migration   \bCrosswork\b
+migration   \bJuniper (?:Paragon|Contrail)\b
+# the retired system: the predecessor platform's own component names
+migration   \bsonicprovider\b
+migration   \bfabric-executor\b
+
+# --- FR-085: retired service names (migration aliases), documentation only
+retired-service   \bVPLS\b
+retired-service   \bVPWS\b
+retired-service   \bE-?Line\b
+retired-service   \bL3VPN\b
+retired-service   \bL2L3-?IRB\b
+
+# --- (c) placement boundary: no Compose / outside-Kubernetes deployment
+placement   \b(?:docker|podman)[- ]compose\b.*\b(?:up|run|start|create)\b
+placement   \bcompose\s+up\b

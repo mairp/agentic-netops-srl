@@ -1,0 +1,34 @@
+# provenance: source=https://raw.githubusercontent.com/sdcio/config-server/bcc56b045a689032c5123a9f50bcf56ed8c630dc/artifacts/configmap-data-server.yaml version=v0.0.58 commit=bcc56b045a689032c5123a9f50bcf56ed8c630dc digest=sha256:d50504d68b0352b2d73c61a36f43fe94f83904f93a7401bffb36ba3d33994683
+# vendored-by: scripts/lib/fetch_upstream.sh (T035, FR-098) - the bytes after the end marker are the upstream artefact, unmodified; never edit them, re-run the fetcher
+# --- end of provenance header ---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: data-server
+  namespace: sdc-system
+data: 
+  data-server.yaml: |
+    grpc-server:
+      schema-server:
+        enabled: true
+        schemas-directory: ./schemas
+
+      data-server:
+        max-candidates: 16
+
+      max-recv-msg-size: 25165824 # 24 * 1024 * 1024 (24MB)
+
+    datastores: # this specifies MAIN datastores
+
+    schema-store:
+      # type is either memory or persistent (default)
+      type: persistent
+      path: "/schemadb"
+
+    cache: 
+      type: local
+      store-type: badgerdb
+      dir: "/cached/caches"
+
+    prometheus:
+      address: ":56090"

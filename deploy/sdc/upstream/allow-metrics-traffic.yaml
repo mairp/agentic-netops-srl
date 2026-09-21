@@ -1,0 +1,27 @@
+# provenance: source=https://raw.githubusercontent.com/sdcio/config-server/bcc56b045a689032c5123a9f50bcf56ed8c630dc/artifacts/allow-metrics-traffic.yaml version=v0.0.58 commit=bcc56b045a689032c5123a9f50bcf56ed8c630dc digest=sha256:a5256644c3a8577240f730594ae2235c4064b3b51150511bb427aecfc2d844a3
+# vendored-by: scripts/lib/fetch_upstream.sh (T035, FR-098) - the bytes after the end marker are the upstream artefact, unmodified; never edit them, re-run the fetcher
+# --- end of provenance header ---
+# This NetworkPolicy allows ingress traffic
+# with Pods running in the monitoring namespaces.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-metrics-traffic
+  namespace: sdc-system
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: sdc-controller
+  policyTypes:
+    - Ingress
+  ingress:
+    # This allows ingress traffic from any pod within the monitoring namespace on port 8443
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring # Select namespace with name monitoring
+      ports:
+        - port: 8443
+          protocol: TCP
+    - from:
+        - podSelector: {}

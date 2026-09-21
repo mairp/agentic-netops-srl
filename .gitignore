@@ -1,0 +1,38 @@
+# Working prompts for spec-kit passes — local scratch, not shared.
+prompts/
+
+# Spec-kit artefacts, the unattended-run tooling's state and its generated test plan — local, not shared.
+specs/
+.mixture-of-loops/
+.specstride/
+testautomation/004-agentic-netops-composite/
+
+# Upstream reference clones kept for research (each is its own git repository) — never build inputs.
+/config-server/
+/data-server/
+/kuid/
+/sdcio-docs/
+
+# Build outputs and run-captured evidence (T001) — evidence is written by the
+# run that produces it and never checked in as a substitute for a run.
+bin/
+.evidence/
+
+# Walkthrough takes and captures are local; the recording tooling is tracked.
+testautomation/video/takes/
+testautomation/video/shots/
+testautomation/video/snap/
+
+*.log
+.env
+
+# Toolchain-local state.
+agents/.venv/
+ui/node_modules/
+ui/dist/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+
+# containerlab runtime lab directory (device-generated configs and certificates)
+lab/clab-*/

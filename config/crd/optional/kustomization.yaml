@@ -1,0 +1,6 @@
+# Optional MigrationPlan (AD-29). Outside the default kustomization and never applied by lab
+# provisioning; an operator who wants it applies this directory.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+- agentic-netops.io_migrationplans.yaml

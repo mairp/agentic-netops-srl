@@ -1,0 +1,14 @@
+# Least-privilege identity of the SR Linux provider (T042; FR-109, AD-16, AD-17;
+# contracts/kubernetes-objects.md, contracts/kuid-claim-profiles.md §5).
+# One ServiceAccount, agentic-netops-system/srl-provider — the only identity with a
+# mutating verb on config.sdcio.dev (make verify-boundaries asserts it). Every grant is
+# namespaced to where its objects live, except what is cluster-wide by design: the
+# Network watch (R-15) and Events about Networks in their own namespaces.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+- service_account.yaml
+- role_system.yaml
+- role_sdc.yaml
+- role_kuid.yaml
+- clusterrole.yaml

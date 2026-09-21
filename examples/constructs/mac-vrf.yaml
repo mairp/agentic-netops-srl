@@ -1,0 +1,55 @@
+# The exemplar of contracts/network-spec.md §6: a mac-vrf with an anycast gateway and an ingress
+# access list. VLAN 100 named; L2VNI 10021 and L3VNI 10022 from the allocation authority;
+# route targets derived as target:<fabricASN>:<vni> with fabricASN 65000.
+apiVersion: fabric.agentic-netops.io/v1alpha1
+kind: Network
+metadata:
+  name: migr-4b7e19c2a05d3f6
+  namespace: agentic-netops-intent
+  labels:
+    agentic-netops.io/correlation-id: 4f2c1a9e7b6d40518c3e9a2f1d0b7c85
+    agentic-netops.io/tier: intent
+  annotations:
+    agentic-netops.io/translator: agentic-netops-migration-translator
+    agentic-netops.io/translator-version: v0.1.0
+    agentic-netops.io/mapping-version: v0.1.0
+    agentic-netops.io/migration-input-hash: sha256:9b1c4e2a7f3d5b6c8e0a1f2d3c4b5a697887a6b5c4d3e2f1a0b9c8d7e6f5a4b3
+    agentic-netops.io/tenant: acme
+    agentic-netops.io/service-type: mac-vrf
+spec:
+  description: Service 4b7e19c2a05d3f6 (mac-vrf)
+  bridgeDomains:
+  - name: bd-4b7e19c2a05d3f6
+    vlan: 100
+    l2vni: 10021
+    evpn:
+      routeTargets:
+        import: ["target:65000:10021"]
+        export: ["target:65000:10021"]
+    irb:
+      vrf: vrf-4b7e19c2a05d3f6
+      gatewayIPv4: 10.10.0.1/24
+      gatewayIPv6: 2001:db8:10::1/64
+  routers:
+  - name: vrf-4b7e19c2a05d3f6
+    routeTargets:
+      import: ["target:65000:10022"]
+      export: ["target:65000:10022"]
+    l3vni: 10022
+    prefixes: ["10.10.0.0/24", "2001:db8:10::/64"]
+  accessLists:
+  - name: acl-4b7e19c2a05d3f6-ingress
+    stage: ingress
+    type: ipv4
+    defaultAction: deny
+    rules:
+    - name: allow-https
+      priority: 100
+      action: permit
+      protocol: tcp
+      sourcePrefix: 10.0.0.0/24
+      destinationPort: "443"
+      description: operator https allowance
+  attachments:
+  - {node: leaf01, attachment: ethernet-1/1, vlan: 100}
+  - {node: leaf02, attachment: ethernet-1/1, vlan: 100}

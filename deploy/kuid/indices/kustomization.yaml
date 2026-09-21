@@ -1,0 +1,18 @@
+# deploy/kuid/indices — the allocation authority's seed objects (T038; FR-012, AD-33, AD-10;
+# contracts/kuid-claim-profiles.md §1). Applied once kuid-server's APIServices are Available:
+#   kubectl apply --server-side -k deploy/kuid/indices
+# ipam.yaml   IPIndex fabric01-loopback (10.0.0.0/24), IPIndex fabric01-p2p (10.1.0.0/24)
+# as.yaml     ASIndex fabric01-underlay (65100–65199)
+# vlan.yaml   VLANIndex fabric01-vlan (1000–4000; the naming band 100–999 is outside it)
+# genid.yaml  GENIDIndex fabric01-vni (32bit, 10000–20000)
+# inventory.yaml  infra Node/Endpoint/Link — GENERATED from lab/topology.clab.yml by
+#                 scripts/lib/inventory.sh; never edited by hand.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: kuid-system
+resources:
+- ipam.yaml
+- as.yaml
+- vlan.yaml
+- genid.yaml
+- inventory.yaml

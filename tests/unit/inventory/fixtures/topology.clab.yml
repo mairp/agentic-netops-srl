@@ -1,0 +1,25 @@
+# Fixture: the reference lab's shape (the fixed names of the Phase 3 brief), short link form.
+name: agentic-netops-fabric
+mgmt:
+  network: agentic-netops-mgmt
+  ipv4-subnet: ${MGMT_CIDR:=172.25.25.0/24}
+topology:
+  kinds:
+    nokia_srlinux:
+      image: ghcr.io/nokia/srlinux:25.7.1@sha256:6ab1250cbff4b536e0996e57d2d9c2a7bf3154028c21e4c978e13254add3c402
+    linux:
+      image: docker.io/library/alpine:3.24.2
+  nodes:
+    spine01: {kind: nokia_srlinux, type: ixr-d3l, mgmt-ipv4: "${CLAB_MGMT_PREFIX:=172.25.25}.11", labels: {agentic-netops.io/role: spine}}
+    spine02: {kind: nokia_srlinux, type: ixr-d3l, mgmt-ipv4: "${CLAB_MGMT_PREFIX:=172.25.25}.12"}
+    leaf01: {kind: nokia_srlinux, type: ixr-d2l, mgmt-ipv4: "${CLAB_MGMT_PREFIX:=172.25.25}.21", labels: {agentic-netops.io/role: leaf}}
+    leaf02: {kind: nokia_srlinux, type: ixr-d2l, mgmt-ipv4: "${CLAB_MGMT_PREFIX:=172.25.25}.22"}
+    client01: {kind: linux, mgmt-ipv4: "${CLAB_MGMT_PREFIX:=172.25.25}.31"}
+    client02: {kind: linux, mgmt-ipv4: "${CLAB_MGMT_PREFIX:=172.25.25}.32"}
+  links:
+    - endpoints: ["leaf01:ethernet-1/49", "spine01:ethernet-1/1"]
+    - endpoints: ["leaf01:ethernet-1/50", "spine02:ethernet-1/1"]
+    - endpoints: ["leaf02:ethernet-1/49", "spine01:ethernet-1/2"]
+    - endpoints: ["leaf02:ethernet-1/50", "spine02:ethernet-1/2"]
+    - endpoints: ["client01:eth1", "leaf01:ethernet-1/1"]
+    - endpoints: ["client02:eth1", "leaf02:ethernet-1/1"]

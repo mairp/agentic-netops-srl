@@ -1,0 +1,17 @@
+# provenance: source=https://raw.githubusercontent.com/sdcio/config-server/bcc56b045a689032c5123a9f50bcf56ed8c630dc/artifacts/service-apiserver.yaml version=v0.0.58 commit=bcc56b045a689032c5123a9f50bcf56ed8c630dc digest=sha256:d559b34560fa8340ce818afff30d2c015addb5fe8b092f602e72555838b3be89
+# vendored-by: scripts/lib/fetch_upstream.sh (T035, FR-098) - the bytes after the end marker are the upstream artefact, unmodified; never edit them, re-run the fetcher
+# --- end of provenance header ---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-server
+  namespace: sdc-system
+  labels:
+    app.kubernetes.io/name: sdc-api-server
+spec:
+  ports:
+  - name: api-service
+    port: 6443
+    targetPort: api-service
+  selector:
+    app.kubernetes.io/name: sdc-api-server

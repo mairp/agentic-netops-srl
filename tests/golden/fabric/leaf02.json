@@ -1,0 +1,303 @@
+{
+  "srl_nokia-interfaces:interface": [
+    {
+      "admin-state": "enable",
+      "name": "ethernet-1/1",
+      "srl_nokia-interfaces-vlans:vlan-tagging": true
+    },
+    {
+      "admin-state": "enable",
+      "mtu": 9412,
+      "name": "ethernet-1/49",
+      "subinterface": [
+        {
+          "admin-state": "enable",
+          "index": 0,
+          "ip-mtu": 9398,
+          "ipv4": {
+            "address": [
+              {
+                "ip-prefix": "10.1.0.5/31"
+              }
+            ],
+            "admin-state": "enable"
+          },
+          "ipv6": {
+            "address": [
+              {
+                "ip-prefix": "fd00:1::a01:5/127"
+              }
+            ],
+            "admin-state": "enable"
+          }
+        }
+      ]
+    },
+    {
+      "admin-state": "enable",
+      "mtu": 9412,
+      "name": "ethernet-1/50",
+      "subinterface": [
+        {
+          "admin-state": "enable",
+          "index": 0,
+          "ip-mtu": 9398,
+          "ipv4": {
+            "address": [
+              {
+                "ip-prefix": "10.1.0.7/31"
+              }
+            ],
+            "admin-state": "enable"
+          },
+          "ipv6": {
+            "address": [
+              {
+                "ip-prefix": "fd00:1::a01:7/127"
+              }
+            ],
+            "admin-state": "enable"
+          }
+        }
+      ]
+    },
+    {
+      "admin-state": "enable",
+      "name": "irb0"
+    },
+    {
+      "admin-state": "enable",
+      "name": "system0",
+      "subinterface": [
+        {
+          "admin-state": "enable",
+          "index": 0,
+          "ipv4": {
+            "address": [
+              {
+                "ip-prefix": "10.0.0.2/32"
+              }
+            ],
+            "admin-state": "enable"
+          },
+          "ipv6": {
+            "address": [
+              {
+                "ip-prefix": "fd00::a00:2/128"
+              }
+            ],
+            "admin-state": "enable"
+          }
+        }
+      ]
+    }
+  ],
+  "srl_nokia-network-instance:network-instance": [
+    {
+      "admin-state": "enable",
+      "interface": [
+        {
+          "name": "ethernet-1/49.0"
+        },
+        {
+          "name": "ethernet-1/50.0"
+        },
+        {
+          "name": "system0.0"
+        }
+      ],
+      "name": "default",
+      "protocols": {
+        "srl_nokia-bgp:bgp": {
+          "admin-state": "enable",
+          "afi-safi": [
+            {
+              "admin-state": "enable",
+              "afi-safi-name": "srl_nokia-common:evpn"
+            },
+            {
+              "admin-state": "enable",
+              "afi-safi-name": "srl_nokia-common:ipv4-unicast"
+            },
+            {
+              "admin-state": "enable",
+              "afi-safi-name": "srl_nokia-common:ipv6-unicast"
+            }
+          ],
+          "autonomous-system": 65102,
+          "group": [
+            {
+              "afi-safi": [
+                {
+                  "admin-state": "enable",
+                  "afi-safi-name": "srl_nokia-common:evpn"
+                },
+                {
+                  "admin-state": "disable",
+                  "afi-safi-name": "srl_nokia-common:ipv4-unicast"
+                },
+                {
+                  "admin-state": "disable",
+                  "afi-safi-name": "srl_nokia-common:ipv6-unicast"
+                }
+              ],
+              "group-name": "overlay",
+              "local-as": {
+                "as-number": 65000
+              },
+              "peer-as": 65000
+            },
+            {
+              "afi-safi": [
+                {
+                  "admin-state": "disable",
+                  "afi-safi-name": "srl_nokia-common:evpn"
+                },
+                {
+                  "admin-state": "enable",
+                  "afi-safi-name": "srl_nokia-common:ipv4-unicast"
+                },
+                {
+                  "admin-state": "disable",
+                  "afi-safi-name": "srl_nokia-common:ipv6-unicast"
+                }
+              ],
+              "export-policy": [
+                "system-loopbacks-policy"
+              ],
+              "group-name": "underlay",
+              "import-policy": [
+                "system-loopbacks-policy"
+              ]
+            },
+            {
+              "afi-safi": [
+                {
+                  "admin-state": "disable",
+                  "afi-safi-name": "srl_nokia-common:evpn"
+                },
+                {
+                  "admin-state": "disable",
+                  "afi-safi-name": "srl_nokia-common:ipv4-unicast"
+                },
+                {
+                  "admin-state": "enable",
+                  "afi-safi-name": "srl_nokia-common:ipv6-unicast"
+                }
+              ],
+              "export-policy": [
+                "system-loopbacks-policy"
+              ],
+              "group-name": "underlay-v6",
+              "import-policy": [
+                "system-loopbacks-policy"
+              ]
+            }
+          ],
+          "neighbor": [
+            {
+              "peer-address": "10.0.0.11",
+              "peer-group": "overlay",
+              "transport": {
+                "local-address": "10.0.0.2"
+              }
+            },
+            {
+              "peer-address": "10.0.0.12",
+              "peer-group": "overlay",
+              "transport": {
+                "local-address": "10.0.0.2"
+              }
+            },
+            {
+              "peer-address": "10.1.0.4",
+              "peer-as": 65100,
+              "peer-group": "underlay"
+            },
+            {
+              "peer-address": "10.1.0.6",
+              "peer-as": 65100,
+              "peer-group": "underlay"
+            },
+            {
+              "peer-address": "fd00:1::a01:4",
+              "peer-as": 65100,
+              "peer-group": "underlay-v6"
+            },
+            {
+              "peer-address": "fd00:1::a01:6",
+              "peer-as": 65100,
+              "peer-group": "underlay-v6"
+            }
+          ],
+          "router-id": "10.0.0.2"
+        }
+      },
+      "type": "srl_nokia-network-instance:default"
+    }
+  ],
+  "srl_nokia-routing-policy:routing-policy": {
+    "policy": [
+      {
+        "name": "system-loopbacks-policy",
+        "statement": [
+          {
+            "action": {
+              "policy-result": "accept"
+            },
+            "match": {
+              "prefix": {
+                "prefix-set": "system-loopbacks"
+              }
+            },
+            "name": "1"
+          }
+        ]
+      }
+    ],
+    "prefix-set": [
+      {
+        "name": "system-loopbacks",
+        "prefix": [
+          {
+            "ip-prefix": "10.0.0.1/32",
+            "mask-length-range": "32..32"
+          },
+          {
+            "ip-prefix": "10.0.0.11/32",
+            "mask-length-range": "32..32"
+          },
+          {
+            "ip-prefix": "10.0.0.12/32",
+            "mask-length-range": "32..32"
+          },
+          {
+            "ip-prefix": "10.0.0.2/32",
+            "mask-length-range": "32..32"
+          },
+          {
+            "ip-prefix": "fd00::a00:1/128",
+            "mask-length-range": "128..128"
+          },
+          {
+            "ip-prefix": "fd00::a00:2/128",
+            "mask-length-range": "128..128"
+          },
+          {
+            "ip-prefix": "fd00::a00:b/128",
+            "mask-length-range": "128..128"
+          },
+          {
+            "ip-prefix": "fd00::a00:c/128",
+            "mask-length-range": "128..128"
+          }
+        ]
+      }
+    ]
+  },
+  "srl_nokia-tunnel-interfaces:tunnel-interface": [
+    {
+      "name": "vxlan0"
+    }
+  ]
+}

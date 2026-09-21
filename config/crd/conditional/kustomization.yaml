@@ -1,0 +1,8 @@
+# Conditional kinds of the recorded allocator substitution (FR-104, CD-03, data-model.md §23).
+# Installed ONLY when versions.lock.yaml selects allocationAuthority.kind: first-party under a
+# recorded decision; with kind: kuid (the default) neither CRD exists in the cluster.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+- fabric.agentic-netops.io_identifierpools.yaml
+- fabric.agentic-netops.io_identifierclaims.yaml

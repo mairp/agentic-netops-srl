@@ -1,0 +1,41 @@
+# kuid-system, the allocation namespace (contracts/kuid-claim-profiles.md §5). No
+# update and no patch on any claim: a claim is never moved.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: srl-provider-claims
+  namespace: kuid-system
+  labels:
+    app.kubernetes.io/name: srl-provider
+rules:
+# The Fabric reconciler's underlay claims: loopbacks and /31 links, ASNs.
+- apiGroups: [ipam.be.kuid.dev]
+  resources: [ipclaims]
+  verbs: [get, list, watch, create, delete]
+- apiGroups: [as.be.kuid.dev]
+  resources: [asclaims]
+  verbs: [get, list, watch, create, delete]
+# VNI claims of a Network applied with cluster tooling (FR-109).
+- apiGroups: [genid.be.kuid.dev]
+  resources: [genidclaims]
+  verbs: [get, list, watch, create, delete]
+# The tier's VLAN claim: adopted and released, NEVER created (AD-16).
+- apiGroups: [vlan.be.kuid.dev]
+  resources: [vlanclaims]
+  verbs: [get, list, watch, delete]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: srl-provider-claims
+  namespace: kuid-system
+  labels:
+    app.kubernetes.io/name: srl-provider
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: srl-provider-claims
+subjects:
+- kind: ServiceAccount
+  name: srl-provider
+  namespace: agentic-netops-system

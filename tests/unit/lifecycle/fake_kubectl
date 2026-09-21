@@ -1,0 +1,257 @@
+#!/usr/bin/env bash
+# fake_kubectl — an offline stand-in for kubectl used by tests/unit/lifecycle/*_test.sh.
+#
+# State lives under $FAKE_KUBE_STATE:
+#   calls                 every invocation, one line (the "recorded call log")
+#   installed-kuid        present once deploy/kuid was applied (the kuid APIServices exist)
+#   installed-fp          present when the first-party CRDs exist
+#   installed-sdc         present once deploy/sdc was applied
+#   bound-kuid.json       what `get <kuid claim kinds> -A -o json` returns (default: none)
+#   bound-fp.json         what `get identifierclaims… -A -o json` returns (default: none)
+#   objects/<res>/<ns>/<name>.json   indices and claims created through the fake authority
+#
+# FAKE_AUTHORITY selects how the fake allocation authority behaves:
+#   healthy      stated claims bind exactly their value, a held value is refused naming the
+#                holder, an out-of-range value is refused, dynamic claims get the lowest
+#                free value >= minID, delete frees synchronously, -l selects metadata.labels
+#   no-value     a dynamic claim is stored but never reports a value (no status.id, no Ready)
+#   wrong-value  a stated claim binds a DIFFERENT value (stated + 1)
+set -uo pipefail
+S="${FAKE_KUBE_STATE:?FAKE_KUBE_STATE must be set}"
+MODE="${FAKE_AUTHORITY:-healthy}"
+mkdir -p "$S/objects"
+printf '%s\n' "kubectl $*" >>"$S/calls"
+
+args=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --context) shift 2 ;;
+    --context=*|--request-timeout=*) shift ;;
+    *) args+=("$1"); shift ;;
+  esac
+done
+set -- "${args[@]}"
+
+# plural <resource-ish> — vlanclaims.vlan.be.kuid.dev | vlanclaim.vlan.be.kuid.dev | VLANClaim → vlanclaims
+plural() {
+  local r="${1%%.*}"; r="$(tr '[:upper:]' '[:lower:]' <<<"$r")"
+  case "$r" in
+    *indices|*claims) echo "$r" ;;
+    *index) echo "${r%index}indices" ;;
+    *claim) echo "${r}s" ;;
+    *) echo "$r" ;;
+  esac
+}
+group_of() {
+  case "$1" in
+    vlan*) echo vlan.be.kuid.dev ;; genid*) echo genid.be.kuid.dev ;;
+    ip*) echo ipam.be.kuid.dev ;; as*) echo as.be.kuid.dev ;; *) echo unknown ;;
+  esac
+}
+notfound() { echo "Error from server (NotFound): $1 \"$2\" not found" >&2; exit 1; }
+
+# parse common flags from the remaining words
+NS=default ALLNS=false SEL="" OUT="" FILE="" KDIR="" DRYRUN=false
+POS=()
+parse() {
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      -n|--namespace) NS="$2"; shift 2 ;;
+      -A|--all-namespaces) ALLNS=true; shift ;;
+      -l|--selector) SEL="$2"; shift 2 ;;
+      -o|--output) OUT="$2"; shift 2 ;;
+      -o*) OUT="${1#-o}"; shift ;;
+      -f|--filename) FILE="$2"; shift 2 ;;
+      -k|--kustomize) KDIR="$2"; shift 2 ;;
+      --dry-run=client) DRYRUN=true; shift ;;
+      --*=*|--server-side|--ignore-not-found|--all) shift ;;
+      --from-literal|--from-file|--for|--timeout|--field-manager) shift 2 ;;
+      *) POS+=("$1"); shift ;;
+    esac
+  done
+}
+
+store_path() { echo "$S/objects/$1/$2/$3.json"; }
+
+verb="${1:-}"; shift || true
+case "$verb" in
+  version) echo "Client Version: fake"; exit 0 ;;
+  wait|rollout) exit 0 ;;
+
+  apply)
+    parse "$@"
+    if [[ -n "$KDIR" ]]; then
+      case "$KDIR" in
+        */deploy/kuid) touch "$S/installed-kuid" ;;
+        */deploy/allocation) touch "$S/installed-fp" ;;
+        */deploy/sdc) touch "$S/installed-sdc" ;;
+      esac
+      echo "applied -k $KDIR"; exit 0
+    fi
+    if [[ "$FILE" == "-" ]]; then
+      doc="$(cat)"
+      printf '  stdin: %s\n' "$(yq -r '.kind + "/" + .metadata.name' <<<"$doc" | paste -sd' ' -)" >>"$S/calls"
+      printf '%s\n' "$doc" | sed 's/^/  | /' >>"$S/calls"
+      exit 0
+    fi
+    if [[ -n "$FILE" && -f "$FILE" ]]; then
+      n="$(yq ea '[.] | length' "$FILE")"
+      for ((i = 0; i < n; i++)); do
+        o="$(yq -o=json -I0 "select(documentIndex == $i)" "$FILE")"
+        r="$(plural "$(jq -r .kind <<<"$o")")"; nm="$(jq -r .metadata.name <<<"$o")"; ns="$(jq -r '.metadata.namespace // "default"' <<<"$o")"
+        mkdir -p "$S/objects/$r/$ns"
+        jq -c '.status = {conditions: [{type: "Ready", status: "True"}]}' <<<"$o" >"$(store_path "$r" "$ns" "$nm")"
+      done
+      exit 0
+    fi
+    exit 0 ;;
+
+  create)
+    parse "$@"
+    if [[ "$DRYRUN" == true ]]; then
+      what="${POS[0]:-}"; name="${POS[1]:-}"
+      case "$what" in
+        namespace) printf 'apiVersion: v1\nkind: Namespace\nmetadata:\n  name: %s\n' "$name" ;;
+        configmap) printf 'apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: %s\n  namespace: %s\ndata: {}\n' "$name" "$NS" ;;
+        *) printf 'apiVersion: v1\nkind: Unknown\nmetadata:\n  name: %s\n' "$name" ;;
+      esac
+      exit 0
+    fi
+    [[ -n "$FILE" && -f "$FILE" ]] || { echo "error: no file" >&2; exit 1; }
+    o="$(yq -o=json -I0 . "$FILE")"
+    kind="$(jq -r .kind <<<"$o")"; r="$(plural "$kind")"
+    nm="$(jq -r .metadata.name <<<"$o")"; ns="$(jq -r '.metadata.namespace // "default"' <<<"$o")"
+    p="$(store_path "$r" "$ns" "$nm")"
+    [[ -f "$p" ]] && { echo "Error from server (AlreadyExists): $r.$(group_of "$r") \"$nm\" already exists" >&2; exit 1; }
+    index="$(jq -r .spec.index <<<"$o")"; stated="$(jq -r '.spec.id // empty' <<<"$o")"
+    ir="${r%claims}indices"
+    ip="$(store_path "$ir" "$ns" "$index")"
+    [[ -f "$ip" ]] || { echo "Error from server (InternalError): index $index not found" >&2; exit 1; }
+    min="$(jq -r '.spec.minID // 0' "$ip")"; max="$(jq -r '.spec.maxID // 4094' "$ip")"
+    held() {  # held <value> — prints the holder's name
+      local f
+      for f in "$S/objects/$r/$ns"/*.json; do
+        [[ -f "$f" ]] || continue
+        jq -e --arg i "$index" --argjson v "$1" '.spec.index == $i and .status.id == $v' "$f" >/dev/null 2>&1 \
+          && { jq -r .metadata.name "$f"; return 0; }
+      done
+      return 1
+    }
+    value=""
+    if [[ -n "$stated" ]]; then
+      if [[ "$MODE" == wrong-value ]]; then
+        value=$((stated + 1))
+      else
+        if [[ "$stated" -lt "$min" || "$stated" -gt "$max" ]]; then
+          echo "Error from server (InternalError): id $stated is outside the range $min-$max of index $index" >&2; exit 1
+        fi
+        if h="$(held "$stated")"; then
+          echo "Error from server (InternalError): id $stated is already claimed by $h" >&2; exit 1
+        fi
+        value="$stated"
+      fi
+    else
+      if [[ "$MODE" == no-value ]]; then
+        mkdir -p "$S/objects/$r/$ns"
+        jq -c '.status = {}' <<<"$o" | tee "$p"
+        exit 0
+      fi
+      for ((v = min; v <= max; v++)); do held "$v" >/dev/null || { value="$v"; break; }; done
+      [[ -n "$value" ]] || { echo "Error from server (InternalError): no free id in $index" >&2; exit 1; }
+    fi
+    mkdir -p "$S/objects/$r/$ns"
+    jq -c --argjson v "$value" '.status = {id: $v, conditions: [{type: "Ready", status: "True", reason: "Ready"}]}' <<<"$o" | tee "$p"
+    exit 0 ;;
+
+  get)
+    parse "$@"
+    res="${POS[0]:-}"
+    names=("${POS[@]:1}")
+    case "$res" in
+      apiservice|apiservices)
+        exists() {
+          case "$1" in
+            *.be.kuid.dev) [[ -f "$S/installed-kuid" ]] ;;
+            *.config.sdcio.dev) [[ -f "$S/installed-sdc" ]] ;;
+            *) return 1 ;;
+          esac
+        }
+        if [[ "${#names[@]}" -eq 0 ]]; then
+          [[ -f "$S/installed-kuid" ]] && for g in vlan genid ipam as; do echo "apiservice.apiregistration.k8s.io/v1alpha1.$g.be.kuid.dev"; done
+          exit 0
+        fi
+        for n in "${names[@]}"; do exists "$n" || notfound apiservices.apiregistration.k8s.io "$n"; done
+        if [[ "$OUT" == json ]]; then
+          printf '%s\n' "${names[@]}" | jq -R '{metadata: {name: .}, status: {conditions: [{type: "Available", status: "True"}]}}' \
+            | jq -s '{kind: "List", items: .}'
+        else
+          for n in "${names[@]}"; do echo "apiservice.apiregistration.k8s.io/$n"; done
+        fi
+        exit 0 ;;
+      crd|crds|customresourcedefinitions)
+        for n in "${names[@]}"; do
+          case "$n" in
+            identifier*.fabric.agentic-netops.io) [[ -f "$S/installed-fp" ]] || notfound customresourcedefinitions.apiextensions.k8s.io "$n" ;;
+            *) notfound customresourcedefinitions.apiextensions.k8s.io "$n" ;;
+          esac
+          echo "customresourcedefinition.apiextensions.k8s.io/$n"
+        done
+        exit 0 ;;
+      namespace|namespaces|ns)
+        [[ "${names[0]:-}" == kube-system ]] && { echo "fake-kube-system-uid"; exit 0; }
+        notfound namespaces "${names[0]:-}" ;;
+      identifierclaims.fabric.agentic-netops.io)
+        if [[ -f "$S/bound-fp.json" ]]; then cat "$S/bound-fp.json"; else echo '{"items": []}'; fi
+        exit 0 ;;
+    esac
+    if [[ "$res" == *,* ]]; then
+      if [[ "$ALLNS" == true ]]; then
+        if [[ -f "$S/bound-kuid.json" ]]; then cat "$S/bound-kuid.json"; else echo '{"items": []}'; fi
+        exit 0
+      fi
+      IFS=, read -r -a rs <<<"$res"
+      for r0 in "${rs[@]}"; do
+        r="$(plural "$r0")"
+        for f in "$S/objects/$r/$NS"/*.json; do
+          [[ -f "$f" ]] || continue
+          echo "${r%s}.$(group_of "$r")/$(basename "$f" .json)" | sed 's/indice\./index./'
+        done
+      done
+      exit 0
+    fi
+    r="$(plural "$res")"
+    if [[ "${#names[@]}" -gt 0 ]]; then
+      p="$(store_path "$r" "$NS" "${names[0]}")"
+      [[ -f "$p" ]] || notfound "$r.$(group_of "$r")" "${names[0]}"
+      if [[ "$OUT" == name ]]; then echo "${r%s}.$(group_of "$r")/${names[0]}"; else cat "$p"; fi
+      exit 0
+    fi
+    key="${SEL%%=*}"; val="${SEL#*=}"
+    for f in "$S/objects/$r/$NS"/*.json; do [[ -f "$f" ]] && cat "$f"; done \
+      | jq -s --arg k "$key" --arg v "$val" '{kind: "List", items: [.[] | select(($k == "") or (.metadata.labels[$k] == $v))]}'
+    exit 0 ;;
+
+  delete)
+    parse "$@"
+    if [[ -n "$KDIR" ]]; then
+      case "$KDIR" in */deploy/kuid) rm -f "$S/installed-kuid" ;; */deploy/sdc) rm -f "$S/installed-sdc" ;; esac
+      exit 0
+    fi
+    if [[ -n "$FILE" && -f "$FILE" ]]; then
+      n="$(yq ea '[.] | length' "$FILE")"
+      for ((i = 0; i < n; i++)); do
+        o="$(yq -o=json -I0 "select(documentIndex == $i)" "$FILE")"
+        rm -f "$(store_path "$(plural "$(jq -r .kind <<<"$o")")" "$(jq -r '.metadata.namespace // "default"' <<<"$o")" "$(jq -r .metadata.name <<<"$o")")"
+      done
+      exit 0
+    fi
+    res="${POS[0]:-}"
+    case "$res" in
+      crd|crds) rm -f "$S/installed-fp"; exit 0 ;;
+      namespace|namespaces) exit 0 ;;
+    esac
+    r="$(plural "$res")"
+    for n in "${POS[@]:1}"; do rm -f "$(store_path "$r" "$NS" "$n")"; echo "${r%s} \"$n\" deleted"; done
+    exit 0 ;;
+esac
+exit 0

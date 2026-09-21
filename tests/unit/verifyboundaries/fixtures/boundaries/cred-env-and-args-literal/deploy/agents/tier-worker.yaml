@@ -1,0 +1,13 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tier-worker
+spec:
+  template:
+    spec:
+      containers:
+        - name: worker
+          image: example.invalid/worker:v0.1.0
+          env:
+            - name: LLM_API_KEY
+              value: sk-literal-key-0123456789

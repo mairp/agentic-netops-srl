@@ -1,0 +1,88 @@
+# CI (T007): every suite that needs no lab runs on every pull request — the Go
+# job, the additive intent-tier (Python) job and the additive UI job — so the
+# workflow never claims less or more than it ran (FR-020, AD-28). Each tier owns
+# its own job: deleting a tier deletes only its job (R-22). Until a make target
+# is built it fails with `not implemented: <target>` and this workflow is red,
+# never silently green (CR-007).
+#
+# Actions are pinned by commit SHA; the tag each SHA was resolved from is noted.
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  go:
+    name: go (build, static, envtest, render schema, pins, boundaries, provenance, upstream artefacts)
+    # ubuntu runners carry a Docker runtime: T130's promtool rule test under
+    # tests/unit/alerts/ (discovered by `make test-static`) runs promtool from
+    # the pinned Prometheus image. No lab, no cluster, no other image (AD-59, AD-64).
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          # The toolchain is the one go.mod states (T002); versions.lock.yaml
+          # records it and `make verify-pins` fails when the two differ (AD-50).
+          go-version-file: go.mod
+      - name: Container runtime present
+        run: docker version
+      - name: Pull the pinned Prometheus image (the one image this job pulls)
+        run: |
+          set -euo pipefail
+          test -f versions.lock.yaml || { echo "versions.lock.yaml missing: no pinned Prometheus digest" >&2; exit 1; }
+          mapfile -t refs < <(grep -Eo '[a-z0-9./-]*prometheus/prometheus[^ "]*@sha256:[0-9a-f]{64}' versions.lock.yaml | sort -u)
+          if [ "${#refs[@]}" -ne 1 ]; then
+            echo "expected exactly one Prometheus image pinned by digest in versions.lock.yaml, found ${#refs[@]}" >&2
+            exit 1
+          fi
+          docker pull "${refs[0]}"
+          echo "PROMETHEUS_IMAGE=${refs[0]}" >> "$GITHUB_ENV"
+      - name: go build ./...
+        run: go build ./...
+      - name: Offline gates
+        run: make test-static test-envtest verify-render-schema verify-pins verify-boundaries verify-provenance-headers verify-upstream-artefacts
+
+  agents:
+    name: agents (intent-tier unit tests)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          python-version: "3.13"
+          working-directory: agents
+      - name: Install from the lock
+        working-directory: agents
+        run: uv sync --frozen
+      - name: make test-agents (cd agents && uv run pytest tests/unit)
+        run: make test-agents
+
+  ui:
+    name: ui (chat-surface unit tests and build)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          # The UI image builds on node:20-alpine; test on the same major.
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+      - name: npm ci
+        working-directory: ui
+        run: npm ci
+      - name: make test-ui
+        run: make test-ui
+      - name: npm run build
+        working-directory: ui
+        run: npm run build

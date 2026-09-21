@@ -1,0 +1,15 @@
+# CODEOWNERS (T165): the operator is the required reviewer of the safety
+# boundary — the provisioning graph (confirmations and transaction phases), the
+# refusal guards, the deployer, the tier's RBAC and the constitution
+# (constitution §Development Workflow and Quality Gates).
+#
+# STOP-AND-ASK — marked line: the owner handle is the operator's to supply and
+# is never guessed. `@mairp` is the placeholder; replace every
+# occurrence below with the operator's GitHub handle before branch protection
+# ("Require review from Code Owners") is enabled.
+
+/agents/supervisors/provisioning/graph/  @mairp
+/agents/common/guards/                   @mairp
+/agents/provisioning/deployer/           @mairp
+/deploy/rbac/                            @mairp
+/.specify/memory/constitution.md         @mairp

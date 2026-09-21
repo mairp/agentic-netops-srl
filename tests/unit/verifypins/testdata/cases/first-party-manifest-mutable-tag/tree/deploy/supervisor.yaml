@@ -1,0 +1,10 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: supervisor}
+spec:
+  template:
+    spec:
+      containers:
+      - name: supervisor
+        image: supervisor:v1.2.0
+        imagePullPolicy: Never

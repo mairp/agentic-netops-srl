@@ -1,0 +1,60 @@
+# deploy/kuid — the allocation authority: kuid-server v0.0.13 (aggregated API server for the
+# *.be.kuid.dev backends and infra.kuid.dev), from the pinned tag's own artifacts/ (T035;
+# FR-009, FR-098). upstream/ is vendored by scripts/lib/fetch_upstream.sh and never edited;
+# every change this platform makes is stated below. Applied after deploy/cert-manager is
+# Available: `kubectl apply --server-side -k deploy/kuid`; deploy/kuid/indices/ follows once
+# the APIServices are Available.
+# Storage: the upstream PersistentVolumeClaim names no storageClassName and binds through the
+# cluster's default StorageClass — on kind, `standard` (rancher.io/local-path).
+# Not applied: upstream/…vxlan is not vendored (no vxlan backend at v0.0.13; the server's
+# config below does not enable the group, and an unavailable APIService breaks discovery).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+- upstream/ns.yaml
+- kuid-server-certificate.yaml
+- upstream/sa.yaml
+- upstream/rbac-role.yaml
+- upstream/rbac-role-binding.yaml
+- upstream/rbac-role-binding-auth-reader.yaml
+- upstream/rbac-cluster-role-controller-permissions.yaml
+- upstream/rbac-cluster-role-binding-controller-permissions.yaml
+- upstream/rbac-cluster-role-binding-auth-delegator.yaml
+- upstream/configmap-config.yaml
+- upstream/pv-config-server-store.yaml
+- upstream/service-api-server.yaml
+- upstream/service-metrics.yaml
+- upstream/deployment.yaml
+- upstream/apiservice-infra.yaml
+- upstream/apiservice-ipam.yaml
+- upstream/apiservice-as.yaml
+- upstream/apiservice-vlan.yaml
+- upstream/apiservice-genid.yaml
+- upstream/apiservice-extcomm.yaml
+
+# (b) namespace kuid-system for what the upstream leaves unset (its RoleBinding
+# kuid-server-clusterrolebinding names no namespace); objects that name one keep it — the
+# auth-reader RoleBinding must stay in kube-system.
+transformers:
+- |-
+  apiVersion: builtin
+  kind: NamespaceTransformer
+  metadata:
+    name: kuid-system-where-unset
+    namespace: kuid-system
+  unsetOnly: true
+
+patches:
+# (a) image: upstream names it by a kform placeholder (input.context[0].data.kuidServerImage);
+# it becomes the published repository here and `images:` pins tag and digest.
+- target: {group: apps, kind: Deployment, name: kuid-server}
+  patch: |-
+    - {op: test, path: /spec/template/spec/containers/0/name, value: kuid-server}
+    - {op: replace, path: /spec/template/spec/containers/0/image, value: ghcr.io/kuidio/kuid-server}
+    - {op: replace, path: /spec/template/spec/containers/0/imagePullPolicy, value: IfNotPresent}
+
+# (a) pinned to versions.lock.yaml compatibilitySet.allocationAuthorityRelease.kuidServer.pinned;
+# scripts/ci/verify_upstream_artefacts.sh fails when the entry drifts from the lock.
+images:
+- name: ghcr.io/kuidio/kuid-server
+  newTag: "v0.0.13@sha256:d6fdae78cc5ba4d14655ef2e77bc3c38eb8201679b52aef56bf550e332800608"

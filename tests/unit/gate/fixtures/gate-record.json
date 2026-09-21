@@ -1,0 +1,350 @@
+{
+  "cluster": "agentic-netops",
+  "device_image_digest": "sha256:6ab1250cbff4b536e0996e57d2d9c2a7bf3154028c21e4c978e13254add3c402",
+  "evidence_dir": "/fixture/evidence",
+  "failed_items": [
+    "G5"
+  ],
+  "failed_qualifications": [],
+  "finished_utc": "2026-09-21T11:00:00Z",
+  "items": {
+    "G1": {
+      "checks": [
+        {
+          "evidence": null,
+          "exit_status": 0,
+          "name": "capabilities:leaf01",
+          "status": "pass",
+          "summary": "capabilities:leaf01"
+        }
+      ],
+      "failed_checks": [],
+      "item": "G1",
+      "observations": {},
+      "status": "pass",
+      "title": "G1"
+    },
+    "G10": {
+      "checks": [
+        {
+          "evidence": null,
+          "exit_status": 0,
+          "name": "rejects:r1",
+          "status": "pass",
+          "summary": "rejects:r1"
+        }
+      ],
+      "failed_checks": [],
+      "item": "G10",
+      "observations": {},
+      "status": "pass",
+      "title": "G10"
+    },
+    "G11": {
+      "checks": [
+        {
+          "evidence": null,
+          "exit_status": 0,
+          "name": "round-trip-and-observations",
+          "status": "pass",
+          "summary": "round-trip-and-observations"
+        }
+      ],
+      "failed_checks": [],
+      "item": "G11",
+      "observations": {},
+      "status": "pass",
+      "title": "G11"
+    },
+    "G12": {
+      "checks": [
+        {
+          "evidence": null,
+          "exit_status": 0,
+          "name": "identityref-form-observed",
+          "status": "pass",
+          "summary": "identityref-form-observed"
+        }
+      ],
+      "failed_checks": [],
+      "item": "G12",
+      "observations": {},
+      "status": "pass",
+      "title": "G12"
+    },
+    "G13": {
+      "checks": [
+        {
+          "evidence": null,
+          "exit_status": 0,
+          "name": "deviation-or-restoration-observable",
+          "status": "pass",
+          "summary": "deviation-or-restoration-observable"
+        }
+      ],
+      "failed_checks": [],
+      "item": "G13",
+      "observations": {
+        "answer": "restored-without-visible-deviation"
+      },
+      "status": "pass",
+      "title": "G13"
+    },
+    "G2": {
+      "checks": [
+        {
+          "evidence": null,
+          "exit_status": 0,
+          "name": "identity:leaf01",
+          "status": "pass",
+          "summary": "identity:leaf01"
+        }
+      ],
+      "failed_checks": [],
+      "item": "G2",
+      "observations": {},
+      "status": "pass",
+      "title": "G2"
+    },
+    "G3": {
+      "checks": [
+        {
+          "evidence": null,
+          "exit_status": 0,
+          "name": "features:leaf01",
+          "status": "pass",
+          "summary": "features:leaf01"
+        }
+      ],
+      "failed_checks": [],
+      "item": "G3",
+      "observations": {},
+      "status": "pass",
+      "title": "G3"
+    },
+    "G4": {
+      "checks": [
+        {
+          "evidence": null,
+          "exit_status": 0,
+          "name": "readback",
+          "status": "pass",
+          "summary": "readback"
+        },
+        {
+          "evidence": null,
+          "exit_status": 0,
+          "name": "inter-as-vpn-state:spine01",
+          "status": "pass",
+          "summary": "inter-as-vpn-state:spine01"
+        }
+      ],
+      "failed_checks": [],
+      "item": "G4",
+      "observations": {},
+      "status": "pass",
+      "title": "G4"
+    },
+    "G5": {
+      "checks": [
+        {
+          "evidence": null,
+          "exit_status": 1,
+          "name": "commit-request-accepted",
+          "status": "fail",
+          "summary": "commit-request-accepted"
+        }
+      ],
+      "failed_checks": [
+        "commit-request-accepted"
+      ],
+      "item": "G5",
+      "observations": {},
+      "status": "fail",
+      "title": "G5"
+    },
+    "G6": {
+      "checks": [
+        {
+          "evidence": null,
+          "exit_status": 0,
+          "name": "port-mtu-9412",
+          "status": "pass",
+          "summary": "port-mtu-9412"
+        }
+      ],
+      "failed_checks": [],
+      "item": "G6",
+      "observations": {},
+      "status": "pass",
+      "title": "G6"
+    },
+    "G7": {
+      "checks": [
+        {
+          "evidence": null,
+          "exit_status": 0,
+          "name": "series-named",
+          "status": "pass",
+          "summary": "series-named"
+        }
+      ],
+      "failed_checks": [],
+      "item": "G7",
+      "observations": {},
+      "status": "pass",
+      "title": "G7"
+    },
+    "G8": {
+      "checks": [
+        {
+          "evidence": null,
+          "exit_status": 0,
+          "name": "type2:leaf01->leaf02",
+          "status": "pass",
+          "summary": "type2:leaf01->leaf02"
+        },
+        {
+          "evidence": null,
+          "exit_status": 0,
+          "name": "type3:leaf01->leaf02",
+          "status": "pass",
+          "summary": "type3:leaf01->leaf02"
+        },
+        {
+          "evidence": null,
+          "exit_status": 0,
+          "name": "type5-ipv4:leaf01->leaf02",
+          "status": "pass",
+          "summary": "type5-ipv4:leaf01->leaf02"
+        },
+        {
+          "evidence": null,
+          "exit_status": 0,
+          "name": "type5-ipv4-installed:leaf02",
+          "status": "pass",
+          "summary": "type5-ipv4-installed:leaf02"
+        },
+        {
+          "evidence": null,
+          "exit_status": 0,
+          "name": "reflector-settings:spine01",
+          "status": "pass",
+          "summary": "reflector-settings:spine01"
+        },
+        {
+          "evidence": null,
+          "exit_status": 0,
+          "name": "anycast-gateway-ipv4",
+          "status": "pass",
+          "summary": "anycast-gateway-ipv4"
+        },
+        {
+          "evidence": null,
+          "exit_status": 0,
+          "name": "property:anycast-gateway-ipv6",
+          "status": "pass",
+          "summary": "property:anycast-gateway-ipv6"
+        },
+        {
+          "evidence": null,
+          "exit_status": 0,
+          "name": "property:ipv6-type5-received:leaf01->leaf02",
+          "status": "pass",
+          "summary": "property:ipv6-type5-received:leaf01->leaf02"
+        },
+        {
+          "evidence": null,
+          "exit_status": 1,
+          "name": "property:ipv6-type5-installed:leaf02",
+          "status": "fail",
+          "summary": "property:ipv6-type5-installed:leaf02"
+        }
+      ],
+      "failed_checks": [],
+      "item": "G8",
+      "observations": {},
+      "status": "pass",
+      "title": "G8"
+    },
+    "G9": {
+      "checks": [
+        {
+          "evidence": null,
+          "exit_status": 0,
+          "name": "binding-without-filter-accepted",
+          "status": "pass",
+          "summary": "binding-without-filter-accepted"
+        },
+        {
+          "evidence": null,
+          "exit_status": 0,
+          "name": "ingress-ipv4-applied",
+          "status": "pass",
+          "summary": "ingress-ipv4-applied"
+        },
+        {
+          "evidence": null,
+          "exit_status": 0,
+          "name": "ingress-ipv6-applied",
+          "status": "pass",
+          "summary": "ingress-ipv6-applied"
+        },
+        {
+          "evidence": null,
+          "exit_status": 1,
+          "name": "property:egress-acl",
+          "status": "fail",
+          "summary": "property:egress-acl"
+        }
+      ],
+      "failed_checks": [],
+      "item": "G9",
+      "observations": {},
+      "status": "pass",
+      "title": "G9"
+    }
+  },
+  "items_selected": [
+    "G1",
+    "G10",
+    "G11",
+    "G12",
+    "G13",
+    "G2",
+    "G3",
+    "G4",
+    "G5",
+    "G6",
+    "G7",
+    "G8",
+    "G9"
+  ],
+  "lab": "agentic-netops-fabric",
+  "leftover_scans": {},
+  "negative_controls": [],
+  "qualifications": {
+    "otlp_shape": {
+      "name": "otlp_shape",
+      "status": "pass"
+    },
+    "slim_tls_keys": {
+      "accepted_key_names": {
+        "server_certificate": "cert_file",
+        "server_key": "key_file"
+      },
+      "client_certificate_verification_exposed": false,
+      "name": "slim_tls_keys",
+      "status": "pass"
+    },
+    "vap_served": {
+      "name": "vap_served",
+      "served": true,
+      "status": "pass"
+    }
+  },
+  "reason": "failed: items G5",
+  "result": "fail",
+  "schema": "agentic-netops.gate-record/v1",
+  "started_utc": "2026-09-21T10:00:00Z"
+}

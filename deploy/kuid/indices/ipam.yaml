@@ -1,0 +1,30 @@
+# provenance: source=first-party version=v0.1.0
+# The fabric underlay's address indices (T038; FR-012; contracts/kuid-claim-profiles.md §1,
+# data-model.md §3a): claimed by the Fabric reconciler at fabric design time, never by the
+# intent tier. kuid v0.0.13 ipam.be.kuid.dev/v1alpha1 IPIndex (spec.prefixes[].prefix).
+#   fabric01-loopback  10.0.0.0/24 — node system loopbacks, one /32 each
+#                      (default fabric: spines 10.0.0.11/.12, leaves 10.0.0.1/.2)
+#   fabric01-p2p       10.1.0.0/24 — one /31 per fabric link
+apiVersion: ipam.be.kuid.dev/v1alpha1
+kind: IPIndex
+metadata:
+  name: fabric01-loopback
+  namespace: kuid-system
+spec:
+  prefixes:
+  - prefix: 10.0.0.0/24
+    labels:
+      agentic-netops.io/fabric: fabric01
+      agentic-netops.io/pool: loopback
+---
+apiVersion: ipam.be.kuid.dev/v1alpha1
+kind: IPIndex
+metadata:
+  name: fabric01-p2p
+  namespace: kuid-system
+spec:
+  prefixes:
+  - prefix: 10.1.0.0/24
+    labels:
+      agentic-netops.io/fabric: fabric01
+      agentic-netops.io/pool: p2p

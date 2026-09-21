@@ -1,0 +1,23 @@
+# provenance: source=first-party version=v0.1.0
+# How the data-server keeps its view of each device's running configuration (T036; FR-015,
+# FR-086): a periodic gNMI Get of the configuration tree, JSON_IETF, over the same TLS port.
+# It is a configuration sync, not metric ingestion: no Subscribe (onChange/sample) mode is used
+# and no Subscription object exists — the device metric collector is the only subscriber
+# (FR-086, FR-089), and deploy/sdc disables config-server's Subscription reconciler.
+apiVersion: inv.sdcio.dev/v1alpha1
+kind: TargetSyncProfile
+metadata:
+  name: gnmi-get-config
+  namespace: sdc-system
+spec:
+  validate: true
+  buffer: 0
+  workers: 10
+  sync:
+  - name: config
+    protocol: gnmi
+    port: 57400
+    paths: ["/"]
+    mode: get
+    encoding: JSON_IETF
+    interval: 30s

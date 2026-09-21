@@ -1,0 +1,4 @@
+platform:
+  scheduler:
+    repository: docker.io/apache/airflow
+    tag: 3.0.2

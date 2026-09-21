@@ -1,0 +1,10 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sequencer
+spec:
+  template:
+    spec:
+      containers:
+        - name: controller
+          image: quay.io/argoproj/workflow-controller:v3.6.4

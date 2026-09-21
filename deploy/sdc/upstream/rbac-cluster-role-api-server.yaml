@@ -1,0 +1,26 @@
+# provenance: source=https://raw.githubusercontent.com/sdcio/config-server/bcc56b045a689032c5123a9f50bcf56ed8c630dc/artifacts/rbac-cluster-role-api-server.yaml version=v0.0.58 commit=bcc56b045a689032c5123a9f50bcf56ed8c630dc digest=sha256:9eebc3db3631db250e0c7026ff4232f12b813b818b9ae162a9ec2e8dfccb8523
+# vendored-by: scripts/lib/fetch_upstream.sh (T035, FR-098) - the bytes after the end marker are the upstream artefact, unmodified; never edit them, re-run the fetcher
+# --- end of provenance header ---
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: sdc-api-server-clusterrole
+rules:
+- apiGroups: [""]
+  resources: ["namespaces", "secrets", "configmaps", "services", "pods"]
+  verbs: ["get", "watch", "list"]
+- apiGroups: ["events.k8s.io"]
+  resources: ["events"]
+  verbs: ["create", "patch"]
+- apiGroups: ["admissionregistration.k8s.io"]
+  resources: ["mutatingwebhookconfigurations", "validatingwebhookconfigurations", "validatingadmissionpolicies", "validatingadmissionpolicybindings"]
+  verbs: ["get", "watch", "list"]
+- apiGroups: ["flowcontrol.apiserver.k8s.io"]
+  resources: ["flowschemas", "prioritylevelconfigurations"]
+  verbs: ["get", "watch", "list"]
+- apiGroups: ["config.sdcio.dev"]
+  resources: ["targets", "targets/status"]
+  verbs: ["get", "watch", "list"]
+- apiGroups: ["config.sdcio.dev"]
+  resources: ["configs", "configs/status"]
+  verbs: ["get", "watch", "list"]

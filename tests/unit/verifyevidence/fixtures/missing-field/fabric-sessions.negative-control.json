@@ -1,0 +1,40 @@
+{
+  "attachments": [],
+  "check_id": "fabric-sessions",
+  "cluster": {
+    "name": "agentic-netops",
+    "uid": "00000000-fixture-uid"
+  },
+  "command": [
+    "sh",
+    "-c",
+    "echo \"0/8 sessions established\"; exit 1"
+  ],
+  "command_line": "sh -c echo\\ \\\"0/8\\ sessions\\ established\\\"\\;\\ exit\\ 1",
+  "cwd": "/root/agentic-netops-srl",
+  "device_image_digest": "sha256:6ab1250cbff4b536e0996e57d2d9c2a7bf3154028c21e4c978e13254add3c402",
+  "exit_status": 1,
+  "id": "fabric-sessions.negative-control",
+  "kind": "negative_control",
+  "lab": {
+    "name": "fixture-lab",
+    "topology_sha256": ""
+  },
+  "negative_control_failed": true,
+  "raw_output": {
+    "stderr": {
+      "file": "fabric-sessions.negative-control.stderr",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "stdout": {
+      "file": "fabric-sessions.negative-control.stdout",
+      "sha256": "07c554d067c5c75f4add320ac850ce1d22811586b00e1cd420f5e4e9c05177fd"
+    }
+  },
+  "readiness": false,
+  "record_sha256": "26073a70c0a535a4f683f518fec1b518ec598c50039f4c2363d69bc08e84ed2d",
+  "records": [],
+  "schema": "agentic-netops.evidence/v1",
+  "utc_finished": "2026-09-21T02:44:00Z",
+  "utc_time": "2026-09-21T02:44:00Z"
+}

@@ -1,0 +1,53 @@
+[project]
+name = "agentic-netops-agents"
+version = "0.1.0"
+description = "Intent tier of agentic-netops-srl: natural language to declarative datacenter-construct intent"
+requires-python = ">=3.13,<4.0"
+dependencies = [
+    "agntcy-app-sdk==0.4.5",
+    "a2a-sdk==0.3.0",
+    "langgraph>=0.4.1",
+    "langgraph-supervisor",
+    "langgraph-checkpoint-sqlite",
+    "litellm[proxy]==1.75.3",
+    "langchain-litellm>=0.3.0",
+    "ioa-observe-sdk==1.0.24",
+    "agntcy-identity-service-sdk==0.0.7",
+    "pydantic>=2.11.4",
+    "fastapi",
+    "uvicorn",
+    "starlette",
+]
+
+[dependency-groups]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+    "ruff",
+    "playwright==1.63.0",
+]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+src = ["."]
+extend-exclude = [".venv"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "S", "ASYNC", "RUF"]
+ignore = []
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "lf"

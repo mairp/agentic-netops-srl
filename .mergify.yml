@@ -1,0 +1,23 @@
+# Mergify: queue and squash-merge every pull request into main once all CI jobs are green.
+# Hold a PR by keeping it in draft or labelling it `do-not-merge`.
+# The check names are the job names of .github/workflows/ci.yaml — keep the two in step:
+# a job renamed there and not here leaves every PR waiting on a check that never reports.
+queue_rules:
+  - name: default
+    merge_method: squash
+    queue_conditions:
+      - base = main
+      - -draft
+      - -conflict
+      - label != do-not-merge
+      - "check-success = go (build, static, envtest, render schema, pins, boundaries, provenance, upstream artefacts)"
+      - "check-success = agents (intent-tier unit tests)"
+      - "check-success = ui (chat-surface unit tests and build)"
+    merge_conditions:
+      - "check-success = go (build, static, envtest, render schema, pins, boundaries, provenance, upstream artefacts)"
+      - "check-success = agents (intent-tier unit tests)"
+      - "check-success = ui (chat-surface unit tests and build)"
+
+# Enqueue automatically instead of waiting for `@mergifyio queue`.
+merge_protections_settings:
+  auto_merge_conditions: true

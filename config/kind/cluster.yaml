@@ -1,0 +1,41 @@
+# cluster.yaml — the declarative Kind cluster (T033; FR-006, FR-008, R-12, R-38).
+#
+# The sole application runtime. Stable name `agentic-netops`; scripts/lib/kind.sh substitutes the
+# selected --cluster-name into `name:` and into the ownership node label at creation time, so the
+# label always equals the cluster it marks (agentic-netops.io/owned-by=<cluster>) — the label
+# kind::delete_cluster requires before it deletes anything.
+#
+# Node image: versions.lock.yaml platform.kind.nodeImage.pinned — the default node image of the
+# pinned kind v0.27.0 release, by digest.
+#
+# Pod and service CIDRs are stated here and nowhere else: scripts/lib/preflight.sh reads them from
+# this file and refuses a management CIDR that overlaps either (FR-008).
+#
+# Port mappings are loopback-only (listenAddress 127.0.0.1 — never 0.0.0.0): the operator console
+# (the `ui` Service, NodePort 30300) on 127.0.0.1:13000 and the supervisor (NodePort 30990) on
+# 127.0.0.1:19090. The host ports are not 3000/9090 so they never collide with an operator's
+# `kubectl port-forward … 9090:9090` or with other local services; scripts/lib/preflight.sh
+# checks both are free before the cluster is created. The Services that bind the NodePorts are the
+# intent tier's (US7); with no tier installed the mappings are inert.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: agentic-netops
+networking:
+  ipFamily: ipv4
+  podSubnet: 10.244.0.0/16
+  serviceSubnet: 10.96.0.0/16
+nodes:
+  - role: control-plane
+    image: docker.io/kindest/node:v1.32.2@sha256:f226345927d7e348497136874b6d207e0b32cc52154ad8323129352923a3142f
+    labels:
+      agentic-netops.io/owned-by: agentic-netops
+      agentic-netops.io/runtime: platform
+    extraPortMappings:
+      - containerPort: 30300
+        hostPort: 13000
+        listenAddress: 127.0.0.1
+        protocol: TCP
+      - containerPort: 30990
+        hostPort: 19090
+        listenAddress: 127.0.0.1
+        protocol: TCP

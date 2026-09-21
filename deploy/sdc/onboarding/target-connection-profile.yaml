@@ -1,0 +1,20 @@
+# provenance: source=first-party version=v0.1.0
+# How the data-server reaches every SR Linux node (T036; FR-015): gNMI, JSON_IETF encoding,
+# TLS on 57400 — the containerlab `mgmt` gRPC server with its per-lab CA certificate. The
+# certificate is not verified (skipVerify) because the lab CA is regenerated on every lab
+# deployment; this is the documented lab trust boundary (evidence/05 §9.2). Plaintext
+# (insecure, port 57401) is never used. Field names: config-server v0.0.58.
+apiVersion: inv.sdcio.dev/v1alpha1
+kind: TargetConnectionProfile
+metadata:
+  name: gnmi-tls-skipverify
+  namespace: sdc-system
+spec:
+  protocol: gnmi
+  port: 57400
+  encoding: JSON_IETF
+  insecure: false
+  skipVerify: true
+  commitCandidate: candidate
+  connectRetry: 10s
+  timeout: 10s

@@ -1,0 +1,10 @@
+[project]
+name = "fixture-agents"
+version = "0.0.0"
+requires-python = "==3.13.*"
+dependencies = []
+
+[dependency-groups]
+dev = [
+    "playwright==1.63.0",
+]

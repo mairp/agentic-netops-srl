@@ -1,0 +1,40 @@
+{
+  "attachments": [],
+  "check_id": "service-routes",
+  "cluster": {
+    "name": "agentic-netops",
+    "uid": "00000000-fixture-uid"
+  },
+  "command": [
+    "sh",
+    "-c",
+    "echo \"Ready=False: missing type-2/3 routes\"; exit 1"
+  ],
+  "command_line": "sh -c echo\\ \\\"Ready=False:\\ missing\\ type-2/3\\ routes\\\"\\;\\ exit\\ 1",
+  "cwd": "/root/agentic-netops-srl",
+  "device_image_digest": "sha256:6ab1250cbff4b536e0996e57d2d9c2a7bf3154028c21e4c978e13254add3c402",
+  "exit_status": 0,
+  "id": "service-routes.negative-control",
+  "kind": "negative_control",
+  "lab": {
+    "name": "fixture-lab",
+    "topology_sha256": ""
+  },
+  "negative_control_failed": true,
+  "raw_output": {
+    "stderr": {
+      "file": "service-routes.negative-control.stderr",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "stdout": {
+      "file": "service-routes.negative-control.stdout",
+      "sha256": "aca2e51a2e940844d42b7d5598e8858f3aba42239df0dbd31a95c6ae6df3bcfe"
+    }
+  },
+  "readiness": false,
+  "record_sha256": "d9e6574dc864a29f152d15d4d736eeac5c7bda3a980e735c864eae26884f3e1a",
+  "records": [],
+  "schema": "agentic-netops.evidence/v1",
+  "utc_finished": "2026-09-21T02:44:01Z",
+  "utc_time": "2026-09-21T02:44:01Z"
+}

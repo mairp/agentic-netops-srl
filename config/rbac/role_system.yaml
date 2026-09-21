@@ -1,0 +1,59 @@
+# agentic-netops-system: the Fabric, every generated Config (AD-69), their Deviations,
+# leader election, Events, and the published compatibility set.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: srl-provider
+  namespace: agentic-netops-system
+  labels:
+    app.kubernetes.io/name: srl-provider
+rules:
+- apiGroups: [fabric.agentic-netops.io]
+  resources: [fabrics]
+  verbs: [get, list, watch]
+- apiGroups: [fabric.agentic-netops.io]
+  resources: [fabrics/status]
+  verbs: [get, update, patch]
+# The provider owns generated configuration specs (Rule 4): server-side apply is a patch,
+# the first apply of a Config a create; delete prunes a node that left spec.nodes.
+- apiGroups: [config.sdcio.dev]
+  resources: [configs]
+  verbs: [get, list, watch, create, update, patch, delete]
+# Read only. NO verb on deviationclears / targetcleardeviations: with the drift-policy set
+# closed at `revertive` the provider never clears a deviation (AD-17, AD-34).
+- apiGroups: [config.sdcio.dev]
+  resources: [deviations]
+  verbs: [get, list, watch]
+- apiGroups: [coordination.k8s.io]
+  resources: [leases]
+  verbs: [get, list, watch, create, update, patch, delete]
+- apiGroups: [""]
+  resources: [events]
+  verbs: [create, patch]
+- apiGroups: [events.k8s.io]
+  resources: [events]
+  verbs: [create, patch]
+# The compatibility set the provider asserts, published for make verify-compat (T050).
+- apiGroups: [""]
+  resources: [configmaps]
+  verbs: [create]
+- apiGroups: [""]
+  resources: [configmaps]
+  resourceNames: [srl-provider-compatibility-set]
+  verbs: [get, update, patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: srl-provider
+  namespace: agentic-netops-system
+  labels:
+    app.kubernetes.io/name: srl-provider
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: srl-provider
+subjects:
+- kind: ServiceAccount
+  name: srl-provider
+  namespace: agentic-netops-system

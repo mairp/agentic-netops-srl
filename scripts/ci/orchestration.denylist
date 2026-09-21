@@ -1,0 +1,95 @@
+# orchestration.denylist — FR-013's orchestration boundary, enforced by
+# `make verify-boundaries` (scripts/ci/verify_boundaries.sh, T025, AD-49).
+# Reviewed like code: this file IS the boundary.
+#
+# FR-013: the controllers reconciling the first-party objects are the ONLY
+# orchestration of fabric change — no second workflow, pipeline or job engine may
+# sequence, retry, schedule or gate a device change. So no manifest under deploy/
+# or config/, and no entry of versions.lock.yaml, may declare:
+#
+#   kind  <Kind>            that kind, in any API group
+#   kind  <group>/<Kind>    that kind in that API group
+#   group <api group>       any kind in that API group
+#   image <regex>           a container image (any `image:`/`repository:` value,
+#                           and every string of versions.lock.yaml) matching it
+#   chart <regex>           a Helm chart (a `chart:` value, or the `name:` of a
+#                           Chart.yaml dependency / kustomize helmCharts entry)
+#                           whose name matches it (anchored)
+#
+# And across every first-party Role and ClusterRole (deploy/, config/ — the
+# device-configuration layer's own vendored RBAC under deploy/sdc/ excepted by
+# path), the identity below is the only one any binding may give a mutating verb
+# (create, update, patch, delete, deletecollection, *) on config.sdcio.dev:
+#
+#   provider-serviceaccount <namespace>/<name>
+#
+# A binding subject naming that ServiceAccount without a namespace is accepted
+# (kustomize fills it in); any other subject — another ServiceAccount, a User, a
+# Group — is refused, as is a mutating ClusterRole aggregated into admin/edit/view.
+
+provider-serviceaccount agentic-netops-system/srl-provider
+
+# --- kinds
+kind  CronJob
+kind  argoproj.io/Workflow
+kind  argoproj.io/WorkflowTemplate
+kind  argoproj.io/ClusterWorkflowTemplate
+kind  argoproj.io/CronWorkflow
+kind  argoproj.io/WorkflowEventBinding
+kind  argoproj.io/WorkflowTaskSet
+kind  argoproj.io/Sensor
+kind  argoproj.io/EventSource
+kind  argoproj.io/EventBus
+kind  keda.sh/ScaledJob
+group tekton.dev
+group triggers.tekton.dev
+group pipelines.kubeflow.org
+group kubeflow.org
+group flyte.lyft.com
+group temporal.io
+group airflow.apache.org
+group batch.volcano.sh
+group flow.volcano.sh
+group awx.ansible.com
+
+# --- images
+image (^|/)argoproj/(workflow-controller|argoexec|argocli|argo-events|argo-workflows)
+image (^|/)tektoncd/
+image tekton-releases/
+image (^|/)apache/airflow
+image (^|/)temporalio/
+image (^|/)prefecthq/
+image (^|/)flyteorg/
+image (^|/)jenkins/(jenkins|inbound-agent|agent)
+image (^|/)concourse/
+image (^|/)rundeck/
+image (^|/)n8nio/
+image (^|/)stackstorm/
+image (^|/)dagster/
+image (^|/)kestra/
+image (^|/)windmill-labs/
+image (^|/)volcanosh/
+image (^|/)ansible/awx
+image (^|/)kubeflow/
+image (^|/)nodered/
+
+# --- charts
+chart argo-workflows
+chart argo-events
+chart tekton(-.*)?
+chart airflow
+chart temporal
+chart prefect(-.*)?
+chart flyte(-.*)?
+chart jenkins
+chart concourse
+chart rundeck
+chart n8n
+chart stackstorm(-ha)?
+chart dagster
+chart kestra
+chart windmill
+chart volcano
+chart awx-operator
+chart kubeflow(-.*)?
+chart node-red

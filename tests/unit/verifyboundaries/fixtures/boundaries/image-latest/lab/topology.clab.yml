@@ -1,0 +1,6 @@
+name: agentic-netops
+topology:
+  nodes:
+    leaf1:
+      kind: nokia_srlinux
+      image: ghcr.io/nokia/srlinux:latest

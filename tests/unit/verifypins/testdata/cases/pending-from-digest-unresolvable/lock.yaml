@@ -1,0 +1,284 @@
+# versions.lock.yaml — the one compatibility manifest (C-01, NFR-003, data-model.md §23, §26, §28).
+#
+# Provenance rules (enforced by `make verify-pins` = scripts/lib/verify_pins.sh):
+#   * The only digests and commits typed by hand are the ones the specification quotes
+#     (tasks.md T008, contracts/crd-api.md "Version contract"): the SR Linux image, the YANG-model
+#     tag commit, the deviation-patch commit, the three device-configuration images and the
+#     kuid-server image. Every other digest, commit, checksum and hash below was written by
+#     scripts/lib/resolve_pins.sh — image digests from the registry, commits from the repository,
+#     release-asset checksums from the release's own checksum file, the plugin package hash from
+#     grafana.com, dependency-lock hashes computed from the tree, host-tooling versions observed on
+#     the host. A field resolve_pins.sh has not filled is left empty and the pin check fails on it.
+#   * Tags are exact releases (MAJOR.MINOR.PATCH…): no `latest`, no floating minor, no branch.
+#     `track:` only records the line a tag was resolved from (e.g. node's `20-alpine`); the pin is
+#     the exact `tag:` plus `digest:`.
+#   * `pinned:` is `<repository>:<tag>@<digest>`, written by resolve_pins.sh from the three fields
+#     beside it; verify_pins.sh checks that it agrees with them.
+#   * There is no exception field. The one pin exception NFR-003 admits is the recorded allocator
+#     substitution (allocationAuthority, FR-104, AD-12); any other exception-, allow- or skip-style
+#     key anywhere in this file fails the check.
+#   * First-party images are built locally and have no registry digest; none is recorded (AD-05).
+#     What is pinned is their build inputs: every FROM by digest and every dependency lock by hash.
+lockVersion: 1
+# Recorded from go.mod (T002 selected it; AD-50) — never chosen here.
+goToolchain:
+  source: go.mod
+  go: "1.25.0"
+  toolchain: "go1.27.1"
+# The nine-part compatibility set (contracts/crd-api.md "Version contract").
+compatibilitySet:
+  deviceImage: # part 1
+    part: 1
+    repository: ghcr.io/nokia/srlinux
+    tag: 25.7.1
+    digest: sha256:6ab1250cbff4b536e0996e57d2d9c2a7bf3154028c21e4c978e13254add3c402
+    pinned: "ghcr.io/nokia/srlinux:25.7.1@sha256:6ab1250cbff4b536e0996e57d2d9c2a7bf3154028c21e4c978e13254add3c402"
+  yangModels: # part 2
+    part: 2
+    repository: https://github.com/nokia/srlinux-yang-models
+    tag: v25.7.1
+    commit: badcf9977fe672437907cdae7daebb27a1361c36
+  deviationPatch: # part 3 — by commit, never by branch
+    part: 3
+    repository: https://github.com/sdcio/srlinux-yang-patch
+    commit: 7410316d34f1d393b82889c0caa1b5acef80fb60
+  schema: # part 4 — the Schema CR definition
+    part: 4
+    provider: srl.nokia.sdcio.dev
+    version: 25.7.1
+    models: [srl_nokia/models]
+    includes: [ietf, openconfig]
+    excludes: ['.*tools.*']
+    repositories: # kind is tag or hash; a branch is forbidden
+      - repoURL: https://github.com/nokia/srlinux-yang-models
+        kind: tag
+        ref: v25.7.1
+      - repoURL: https://github.com/sdcio/srlinux-yang-patch
+        kind: hash
+        ref: 7410316d34f1d393b82889c0caa1b5acef80fb60
+  deviceConfiguration: # part 5
+    part: 5
+    configServer:
+      repository: https://github.com/sdcio/config-server
+      tag: v0.0.58
+      commit: "bcc56b045a689032c5123a9f50bcf56ed8c630dc"
+    dataServer:
+      repository: https://github.com/sdcio/data-server
+      tag: v0.0.66
+      commit: "f3cbbe5d17bebd74360bf91e9568dd109714016c"
+    images:
+      apiServer:
+        repository: ghcr.io/sdcio/config-server-api-server
+        tag: v0.0.58
+        digest: sha256:bd5d312512ad7484eadb6b8e43ef550f647034abdead80429b8ba17d74041f9e
+        pinned: "ghcr.io/sdcio/config-server-api-server:v0.0.58@sha256:bd5d312512ad7484eadb6b8e43ef550f647034abdead80429b8ba17d74041f9e"
+      controller:
+        repository: ghcr.io/sdcio/config-server-controller
+        tag: v0.0.58
+        digest: sha256:01c69c589137579db784c769019bc92591899666714f153b5b4b97a761ffea13
+        pinned: "ghcr.io/sdcio/config-server-controller:v0.0.58@sha256:01c69c589137579db784c769019bc92591899666714f153b5b4b97a761ffea13"
+      dataServer:
+        repository: ghcr.io/sdcio/data-server
+        tag: v0.0.66
+        digest: sha256:fe138dcfcfeb5bee2a615bd4e9616bafc9d27b57ae55cee9360d4fd0d2cecbf7
+        pinned: "ghcr.io/sdcio/data-server:v0.0.66@sha256:fe138dcfcfeb5bee2a615bd4e9616bafc9d27b57ae55cee9360d4fd0d2cecbf7"
+  allocationAuthorityRelease: # part 6 — which authority is installed is allocationAuthority below
+    part: 6
+    kuid:
+      repository: https://github.com/kuidio/kuid
+      tag: v0.0.13
+      commit: "7528e81528c2e9f586b6fe657907424ad93c7ead"
+    kuidServer:
+      repository: ghcr.io/kuidio/kuid-server
+      tag: v0.0.13
+      digest: sha256:d6fdae78cc5ba4d14655ef2e77bc3c38eb8201679b52aef56bf550e332800608
+      pinned: "ghcr.io/kuidio/kuid-server:v0.0.13@sha256:d6fdae78cc5ba4d14655ef2e77bc3c38eb8201679b52aef56bf550e332800608"
+  containerlab: # part 7
+    part: 7
+    version: 0.79.0
+    release:
+      repository: https://github.com/srl-labs/containerlab
+      tag: v0.79.0
+      commit: "5ae50094a3afd70e4e1674fe5385e64d8979da26"
+      asset: containerlab_0.79.0_linux_amd64.tar.gz
+      checksumFile: checksums.txt
+      assetSha256: "f90d36d58bb6c4afd3b3a4dca006b81594c6d16f7a04be0184b03f44291085a2"
+  gnmic: # part 8 — the device metric collector
+    part: 8
+    version: 0.47.0
+    release:
+      repository: https://github.com/openconfig/gnmic
+      tag: v0.47.0
+      commit: "747b576e8eab3b88a21d540e2a31c8d2183c1a74"
+      asset: gnmic_0.47.0_Linux_x86_64.tar.gz
+      checksumFile: checksums.txt
+      assetSha256: "0528f032bd6098e1dcc7073c30a5b526483b30e1aabfa96c4a86a4879977c506"
+    image:
+      repository: ghcr.io/openconfig/gnmic
+      tag: 0.47.0
+      digest: "sha256:fd59f5f1c7a98e14ff5b14f85329e5e0a4d49ef1d5b0dddfd910b6caef03b9fb"
+      pinned: "ghcr.io/openconfig/gnmic:0.47.0@sha256:fd59f5f1c7a98e14ff5b14f85329e5e0a4d49ef1d5b0dddfd910b6caef03b9fb"
+  srlMapping: # part 9 — first-party, asserted against parts 1–4
+    part: 9
+    version: v0.1.0
+    firstParty: true
+# Part 6 selection (data-model.md §23). kind: kuid | first-party.
+# decisionRecord and failedGateEvidence are required when, and only when, kind is first-party.
+allocationAuthority:
+  kind: kuid
+# The Kubernetes distribution and the platform services around the compatibility set.
+platform:
+  kind:
+    version: v0.27.0
+    release:
+      repository: https://github.com/kubernetes-sigs/kind
+      tag: v0.27.0
+      commit: "6cb934219ac54aa0ddb1d8313adc05304421ccb6"
+      asset: kind-linux-amd64
+      checksumFile: kind-linux-amd64.sha256sum
+      assetSha256: "a6875aaea358acf0ac07786b1a6755d08fd640f4c79b7a2e46681cc13f49a04b"
+    nodeImage: # the default node image of the pinned kind release
+      source: kind-default # read from kind's pkg/apis/config/defaults/image.go at the pinned commit
+      repository: docker.io/kindest/node
+      tag: "v1.32.2"
+      digest: "sha256:f226345927d7e348497136874b6d207e0b32cc52154ad8323129352923a3142f"
+      pinned: "docker.io/kindest/node:v1.32.2@sha256:f226345927d7e348497136874b6d207e0b32cc52154ad8323129352923a3142f"
+  certManager:
+    version: v1.20.4
+    images:
+      controller:
+        repository: quay.io/jetstack/cert-manager-controller
+        tag: v1.20.4
+        digest: "sha256:d4d576c7e6ed3cfe5730f5458fa096b7d8713368d2ccb7ff01b2951861483838"
+        pinned: "quay.io/jetstack/cert-manager-controller:v1.20.4@sha256:d4d576c7e6ed3cfe5730f5458fa096b7d8713368d2ccb7ff01b2951861483838"
+      webhook:
+        repository: quay.io/jetstack/cert-manager-webhook
+        tag: v1.20.4
+        digest: "sha256:303a962e77acbed075716379ed8045de65a72fdd5514f9367f449a1f9a907aa7"
+        pinned: "quay.io/jetstack/cert-manager-webhook:v1.20.4@sha256:303a962e77acbed075716379ed8045de65a72fdd5514f9367f449a1f9a907aa7"
+      cainjector:
+        repository: quay.io/jetstack/cert-manager-cainjector
+        tag: v1.20.4
+        digest: "sha256:30c8617ebb3b4a9054da555ee9c6389a7faa464fffe3c7679f80892a9cfbf213"
+        pinned: "quay.io/jetstack/cert-manager-cainjector:v1.20.4@sha256:30c8617ebb3b4a9054da555ee9c6389a7faa464fffe3c7679f80892a9cfbf213"
+      startupapicheck:
+        repository: quay.io/jetstack/cert-manager-startupapicheck
+        tag: v1.20.4
+        digest: "sha256:83e70f57255e133e2fff5129e8372ac493ca66e39446c536798b4742d95f9f49"
+        pinned: "quay.io/jetstack/cert-manager-startupapicheck:v1.20.4@sha256:83e70f57255e133e2fff5129e8372ac493ca66e39446c536798b4742d95f9f49"
+  sdcLite: # offline validator run by `make verify-render-schema` (T047, AD-71)
+    version: v0.4.0
+    release:
+      repository: https://github.com/sdcio/sdc-lite
+      tag: v0.4.0
+      commit: "4da2d604c5283756832f8ad13502bb3e55101f31"
+      asset: sdc-lite_0.4.0_Linux_amd64.tar.gz
+      checksumFile: checksums.txt
+      assetSha256: "ca660964a739ef5576dc60b9df5cf611fc636d069cbbc8eb8ffb614784536e6b"
+  clickhouse:
+    repository: docker.io/clickhouse/clickhouse-server
+    tag: 26.8.9.10
+    digest: "sha256:85ddbad63bd6779d4b3c64af17a0720c85e9dc6e5fa636f80bfdbb6096bdc5ab"
+    pinned: "docker.io/clickhouse/clickhouse-server:26.8.9.10@sha256:85ddbad63bd6779d4b3c64af17a0720c85e9dc6e5fa636f80bfdbb6096bdc5ab"
+  slim:
+    repository: ghcr.io/agntcy/slim
+    tag: 0.6.1
+    digest: "sha256:12789882e61afb2bc8d12fac4abba18ae7175ffc6c60f35b58a2aa375ccf2fe0"
+    pinned: "ghcr.io/agntcy/slim:0.6.1@sha256:12789882e61afb2bc8d12fac4abba18ae7175ffc6c60f35b58a2aa375ccf2fe0"
+# Observability compatibility set, pinned as one unit beside the nine.
+observability:
+  otelCollector:
+    repository: docker.io/otel/opentelemetry-collector-contrib
+    tag: 0.161.0
+    digest: "sha256:fd328de2552466ad78385e1b1289c3f2402b1c45f265b252aab1955b42845ac1"
+    pinned: "docker.io/otel/opentelemetry-collector-contrib:0.161.0@sha256:fd328de2552466ad78385e1b1289c3f2402b1c45f265b252aab1955b42845ac1"
+  prometheus:
+    repository: quay.io/prometheus/prometheus
+    tag: v3.14.0
+    digest: "sha256:5ce7540c3c00ef4ab0c9d2c995c6a5b9c421f44b4a115d97a2c7af3b1c21cbb0"
+    pinned: "quay.io/prometheus/prometheus:v3.14.0@sha256:5ce7540c3c00ef4ab0c9d2c995c6a5b9c421f44b4a115d97a2c7af3b1c21cbb0"
+  grafana:
+    repository: docker.io/grafana/grafana
+    tag: 13.2.2
+    digest: "sha256:ac461fb352abc50da10a51c7d02462e9c05488f11f53f14b3ad79a8145f638a0"
+    pinned: "docker.io/grafana/grafana:13.2.2@sha256:ac461fb352abc50da10a51c7d02462e9c05488f11f53f14b3ad79a8145f638a0"
+  grafanaPlugins:
+    - id: andrewbmchugh-flow-panel
+      version: 1.20.1
+      sha256: "9c4fd97623191877e6be0ca3afde293cea62b667db50d5044b7679ca83b08816" # grafana.com package hash of this version
+  topologyGenerator: # clab-io-draw — tag and digest, never latest, never an omitted version
+    repository: ghcr.io/srl-labs/clab-io-draw
+    tag: 0.7.1
+    digest: "sha256:1722f83ee643ceda3b9c2e4fb5df4005ade159288041ce89e4919f73fd2ee83a"
+    pinned: "ghcr.io/srl-labs/clab-io-draw:0.7.1@sha256:1722f83ee643ceda3b9c2e4fb5df4005ade159288041ce89e4919f73fd2ee83a"
+# Host-side tooling (data-model.md §28, AD-21). Versions are recorded by
+# `resolve_pins.sh --host-tooling` from what it observes; an empty value was not observed and
+# `verify_pins.sh --host-tooling` fails on it.
+hostTooling:
+  browserAutomation:
+    package: playwright
+    version: "1.63.0" # recorded from lockFile; must equal pyproject's exact pin
+    pyproject: agents/pyproject.toml
+    lockFile: agents/uv.lock
+    browser: chromium
+    browserRevision: "1243" # the chromium revision the locked package version fixes
+  capture:
+    - tool: ffmpeg
+      version: "7.1.5-0+deb13u1"
+    - tool: Xvfb
+      version: "21.1.16"
+# First-party images (data-model.md §26, AD-05). Built locally, tagged <name>:<contentHash>,
+# never pulled; no registry digest exists and none is recorded. An entry whose Dockerfile is not
+# in the tree yet is pending (AD-71).
+firstPartyImages:
+  - name: srl-provider
+    dockerfile: docker/Dockerfile.srl-provider
+    context: .
+    from:
+      - {ref: golang, tag: "1.27.1-alpine", digest: "sha256:4cb7ac979db5fcc41cae44b2227ba5ab8a51e8807f40d9ba4dee20a0ad960b5b"} # tag: <goToolchain.toolchain>-alpine
+      - {ref: alpine, tag: 3.24.2, digest: "sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6"}
+    dependencyLocks:
+      - {path: go.sum, sha256: "aecfbc152b5f65ae10e9a11cfcacd4e053d93d58f8c8fb8b1f08bf58c1492601"}
+  - name: supervisor
+    dockerfile: docker/Dockerfile.supervisor
+    context: agents
+    from:
+      - {ref: python, tag: 3.13.0-slim, digest: "sha256:0de818129b26ed8f46fd772f540c80e277b67a28229531a1ba0fdacfaed19bcb"}
+    dependencyLocks:
+      - {path: agents/uv.lock, sha256: "53c3c600d0301838969f2f0a690c665ba96475f0d72442742354d1790be3d50c"}
+  - name: mapper
+    dockerfile: docker/Dockerfile.mapper
+    context: agents
+    from:
+      - {ref: python, tag: 3.13.0-slim, digest: "sha256:0de818129b26ed8f46fd772f540c80e277b67a28229531a1ba0fdacfaed19bcb"}
+    dependencyLocks:
+      - {path: agents/uv.lock, sha256: "53c3c600d0301838969f2f0a690c665ba96475f0d72442742354d1790be3d50c"}
+  - name: allocator
+    dockerfile: docker/Dockerfile.allocator
+    context: agents
+    from:
+      - {ref: python, tag: 3.13.0-slim, digest: "sha256:0de818129b26ed8f46fd772f540c80e277b67a28229531a1ba0fdacfaed19bcb"}
+    dependencyLocks:
+      - {path: agents/uv.lock, sha256: "53c3c600d0301838969f2f0a690c665ba96475f0d72442742354d1790be3d50c"}
+  - name: deployer
+    dockerfile: docker/Dockerfile.deployer
+    context: agents
+    from:
+      - {ref: python, tag: 3.13.0-slim, digest: "sha256:0de818129b26ed8f46fd772f540c80e277b67a28229531a1ba0fdacfaed19bcb"}
+    dependencyLocks:
+      - {path: agents/uv.lock, sha256: "53c3c600d0301838969f2f0a690c665ba96475f0d72442742354d1790be3d50c"}
+  - name: intent-translator
+    dockerfile: docker/Dockerfile.intent-translator
+    context: .
+    from:
+      - {ref: golang, tag: "1.27.1-alpine", digest: "sha256:4cb7ac979db5fcc41cae44b2227ba5ab8a51e8807f40d9ba4dee20a0ad960b5b"} # tag: <goToolchain.toolchain>-alpine
+      - {ref: alpine, tag: 3.24.2, digest: "sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6"}
+    dependencyLocks:
+      - {path: go.sum, sha256: "aecfbc152b5f65ae10e9a11cfcacd4e053d93d58f8c8fb8b1f08bf58c1492601"}
+  - name: ui
+    dockerfile: docker/Dockerfile.ui
+    context: ui
+    from:
+      - {ref: node, track: 20-alpine, tag: "20.20.2-alpine", digest: "sha256:0000000000000000000000000000000000000000000000000000000000000000"}
+    dependencyLocks:
+      - {path: ui/package-lock.json, sha256: "510b68dab51ac23e80b87897d7f12dd18660616bdcaf33bc3e70a1682b9036ca"}

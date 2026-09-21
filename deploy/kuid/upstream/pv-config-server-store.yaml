@@ -1,0 +1,14 @@
+# provenance: source=https://raw.githubusercontent.com/kuidio/kuid/7528e81528c2e9f586b6fe657907424ad93c7ead/artifacts/pv-config-server-store.yaml version=v0.0.13 commit=7528e81528c2e9f586b6fe657907424ad93c7ead digest=sha256:beb896ea591a79b8ce7b5b1e0eabcc44106543a08bb01c38da00442b9a027713
+# vendored-by: scripts/lib/fetch_upstream.sh (T035, FR-098) - the bytes after the end marker are the upstream artefact, unmodified; never edit them, re-run the fetcher
+# --- end of provenance header ---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: pvc-config-store
+  namespace: kuid-system
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi

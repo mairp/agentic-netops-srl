@@ -1,0 +1,3 @@
+services:
+  provider:
+    image: example.invalid/provider:v0.1.0

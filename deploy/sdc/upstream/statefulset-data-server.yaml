@@ -1,0 +1,121 @@
+# provenance: source=https://raw.githubusercontent.com/sdcio/config-server/bcc56b045a689032c5123a9f50bcf56ed8c630dc/artifacts/statefulset-data-server.yaml version=v0.0.58 commit=bcc56b045a689032c5123a9f50bcf56ed8c630dc digest=sha256:20608cedad6cecce05e7631dcaa60b785cdba4f1e7da66b3f58b6a6d8366bb10
+# vendored-by: scripts/lib/fetch_upstream.sh (T035, FR-098) - the bytes after the end marker are the upstream artefact, unmodified; never edit them, re-run the fetcher
+# --- end of provenance header ---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: data-server-controller
+  namespace: sdc-system
+  labels:
+    app.kubernetes.io/name: sdc-data-server-controller
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: sdc-data-server-controller
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: sdc-data-server-controller
+        sdcio.dev/data-server: "true"
+        sdcio.dev/schema-server: "true"
+    spec:
+      securityContext:
+        runAsUser: 10000
+        runAsGroup: 10000
+        fsGroup: 10000
+      serviceAccountName: data-server-controller
+      containers:
+      - name: controller
+        image: input.context[0].data.sdcControllerImage
+        imagePullPolicy: Always
+        command:
+        - /app/controller
+        env:
+        - name: POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              apiVersion: v1
+              fieldPath: metadata.namespace
+        - name: "NODE_NAME"
+          valueFrom:
+            fieldRef:
+              apiVersion: v1
+              fieldPath: spec.nodeName
+        - name: "NODE_IP"
+          valueFrom:
+            fieldRef:
+              apiVersion: v1
+              fieldPath: status.hostIP
+        - name: KUBE_FEATURE_WatchListClient
+          value: "false"
+        - name: LOCAL_DATASERVER
+          value: "true"
+        - name: METRIC_PORT
+          value: "8443"
+        - name: PPROF_PORT
+          value: "8081"
+        - name: REVERTIVE
+          value: "true"
+        - name: ENABLE_SUBSCRIPTION
+          value: "true"
+        - name: ENABLE_TARGET
+          value: "true"
+        - name: ENABLE_TARGETDATASTORE
+          value: "true"
+        - name: ENABLE_TARGETCONFIG
+          value: "true"
+        - name: ENABLE_TARGETRECOVERYCONFIG
+          value: "true"
+        #- name: ENABLE_DISCOVERYRULE
+        #  value: "true"
+        - name: ENABLE_SCHEMA
+          value: "true"
+        #- name: ENABLE_CONFIG
+        #  value: "true"
+        #- name: ENABLE_CONFIGSET
+        #  value: "true"
+        #- name: ENABLE_WORKSPACE
+        #  value: "true"
+        #- name: ENABLE_ROLLOUT
+        #  value: "true"
+        volumeMounts:
+        - name: schema-store
+          mountPath: /schemas
+      - name: data-server
+        image: input.context[0].data.dataServerImage
+        imagePullPolicy: Always
+        command:
+        - /app/data-server
+        args:
+        - "--config=/config/data-server.yaml"
+        ports:
+        - name: data-service
+          containerPort: 56000
+        volumeMounts:
+        - name: data-server-config
+          mountPath: /config
+        - name: cache
+          mountPath: /cached/caches
+        - name: schema-db
+          mountPath: /schemadb
+        - name: schema-store
+          mountPath: /schemas
+      volumes:
+      - name: data-server-config
+        configMap:
+          name: data-server
+      - name: cache
+        emptyDir:
+          sizeLimit: 10Gi
+      - name: schema-db # persistent schema obj from the parsed yang files
+        persistentVolumeClaim:
+          claimName: pvc-schema-db
+      - name: schema-store # yang file from git
+        persistentVolumeClaim:
+          claimName: pvc-schema-store
+

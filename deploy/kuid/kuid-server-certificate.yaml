@@ -1,0 +1,39 @@
+# provenance: source=first-party version=v0.1.0
+# kuid-server's serving certificate (T035; FR-009, FR-019). Upstream ships a static TLS Secret
+# with its private key in the repository (artifacts/secret.yaml); it is not vendored.
+# cert-manager issues the same Secret name (kuid-server, mounted by the upstream Deployment)
+# from a namespaced self-signed Issuer, so this directory depends on cert-manager only.
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: kuid-selfsigned
+  namespace: kuid-system
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: kuid-server
+  namespace: kuid-system
+  labels:
+    app.kubernetes.io/name: kuid-server
+spec:
+  secretName: kuid-server
+  commonName: kuid-server.kuid-system.svc
+  dnsNames:
+  - kuid-server
+  - kuid-server.kuid-system
+  - kuid-server.kuid-system.svc
+  - kuid-server.kuid-system.svc.cluster.local
+  duration: 8760h
+  renewBefore: 720h
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+    rotationPolicy: Always
+  usages: [server auth, digital signature, key encipherment]
+  issuerRef:
+    group: cert-manager.io
+    kind: Issuer
+    name: kuid-selfsigned

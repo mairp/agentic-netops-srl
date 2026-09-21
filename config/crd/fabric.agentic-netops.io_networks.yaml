@@ -1,0 +1,1011 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.20.1
+  name: networks.fabric.agentic-netops.io
+spec:
+  group: fabric.agentic-netops.io
+  names:
+    categories:
+    - agentic-netops
+    kind: Network
+    listKind: NetworkList
+    plural: networks
+    singular: network
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .metadata.annotations.agentic-netops\.io/service-type
+      name: Construct
+      type: string
+    - jsonPath: .metadata.annotations.agentic-netops\.io/tenant
+      name: Tenant
+      type: string
+    - jsonPath: .spec['vlans','bridgeDomains'][0].vlan
+      name: VLAN
+      type: integer
+    - jsonPath: .spec.bridgeDomains[0].l2vni
+      name: L2VNI
+      type: integer
+    - jsonPath: .spec.routers[0].l3vni
+      name: L3VNI
+      type: integer
+    - jsonPath: .status.conditions[?(@.type=="Ready")].status
+      name: Ready
+      type: string
+    - jsonPath: .status.conditions[?(@.type=="Degraded")].status
+      name: Degraded
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          Network is the service intent object — one per service, the only object the intent tier
+          writes.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: |-
+              NetworkSpec is the service intent. Exactly one of the five shapes of
+              contracts/network-spec.md §2 is present: vlans, bridgeDomains, bridgeDomains+routers with an
+              irb, routers, or accessLists alone — any of the first four may carry accessLists too.
+            properties:
+              accessLists:
+                description: AccessLists — the acl construct alone, or the filter
+                  of another construct; mutable.
+                items:
+                  description: |-
+                    AccessList is a named, staged, address-family-scoped, ordered set of rules bound to the
+                    subinterfaces of its service's attachments.
+                  properties:
+                    defaultAction:
+                      description: DefaultAction, when declared, renders a terminal
+                        match-all entry at 65535.
+                      enum:
+                      - permit
+                      - deny
+                      type: string
+                    name:
+                      description: Name of the list.
+                      maxLength: 64
+                      minLength: 1
+                      pattern: ^[A-Za-z0-9][A-Za-z0-9_-]*$
+                      type: string
+                      x-kubernetes-validations:
+                      - message: access-list name is reserved by the device for its
+                          own filters (system, capture)
+                        messageExpression: '''access-list name '' + self + '' is reserved
+                          by the device for its own filters'''
+                        rule: '!(self.lowerAscii() in [''system'', ''capture''])'
+                    rules:
+                      description: Rules, at least one; names distinct (map keyed
+                        by name).
+                      items:
+                        description: |-
+                          ACLRule is one ordered rule. Rules are evaluated in ascending priority and the first match
+                          wins; priority 65535 is reserved for the default action.
+                        properties:
+                          action:
+                            description: Action is permit or deny.
+                            enum:
+                            - permit
+                            - deny
+                            type: string
+                          description:
+                            description: Description carried into the rendered entry's
+                              description.
+                            maxLength: 255
+                            type: string
+                          destinationPort:
+                            description: DestinationPort, TCP and UDP only.
+                            maxLength: 11
+                            pattern: ^[0-9]{1,5}(-[0-9]{1,5})?$
+                            type: string
+                            x-kubernetes-validations:
+                            - message: a port is 0–65535 and a range lo-hi has hi
+                                >= lo
+                              rule: '!self.matches(''^[0-9]{1,5}(-[0-9]{1,5})?$'')
+                                || (self.split(''-'').all(p, int(p) <= 65535) && (self.split(''-'').size()
+                                == 1 || int(self.split(''-'')[0]) <= int(self.split(''-'')[1])))'
+                          destinationPrefix:
+                            description: DestinationPrefix in the list's address family.
+                            maxLength: 43
+                            type: string
+                            x-kubernetes-validations:
+                            - message: must be a CIDR prefix
+                              rule: isCIDR(self)
+                          name:
+                            description: Name of the rule, unique within the list;
+                              the map key.
+                            maxLength: 64
+                            minLength: 1
+                            type: string
+                          priority:
+                            description: Priority is rendered unchanged as the device's
+                              entry sequence number; 1–65534.
+                            format: int64
+                            type: integer
+                            x-kubernetes-validations:
+                            - message: 'priority is outside the usable range 1–65534:
+                                65535 is reserved for the default action'
+                              messageExpression: '''priority '' + (self >= 0 && self
+                                < 1000000 ? ((self >= 100000 ? [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][self
+                                / 100000 % 10] + [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][self
+                                / 10000 % 10] + [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][self
+                                / 1000 % 10] + [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][self
+                                / 100 % 10] + [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][self
+                                / 10 % 10] + [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][self
+                                % 10] : (self >= 10000 ? [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][self
+                                / 10000 % 10] + [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][self
+                                / 1000 % 10] + [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][self
+                                / 100 % 10] + [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][self
+                                / 10 % 10] + [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][self
+                                % 10] : (self >= 1000 ? [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][self
+                                / 1000 % 10] + [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][self
+                                / 100 % 10] + [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][self
+                                / 10 % 10] + [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][self
+                                % 10] : (self >= 100 ? [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][self
+                                / 100 % 10] + [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][self
+                                / 10 % 10] + [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][self
+                                % 10] : (self >= 10 ? [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][self
+                                / 10 % 10] + [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][self
+                                % 10] : [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][self
+                                % 10])))))) : ''value'') + '' is outside the usable
+                                range 1–65534: 65535 is reserved for the default action'''
+                              rule: self >= 1 && self <= 65534
+                          protocol:
+                            description: Protocol matched; any, a number 0–255 or
+                              a known name.
+                            maxLength: 8
+                            pattern: ^(any|tcp|udp|icmp|icmp6|icmpv6|igmp|gre|esp|ah|ospf|pim|vrrp|sctp|[0-9]{1,3})$
+                            type: string
+                            x-kubernetes-validations:
+                            - message: an IP protocol number lies in 0–255
+                              rule: '!self.matches(''^[0-9]+$'') || int(self) <= 255'
+                          sourcePort:
+                            description: SourcePort, TCP and UDP only.
+                            maxLength: 11
+                            pattern: ^[0-9]{1,5}(-[0-9]{1,5})?$
+                            type: string
+                            x-kubernetes-validations:
+                            - message: a port is 0–65535 and a range lo-hi has hi
+                                >= lo
+                              rule: '!self.matches(''^[0-9]{1,5}(-[0-9]{1,5})?$'')
+                                || (self.split(''-'').all(p, int(p) <= 65535) && (self.split(''-'').size()
+                                == 1 || int(self.split(''-'')[0]) <= int(self.split(''-'')[1])))'
+                          sourcePrefix:
+                            description: SourcePrefix in the list's address family.
+                            maxLength: 43
+                            type: string
+                            x-kubernetes-validations:
+                            - message: must be a CIDR prefix
+                              rule: isCIDR(self)
+                        required:
+                        - action
+                        - name
+                        - priority
+                        type: object
+                        x-kubernetes-validations:
+                        - message: an L4 port is allowed only with protocol tcp or
+                            udp
+                          messageExpression: '''rule '' + self.name + '': an L4 port
+                            is allowed only with protocol tcp or udp'''
+                          rule: (!has(self.sourcePort) && !has(self.destinationPort))
+                            || (has(self.protocol) && self.protocol in ['tcp', 'udp',
+                            '6', '17'])
+                      maxItems: 64
+                      minItems: 1
+                      type: array
+                      x-kubernetes-list-map-keys:
+                      - name
+                      x-kubernetes-list-type: map
+                    stage:
+                      description: Stage is ingress or egress.
+                      enum:
+                      - ingress
+                      - egress
+                      type: string
+                    type:
+                      description: Type is the address family, ipv4 or ipv6.
+                      enum:
+                      - ipv4
+                      - ipv6
+                      type: string
+                  required:
+                  - name
+                  - rules
+                  - stage
+                  - type
+                  type: object
+                  x-kubernetes-validations:
+                  - message: rule priorities must be distinct within an access list
+                    messageExpression: '''access list '' + self.name + '': rule priorities
+                      must be distinct; priority '' + self.rules.map(r, !self.rules.exists_one(o,
+                      o.priority == r.priority) ? (r.priority >= 0 && r.priority <
+                      1000000 ? ((r.priority >= 100000 ? [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][r.priority
+                      / 100000 % 10] + [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][r.priority
+                      / 10000 % 10] + [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][r.priority
+                      / 1000 % 10] + [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][r.priority
+                      / 100 % 10] + [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][r.priority
+                      / 10 % 10] + [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][r.priority
+                      % 10] : (r.priority >= 10000 ? [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][r.priority
+                      / 10000 % 10] + [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][r.priority
+                      / 1000 % 10] + [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][r.priority
+                      / 100 % 10] + [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][r.priority
+                      / 10 % 10] + [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][r.priority
+                      % 10] : (r.priority >= 1000 ? [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][r.priority
+                      / 1000 % 10] + [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][r.priority
+                      / 100 % 10] + [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][r.priority
+                      / 10 % 10] + [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][r.priority
+                      % 10] : (r.priority >= 100 ? [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][r.priority
+                      / 100 % 10] + [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][r.priority
+                      / 10 % 10] + [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][r.priority
+                      % 10] : (r.priority >= 10 ? [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][r.priority
+                      / 10 % 10] + [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][r.priority
+                      % 10] : [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][r.priority
+                      % 10])))))) : ''value'') : ''-'').filter(p, p != ''-'')[0] +
+                      '' is used more than once'''
+                    rule: self.rules.all(r, self.rules.exists_one(o, o.priority ==
+                      r.priority))
+                  - message: every prefix of an access list must be in the list's
+                      address family
+                    messageExpression: '''access list '' + self.name + '' is of type
+                      '' + self.type + '': every prefix must be in that address family'''
+                    rule: 'self.rules.all(r, (!has(r.sourcePrefix) || !isCIDR(r.sourcePrefix)
+                      || cidr(r.sourcePrefix).ip().family() == (self.type == ''ipv4''
+                      ? 4 : 6)) && (!has(r.destinationPrefix) || !isCIDR(r.destinationPrefix)
+                      || cidr(r.destinationPrefix).ip().family() == (self.type ==
+                      ''ipv4'' ? 4 : 6)))'
+                maxItems: 1
+                minItems: 1
+                type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
+              attachments:
+                description: |-
+                  Attachments, at least one; mutable, except that an added attachment may not bring a
+                  new allocation-band VLAN (AD-47).
+                items:
+                  description: |-
+                    NetworkAttachment is a node, a port and optionally a VLAN; it resolves through the Fabric
+                    site inventory to exactly one subinterface, <port>.<vlan>, or <port>.0 when none is named.
+                  properties:
+                    attachment:
+                      description: Attachment is the port, in the device's own naming.
+                      maxLength: 32
+                      minLength: 1
+                      pattern: ^[a-z][a-z0-9-]*[0-9](/[0-9]+){0,2}$
+                      type: string
+                    node:
+                      description: Node the attachment is on.
+                      maxLength: 63
+                      minLength: 1
+                      pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+                      type: string
+                    vlan:
+                      description: VLAN of the subinterface; absent for the untagged
+                        subinterface.
+                      format: int64
+                      maximum: 4094
+                      minimum: 1
+                      type: integer
+                    vrf:
+                      description: VRF names the routers[] entry of an ip-vrf attachment.
+                      maxLength: 63
+                      minLength: 1
+                      pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+                      type: string
+                  required:
+                  - attachment
+                  - node
+                  type: object
+                maxItems: 64
+                minItems: 1
+                type: array
+                x-kubernetes-list-type: atomic
+                x-kubernetes-validations:
+                - message: two attachments resolve to one subinterface (node, port,
+                    vlan)
+                  messageExpression: '''two attachments resolve to one subinterface:
+                    '' + self.map(a, !self.exists_one(b, b.node == a.node && b.attachment
+                    == a.attachment && has(a.vlan) == has(b.vlan) && (!has(a.vlan)
+                    || a.vlan == b.vlan)) ? a.node + '' '' + a.attachment + ''.''
+                    + (has(a.vlan) ? ((a.vlan >= 1000 ? [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][a.vlan
+                    / 1000 % 10] + [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][a.vlan
+                    / 100 % 10] + [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][a.vlan
+                    / 10 % 10] + [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][a.vlan
+                    % 10] : (a.vlan >= 100 ? [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][a.vlan
+                    / 100 % 10] + [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][a.vlan
+                    / 10 % 10] + [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][a.vlan
+                    % 10] : (a.vlan >= 10 ? [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][a.vlan
+                    / 10 % 10] + [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][a.vlan
+                    % 10] : [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][a.vlan
+                    % 10])))) : ''0'') : ''-'').filter(x, x != ''-'')[0] + '' is named
+                    more than once'''
+                  rule: self.all(a, self.exists_one(b, b.node == a.node && b.attachment
+                    == a.attachment && has(a.vlan) == has(b.vlan) && (!has(a.vlan)
+                    || a.vlan == b.vlan)))
+                - message: 'a port carries an untagged and a tagged attachment in
+                    this object: one tagging mode per port'
+                  messageExpression: '''port '' + self.map(a, self.exists(b, b.node
+                    == a.node && b.attachment == a.attachment && has(a.vlan) != has(b.vlan))
+                    ? a.node + '' '' + a.attachment : ''-'').filter(x, x != ''-'')[0]
+                    + '' carries an untagged and a tagged attachment in this object:
+                    tagging is a property of the port, one tagging mode per port'''
+                  rule: self.all(a, !self.exists(b, b.node == a.node && b.attachment
+                    == a.attachment && has(a.vlan) != has(b.vlan)))
+              bridgeDomains:
+                description: BridgeDomains — the mac-vrf construct; entries immutable
+                  once accepted.
+                items:
+                  description: |-
+                    BridgeDomain is a fabric-wide bridge domain (the mac-vrf construct): one VLAN, a non-zero
+                    L2VNI, explicitly rendered route targets and, with an anycast gateway, an irb.
+                  properties:
+                    evpn:
+                      description: EVPN is the EVPN instance of the bridge domain.
+                      properties:
+                        routeTargets:
+                          description: RouteTargets rendered explicitly as target:<fabricASN>:<l2vni>.
+                          properties:
+                            export:
+                              description: Export route targets.
+                              items:
+                                description: RouteTarget is a derived route target,
+                                  target:<fabricASN>:<vni>.
+                                maxLength: 24
+                                pattern: ^target:[0-9]{1,10}:[0-9]{1,5}$
+                                type: string
+                              maxItems: 4
+                              type: array
+                              x-kubernetes-list-type: set
+                            import:
+                              description: Import route targets.
+                              items:
+                                description: RouteTarget is a derived route target,
+                                  target:<fabricASN>:<vni>.
+                                maxLength: 24
+                                pattern: ^target:[0-9]{1,10}:[0-9]{1,5}$
+                                type: string
+                              maxItems: 4
+                              type: array
+                              x-kubernetes-list-type: set
+                          type: object
+                      type: object
+                    irb:
+                      description: IRB is present iff the mac-vrf declares an anycast
+                        gateway.
+                      properties:
+                        gatewayIPv4:
+                          description: GatewayIPv4 is an IPv4 address with a prefix
+                            length, e.g. 10.10.0.1/24.
+                          maxLength: 18
+                          type: string
+                          x-kubernetes-validations:
+                          - message: gatewayIPv4 must be an IPv4 address with a prefix
+                              length
+                            rule: isCIDR(self) && cidr(self).ip().family() == 4
+                        gatewayIPv6:
+                          description: GatewayIPv6 is an IPv6 address with a prefix
+                            length; never link-local.
+                          maxLength: 43
+                          type: string
+                          x-kubernetes-validations:
+                          - message: gatewayIPv6 must be an IPv6 address with a prefix
+                              length
+                            rule: isCIDR(self) && cidr(self).ip().family() == 6
+                          - message: gatewayIPv6 must not be a link-local address
+                            rule: '!isCIDR(self) || !cidr(self).ip().isLinkLocalUnicast()'
+                        vrf:
+                          description: VRF names the routers[] entry of this object
+                            the gateway routes into.
+                          maxLength: 63
+                          minLength: 1
+                          pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+                          type: string
+                      required:
+                      - vrf
+                      type: object
+                      x-kubernetes-validations:
+                      - message: 'irb declares at least one address family: gatewayIPv4,
+                          gatewayIPv6 or both'
+                        rule: has(self.gatewayIPv4) || has(self.gatewayIPv6)
+                    l2vni:
+                      description: L2VNI of the bridge domain. Immutable once accepted.
+                      format: int64
+                      type: integer
+                      x-kubernetes-validations:
+                      - message: 'spec.bridgeDomains[].l2vni is immutable once the
+                          Network is accepted: changing it is a removal and a new
+                          service (FR-109)'
+                        rule: self == oldSelf
+                      - message: VNI is outside the device range 1..65535 (the EVPN
+                          instance identifier is derived from the VNI)
+                        messageExpression: '''VNI '' + (self >= 0 && self < 1000000
+                          ? ((self >= 100000 ? [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][self
+                          / 100000 % 10] + [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][self
+                          / 10000 % 10] + [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][self
+                          / 1000 % 10] + [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][self
+                          / 100 % 10] + [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][self
+                          / 10 % 10] + [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][self
+                          % 10] : (self >= 10000 ? [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][self
+                          / 10000 % 10] + [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][self
+                          / 1000 % 10] + [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][self
+                          / 100 % 10] + [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][self
+                          / 10 % 10] + [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][self
+                          % 10] : (self >= 1000 ? [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][self
+                          / 1000 % 10] + [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][self
+                          / 100 % 10] + [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][self
+                          / 10 % 10] + [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][self
+                          % 10] : (self >= 100 ? [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][self
+                          / 100 % 10] + [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][self
+                          / 10 % 10] + [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][self
+                          % 10] : (self >= 10 ? [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][self
+                          / 10 % 10] + [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][self
+                          % 10] : [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][self
+                          % 10])))))) : ''value'') + '' is outside the device range
+                          1..65535 (the EVPN instance identifier is derived from the
+                          VNI)'''
+                        rule: self >= 1 && self <= 65535
+                    name:
+                      description: Name of the entry; a DNS-1123 label, the map key.
+                      maxLength: 63
+                      minLength: 1
+                      pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+                      type: string
+                    vlan:
+                      description: VLAN of the bridge domain; every attachment carries
+                        it. Immutable once accepted.
+                      format: int64
+                      maximum: 4094
+                      minimum: 1
+                      type: integer
+                      x-kubernetes-validations:
+                      - message: 'spec.bridgeDomains[].vlan is immutable once the
+                          Network is accepted: changing it is a removal and a new
+                          service (FR-109)'
+                        rule: self == oldSelf
+                      - message: 'VLAN is outside the platform VLAN space 100–4000:
+                          name a VLAN from the naming band 100–999; the band 1000–4000
+                          belongs to the allocation authority'
+                        messageExpression: '''VLAN '' + ((self >= 1000 ? [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][self
+                          / 1000 % 10] + [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][self
+                          / 100 % 10] + [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][self
+                          / 10 % 10] + [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][self
+                          % 10] : (self >= 100 ? [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][self
+                          / 100 % 10] + [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][self
+                          / 10 % 10] + [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][self
+                          % 10] : (self >= 10 ? [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][self
+                          / 10 % 10] + [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][self
+                          % 10] : [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][self
+                          % 10])))) + '' is outside the platform VLAN space 100–4000:
+                          name a VLAN from the naming band 100–999; the band 1000–4000
+                          belongs to the allocation authority'''
+                        rule: self >= 100 && self <= 4000
+                  required:
+                  - l2vni
+                  - name
+                  - vlan
+                  type: object
+                  x-kubernetes-validations:
+                  - message: 'bridgeDomains[].evpn.routeTargets must be target:<fabricASN>:<l2vni>
+                      for this bridge domain''s own l2vni: route targets are derived,
+                      never chosen'
+                    rule: '!has(self.evpn) || !has(self.evpn.routeTargets) || ((!has(self.evpn.routeTargets.__import__)
+                      || self.evpn.routeTargets.__import__.all(t, !t.matches(''^target:[0-9]{1,10}:[0-9]{1,5}$'')
+                      || int(t.substring(t.lastIndexOf('':'') + 1)) == self.l2vni))
+                      && (!has(self.evpn.routeTargets.export) || self.evpn.routeTargets.export.all(t,
+                      !t.matches(''^target:[0-9]{1,10}:[0-9]{1,5}$'') || int(t.substring(t.lastIndexOf('':'')
+                      + 1)) == self.l2vni)))'
+                maxItems: 1
+                minItems: 1
+                type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
+              description:
+                description: Description of the service.
+                maxLength: 255
+                type: string
+              routers:
+                description: Routers — the ip-vrf construct, or the routed half of
+                  a mac-vrf with a gateway.
+                items:
+                  description: |-
+                    NetworkRouter is a routed instance (the ip-vrf construct, or the routed half of a mac-vrf
+                    with a gateway). There is no route-distinguisher field: the device derives it.
+                  properties:
+                    l3vni:
+                      description: L3VNI of the routed instance. Immutable once accepted.
+                      format: int64
+                      type: integer
+                      x-kubernetes-validations:
+                      - message: 'spec.routers[].l3vni is immutable once the Network
+                          is accepted: changing it is a removal and a new service
+                          (FR-109)'
+                        rule: self == oldSelf
+                      - message: VNI is outside the device range 1..65535 (the EVPN
+                          instance identifier is derived from the VNI)
+                        messageExpression: '''VNI '' + (self >= 0 && self < 1000000
+                          ? ((self >= 100000 ? [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][self
+                          / 100000 % 10] + [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][self
+                          / 10000 % 10] + [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][self
+                          / 1000 % 10] + [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][self
+                          / 100 % 10] + [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][self
+                          / 10 % 10] + [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][self
+                          % 10] : (self >= 10000 ? [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][self
+                          / 10000 % 10] + [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][self
+                          / 1000 % 10] + [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][self
+                          / 100 % 10] + [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][self
+                          / 10 % 10] + [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][self
+                          % 10] : (self >= 1000 ? [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][self
+                          / 1000 % 10] + [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][self
+                          / 100 % 10] + [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][self
+                          / 10 % 10] + [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][self
+                          % 10] : (self >= 100 ? [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][self
+                          / 100 % 10] + [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][self
+                          / 10 % 10] + [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][self
+                          % 10] : (self >= 10 ? [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][self
+                          / 10 % 10] + [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][self
+                          % 10] : [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][self
+                          % 10])))))) : ''value'') + '' is outside the device range
+                          1..65535 (the EVPN instance identifier is derived from the
+                          VNI)'''
+                        rule: self >= 1 && self <= 65535
+                    name:
+                      description: Name of the entry; a DNS-1123 label, the map key.
+                      maxLength: 63
+                      minLength: 1
+                      pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+                      type: string
+                    prefixes:
+                      description: Prefixes the routed instance declares; mutable.
+                      items:
+                        description: IPPrefix is a CIDR prefix, IPv4 or IPv6.
+                        maxLength: 43
+                        type: string
+                        x-kubernetes-validations:
+                        - message: must be a CIDR prefix
+                          rule: isCIDR(self)
+                      maxItems: 32
+                      type: array
+                      x-kubernetes-list-type: set
+                    routeTargets:
+                      description: RouteTargets rendered explicitly as target:<fabricASN>:<l3vni>.
+                      properties:
+                        export:
+                          description: Export route targets.
+                          items:
+                            description: RouteTarget is a derived route target, target:<fabricASN>:<vni>.
+                            maxLength: 24
+                            pattern: ^target:[0-9]{1,10}:[0-9]{1,5}$
+                            type: string
+                          maxItems: 4
+                          type: array
+                          x-kubernetes-list-type: set
+                        import:
+                          description: Import route targets.
+                          items:
+                            description: RouteTarget is a derived route target, target:<fabricASN>:<vni>.
+                            maxLength: 24
+                            pattern: ^target:[0-9]{1,10}:[0-9]{1,5}$
+                            type: string
+                          maxItems: 4
+                          type: array
+                          x-kubernetes-list-type: set
+                      type: object
+                  required:
+                  - l3vni
+                  - name
+                  type: object
+                  x-kubernetes-validations:
+                  - message: 'routers[].routeTargets must be target:<fabricASN>:<l3vni>
+                      for this router''s own l3vni: route targets are derived, never
+                      chosen'
+                    rule: '!has(self.routeTargets) || ((!has(self.routeTargets.__import__)
+                      || self.routeTargets.__import__.all(t, !t.matches(''^target:[0-9]{1,10}:[0-9]{1,5}$'')
+                      || int(t.substring(t.lastIndexOf('':'') + 1)) == self.l3vni))
+                      && (!has(self.routeTargets.export) || self.routeTargets.export.all(t,
+                      !t.matches(''^target:[0-9]{1,10}:[0-9]{1,5}$'') || int(t.substring(t.lastIndexOf('':'')
+                      + 1)) == self.l3vni)))'
+                maxItems: 1
+                minItems: 1
+                type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
+              vlans:
+                description: VLANs — the vlan construct; entries immutable once accepted
+                  (map keyed by name).
+                items:
+                  description: |-
+                    NetworkVLAN is a local VLAN — a bridge domain with no overlay (the vlan construct). It is
+                    its own list, never a bridge domain with a zero L2VNI (D-11).
+                  properties:
+                    name:
+                      description: Name of the entry; a DNS-1123 label, the map key.
+                      maxLength: 63
+                      minLength: 1
+                      pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
+                      type: string
+                    vlan:
+                      description: VLAN of the local bridge domain. Immutable once
+                        the Network is accepted.
+                      format: int64
+                      maximum: 4094
+                      minimum: 1
+                      type: integer
+                      x-kubernetes-validations:
+                      - message: 'spec.vlans[].vlan is immutable once the Network
+                          is accepted: changing it is a removal and a new service
+                          (FR-109)'
+                        rule: self == oldSelf
+                      - message: 'VLAN is outside the platform VLAN space 100–4000:
+                          name a VLAN from the naming band 100–999; the band 1000–4000
+                          belongs to the allocation authority'
+                        messageExpression: '''VLAN '' + ((self >= 1000 ? [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][self
+                          / 1000 % 10] + [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][self
+                          / 100 % 10] + [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][self
+                          / 10 % 10] + [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][self
+                          % 10] : (self >= 100 ? [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][self
+                          / 100 % 10] + [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][self
+                          / 10 % 10] + [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][self
+                          % 10] : (self >= 10 ? [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][self
+                          / 10 % 10] + [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][self
+                          % 10] : [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][self
+                          % 10])))) + '' is outside the platform VLAN space 100–4000:
+                          name a VLAN from the naming band 100–999; the band 1000–4000
+                          belongs to the allocation authority'''
+                        rule: self >= 100 && self <= 4000
+                  required:
+                  - name
+                  - vlan
+                  type: object
+                maxItems: 1
+                minItems: 1
+                type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
+            required:
+            - attachments
+            type: object
+            x-kubernetes-validations:
+            - message: one of vlans, bridgeDomains, routers or accessLists must be
+                present
+              rule: has(self.vlans) || has(self.bridgeDomains) || has(self.routers)
+                || has(self.accessLists)
+            - message: 'vlans and bridgeDomains cannot both be present: a local VLAN
+                and a fabric-wide bridge domain are different constructs'
+              rule: '!(has(self.vlans) && has(self.bridgeDomains))'
+            - message: 'vlans and routers cannot both be present: a vlan is not routed;
+                ask for a mac-vrf with an irb, or an ip-vrf'
+              rule: '!(has(self.vlans) && has(self.routers))'
+            - message: bridgeDomains and routers can both be present only when the
+                bridge domain carries an irb pointing at the router
+              rule: '!(has(self.bridgeDomains) && has(self.routers)) || self.bridgeDomains.all(b,
+                has(b.irb))'
+            - message: 'bridgeDomains[].irb requires a routers entry: irb.vrf must
+                name a routers entry of this object'
+              rule: '!has(self.bridgeDomains) || self.bridgeDomains.all(b, !has(b.irb)
+                || (has(self.routers) && self.routers.exists(r, r.name == b.irb.vrf)))'
+            - message: 'a service''s L2VNI and L3VNI differ: bridgeDomains[].l2vni
+                equals routers[].l3vni'
+              rule: '!(has(self.bridgeDomains) && has(self.routers)) || self.bridgeDomains.all(b,
+                self.routers.all(r, b.l2vni != r.l3vni))'
+            - message: 'an attachment VLAN is outside the platform VLAN space 100–4000:
+                name a VLAN from the naming band 100–999; the band 1000–4000 belongs
+                to the allocation authority'
+              messageExpression: '''attachment VLAN '' + self.attachments.map(a, has(a.vlan)
+                && (a.vlan < 100 || a.vlan > 4000) ? ((a.vlan >= 1000 ? [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][a.vlan
+                / 1000 % 10] + [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][a.vlan
+                / 100 % 10] + [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][a.vlan
+                / 10 % 10] + [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][a.vlan
+                % 10] : (a.vlan >= 100 ? [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][a.vlan
+                / 100 % 10] + [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][a.vlan
+                / 10 % 10] + [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][a.vlan
+                % 10] : (a.vlan >= 10 ? [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][a.vlan
+                / 10 % 10] + [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][a.vlan
+                % 10] : [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][a.vlan
+                % 10])))) : ''-'').filter(x, x != ''-'')[0] + '' is outside the platform
+                VLAN space 100–4000: name a VLAN from the naming band 100–999; the
+                band 1000–4000 belongs to the allocation authority'''
+              rule: (has(self.accessLists) && !has(self.vlans) && !has(self.bridgeDomains)
+                && !has(self.routers)) || self.attachments.all(a, !has(a.vlan) ||
+                (a.vlan >= 100 && a.vlan <= 4000))
+            - message: 'one VLAN per bridge domain: every attachment of a vlan service
+                carries the VLAN of its vlans[] entry'
+              rule: '!has(self.vlans) || self.attachments.all(a, has(a.vlan) && self.vlans.exists(v,
+                v.vlan == a.vlan))'
+            - message: 'one VLAN per bridge domain: every attachment of a bridgeDomains
+                service carries the VLAN of its bridgeDomains[] entry'
+              rule: '!has(self.bridgeDomains) || self.attachments.all(a, has(a.vlan)
+                && self.bridgeDomains.exists(b, b.vlan == a.vlan))'
+            - message: attachments[].vrf is set only on an ip-vrf attachment and names
+                a routers entry of this object
+              rule: self.attachments.all(a, !has(a.vrf) || (has(self.routers) && !has(self.bridgeDomains)
+                && self.routers.exists(r, r.name == a.vrf)))
+            - message: every attachment of an ip-vrf carries vrf naming its routers
+                entry
+              rule: '!(has(self.routers) && !has(self.bridgeDomains)) || self.attachments.all(a,
+                has(a.vrf))'
+            - message: 'spec.vlans entries cannot be added, removed or renamed once
+                the Network is accepted: changing them is a removal and a new service
+                (FR-109)'
+              rule: has(self.vlans) == has(oldSelf.vlans) && (!has(self.vlans) ||
+                sets.equivalent(self.vlans.map(e, e.name), oldSelf.vlans.map(e, e.name)))
+            - message: 'spec.bridgeDomains entries cannot be added, removed or renamed
+                once the Network is accepted: changing them is a removal and a new
+                service (FR-109)'
+              rule: has(self.bridgeDomains) == has(oldSelf.bridgeDomains) && (!has(self.bridgeDomains)
+                || sets.equivalent(self.bridgeDomains.map(e, e.name), oldSelf.bridgeDomains.map(e,
+                e.name)))
+            - message: 'spec.routers entries cannot be added, removed or renamed once
+                the Network is accepted: changing them is a removal and a new service
+                (FR-109)'
+              rule: has(self.routers) == has(oldSelf.routers) && (!has(self.routers)
+                || sets.equivalent(self.routers.map(e, e.name), oldSelf.routers.map(e,
+                e.name)))
+            - message: 'an attachment added to an accepted Network carries a VLAN
+                in the allocation band 1000–4000 that the object does not already
+                carry in vlans[] or bridgeDomains[]: an added attachment may carry
+                a VLAN from the naming band 100–999, or none; an attachment on a new
+                allocation-band VLAN is a new service'
+              messageExpression: '''an attachment added to an accepted Network carries
+                VLAN '' + self.attachments.map(a, has(a.vlan) && a.vlan >= 1000 &&
+                a.vlan <= 4000 && !oldSelf.attachments.exists(o, o.node == a.node
+                && o.attachment == a.attachment && has(o.vlan) && o.vlan == a.vlan)
+                && !(has(self.vlans) && self.vlans.exists(v, v.vlan == a.vlan)) &&
+                !(has(self.bridgeDomains) && self.bridgeDomains.exists(b, b.vlan ==
+                a.vlan)) ? ((a.vlan >= 1000 ? [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][a.vlan
+                / 1000 % 10] + [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][a.vlan
+                / 100 % 10] + [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][a.vlan
+                / 10 % 10] + [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][a.vlan
+                % 10] : (a.vlan >= 100 ? [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][a.vlan
+                / 100 % 10] + [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][a.vlan
+                / 10 % 10] + [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][a.vlan
+                % 10] : (a.vlan >= 10 ? [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][a.vlan
+                / 10 % 10] + [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][a.vlan
+                % 10] : [''0'',''1'',''2'',''3'',''4'',''5'',''6'',''7'',''8'',''9''][a.vlan
+                % 10])))) : ''-'').filter(x, x != ''-'')[0] + '', which lies in the
+                allocation band 1000–4000 and is not a VLAN this object already carries
+                in vlans[] or bridgeDomains[]: an added attachment may carry a VLAN
+                from the naming band 100–999, or none; an attachment on a new allocation-band
+                VLAN is a new service'''
+              rule: (has(self.accessLists) && !has(self.vlans) && !has(self.bridgeDomains)
+                && !has(self.routers)) || self.attachments.all(a, !(has(a.vlan) &&
+                a.vlan >= 1000 && a.vlan <= 4000 && !oldSelf.attachments.exists(o,
+                o.node == a.node && o.attachment == a.attachment && has(o.vlan) &&
+                o.vlan == a.vlan) && !(has(self.vlans) && self.vlans.exists(v, v.vlan
+                == a.vlan)) && !(has(self.bridgeDomains) && self.bridgeDomains.exists(b,
+                b.vlan == a.vlan))))
+          status:
+            description: NetworkStatus is the observed state of a Network.
+            properties:
+              claimRefs:
+                description: ClaimRefs are the claims backing every allocated value,
+                  each adopted or created.
+                items:
+                  description: |-
+                    ClaimRef is one entry of status.claimRefs[] — exactly the five fields of
+                    contracts/crd-api.md §Status, the one list (AD-56).
+                  properties:
+                    indexKind:
+                      description: 'IndexKind is the index the claim draws from: the
+                        VLAN index or the VNI index.'
+                      enum:
+                      - vlan
+                      - genid
+                      type: string
+                    name:
+                      description: Name is the claim object's name — deterministic,
+                        <namespace>.<name>.<role>.
+                      maxLength: 253
+                      type: string
+                    namespace:
+                      description: Namespace is the allocation namespace the claim
+                        lives in.
+                      maxLength: 63
+                      type: string
+                    origin:
+                      description: Origin is adopted (the tier made it) or created
+                        (the provider did). Written once.
+                      enum:
+                      - adopted
+                      - created
+                      type: string
+                    value:
+                      description: Value is the identifier the claim reports.
+                      format: int64
+                      type: integer
+                  required:
+                  - indexKind
+                  - name
+                  - namespace
+                  - origin
+                  - value
+                  type: object
+                maxItems: 16
+                type: array
+                x-kubernetes-list-type: atomic
+              conditions:
+                description: Conditions are the standard conditions of data-model.md
+                  §18.
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
+                  properties:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
+                      type: string
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
+                      type: string
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
+                  type: object
+                maxItems: 16
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              lastVerifiedTime:
+                description: |-
+                  LastVerifiedTime is the last scheduled re-verification that ran — completed its
+                  read-back, whatever it found (FR-107, AD-54).
+                format: date-time
+                type: string
+              observedGeneration:
+                description: ObservedGeneration is the generation the status reflects.
+                format: int64
+                type: integer
+              renderedConfigs:
+                description: |-
+                  RenderedConfigs are the generated Config references with their render hashes and
+                  per-target phase and reason.
+                items:
+                  description: |-
+                    RenderedConfig is the reference to one generated device-configuration resource (the
+                    device-configuration layer's own Config, named <source>.<node>) with its render hash and the
+                    target's current phase and reason (contracts/crd-api.md §Status contract).
+                  properties:
+                    lastTransitionTime:
+                      description: LastTransitionTime is when Phase last changed.
+                      format: date-time
+                      type: string
+                    message:
+                      description: Message is a concise human-readable message; automation
+                        keys on Reason.
+                      maxLength: 2048
+                      type: string
+                    name:
+                      description: Name of the Config — <source>.<node>.
+                      maxLength: 253
+                      type: string
+                    namespace:
+                      description: Namespace of the Config — agentic-netops-system,
+                        always.
+                      maxLength: 63
+                      type: string
+                    node:
+                      description: Node is the target the Config binds to.
+                      maxLength: 63
+                      type: string
+                    observedGeneration:
+                      description: ObservedGeneration is the source generation this
+                        entry was rendered from.
+                      format: int64
+                      type: integer
+                    phase:
+                      description: Phase is the target's current phase.
+                      maxLength: 32
+                      type: string
+                    priority:
+                      description: 'Priority of the Config: 10 for the Fabric-derived
+                        per-node Config, 20 per service.'
+                      format: int32
+                      type: integer
+                    reason:
+                      description: Reason is a stable reason code from the closed
+                        set of data-model.md §18.
+                      maxLength: 64
+                      type: string
+                    renderHash:
+                      description: RenderHash is the canonical render hash the Config
+                        carries, sha256:<hex>.
+                      maxLength: 80
+                      type: string
+                    transactionRef:
+                      description: TransactionRef is the last device transaction reference,
+                        when available.
+                      maxLength: 253
+                      type: string
+                  required:
+                  - name
+                  - namespace
+                  - node
+                  type: object
+                maxItems: 64
+                type: array
+                x-kubernetes-list-type: atomic
+            type: object
+        required:
+        - spec
+        type: object
+        x-kubernetes-validations:
+        - message: 'metadata.name must not contain a dot: the generated Config name
+            <source>.<node> is parsed on the last dot'
+          rule: '!self.metadata.name.contains(''.'')'
+        - message: metadata.name must be a DNS-1123 label of at most 63 characters,
+            so every claim name <namespace>.<name>.<role> stays within 253
+          rule: self.metadata.name.size() <= 63
+        - message: 'metadata.name must be a DNS-1123 label: lower-case alphanumerics
+            and ''-'', starting and ending with an alphanumeric'
+          rule: self.metadata.name.matches('^[a-z0-9]([-a-z0-9]*[a-z0-9])?$')
+    served: true
+    storage: true
+    subresources:
+      status: {}

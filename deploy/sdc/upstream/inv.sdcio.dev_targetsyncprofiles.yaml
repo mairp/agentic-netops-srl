@@ -1,0 +1,151 @@
+# provenance: source=https://raw.githubusercontent.com/sdcio/config-server/bcc56b045a689032c5123a9f50bcf56ed8c630dc/artifacts/inv.sdcio.dev_targetsyncprofiles.yaml version=v0.0.58 commit=bcc56b045a689032c5123a9f50bcf56ed8c630dc digest=sha256:656212b68455cb07a57184e0e9e1a12a5c20e92dafa7a0f05a0d2fe5e382d696
+# vendored-by: scripts/lib/fetch_upstream.sh (T035, FR-098) - the bytes after the end marker are the upstream artefact, unmodified; never edit them, re-run the fetcher
+# --- end of provenance header ---
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.20.0
+  name: targetsyncprofiles.inv.sdcio.dev
+spec:
+  group: inv.sdcio.dev
+  names:
+    categories:
+    - sdc
+    - inv
+    kind: TargetSyncProfile
+    listKind: TargetSyncProfileList
+    plural: targetsyncprofiles
+    singular: targetsyncprofile
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.sync[0].protocol
+      name: PROTOCOL
+      type: string
+    - jsonPath: .spec.sync[0].port
+      name: PORT
+      type: string
+    - jsonPath: .spec.sync[0].encoding
+      name: ENCODING
+      type: string
+    - jsonPath: .spec.sync[0].mode
+      name: MODE
+      type: string
+    - jsonPath: .spec.sync[0].interval
+      name: INTERVAL
+      type: string
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: TargetSyncProfile is the Schema for the TargetSyncProfile API
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: TargetSyncProfileSpec defines the desired state of TargetSyncProfile
+            properties:
+              buffer:
+                default: 0
+                format: int64
+                type: integer
+                x-kubernetes-validations:
+                - message: buffer is immutable
+                  rule: self == oldSelf
+              sync:
+                items:
+                  description: TargetSyncProfileSync defines the desired state of
+                    TargetSyncProfileSync
+                  properties:
+                    encoding:
+                      enum:
+                      - UNKNOWN
+                      - JSON
+                      - JSON_IETF
+                      - PROTO
+                      - CONFIG
+                      type: string
+                    interval:
+                      default: 60s
+                      format: duration
+                      type: string
+                    mode:
+                      default: get
+                      enum:
+                      - unknown
+                      - onChange
+                      - sample
+                      - once
+                      - get
+                      type: string
+                    name:
+                      type: string
+                    paths:
+                      items:
+                        type: string
+                      maxItems: 10
+                      type: array
+                      x-kubernetes-list-type: atomic
+                    port:
+                      default: 57400
+                      description: Port defines the port on which the scan runs
+                      format: int32
+                      type: integer
+                    protocol:
+                      default: gnmi
+                      enum:
+                      - unknown
+                      - gnmi
+                      - netconf
+                      - noop
+                      type: string
+                  required:
+                  - mode
+                  - name
+                  - paths
+                  - port
+                  - protocol
+                  type: object
+                maxItems: 10
+                type: array
+                x-kubernetes-list-type: atomic
+                x-kubernetes-validations:
+                - message: sync may only be added
+                  rule: oldSelf.all(x, x in self)
+              validate:
+                default: true
+                type: boolean
+                x-kubernetes-validations:
+                - message: validate is immutable
+                  rule: self == oldSelf
+              workers:
+                default: 10
+                format: int64
+                type: integer
+                x-kubernetes-validations:
+                - message: workers is immutable
+                  rule: self == oldSelf
+            type: object
+            x-kubernetes-validations:
+            - message: sync is required once set
+              rule: '!has(oldSelf.sync) || has(self.sync)'
+        type: object
+    served: true
+    storage: true
+    subresources: {}

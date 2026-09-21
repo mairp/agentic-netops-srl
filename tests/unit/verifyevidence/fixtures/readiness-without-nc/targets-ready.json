@@ -1,0 +1,38 @@
+{
+  "attachments": [],
+  "check_id": "targets-ready",
+  "cluster": {
+    "name": "agentic-netops",
+    "uid": "00000000-fixture-uid"
+  },
+  "command": [
+    "echo",
+    "4/4 targets Ready"
+  ],
+  "command_line": "echo 4/4\\ targets\\ Ready",
+  "cwd": "/root/agentic-netops-srl",
+  "device_image_digest": "sha256:6ab1250cbff4b536e0996e57d2d9c2a7bf3154028c21e4c978e13254add3c402",
+  "exit_status": 0,
+  "id": "targets-ready",
+  "kind": "run",
+  "lab": {
+    "name": "fixture-lab",
+    "topology_sha256": ""
+  },
+  "raw_output": {
+    "stderr": {
+      "file": "targets-ready.stderr",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "stdout": {
+      "file": "targets-ready.stdout",
+      "sha256": "f7c9d23800efac36508d7805f0c4228d33283bd6a97afec6e80acc4de57afd39"
+    }
+  },
+  "readiness": true,
+  "record_sha256": "ae6609e746d0795c4253709ee1fbd8acc43cf392b636ffb8e355f6dfb14b47ad",
+  "records": [],
+  "schema": "agentic-netops.evidence/v1",
+  "utc_finished": "2026-09-21T02:44:01Z",
+  "utc_time": "2026-09-21T02:44:01Z"
+}

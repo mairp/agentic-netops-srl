@@ -1,0 +1,8 @@
+# provenance: source=https://raw.githubusercontent.com/sdcio/config-server/bcc56b045a689032c5123a9f50bcf56ed8c630dc/artifacts/sa-dataserver.yaml version=v0.0.58 commit=bcc56b045a689032c5123a9f50bcf56ed8c630dc digest=sha256:3d37f6204aebdbd50ff690e25ba71f1d76c44d8ae331d381dfd9b98e5f23578f
+# vendored-by: scripts/lib/fetch_upstream.sh (T035, FR-098) - the bytes after the end marker are the upstream artefact, unmodified; never edit them, re-run the fetcher
+# --- end of provenance header ---
+kind: ServiceAccount
+apiVersion: v1
+metadata:
+  name: data-server-controller
+  namespace: sdc-system

@@ -1,0 +1,15 @@
+# The provider's Prometheus metrics endpoint (controller-runtime; reconcile series, T059/T133).
+apiVersion: v1
+kind: Service
+metadata:
+  name: srl-provider-metrics
+  namespace: agentic-netops-system
+  labels:
+    app.kubernetes.io/name: srl-provider
+spec:
+  selector:
+    app.kubernetes.io/name: srl-provider
+  ports:
+  - name: metrics
+    port: 8080
+    targetPort: metrics

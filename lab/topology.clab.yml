@@ -1,0 +1,109 @@
+# topology.clab.yml — the one reference lab (T030; FR-001, FR-002, FR-008, R-12, RD-01, RD-10).
+#
+# Six nodes and nothing else: two route-reflecting spines (ixr-d3l), two leaves (ixr-d2l) and one
+# Linux endpoint behind each leaf. There is ONE profile and no flag selects another.
+#
+# Management: the owned, labelled Docker network agentic-netops-mgmt, created BEFORE this lab by
+# scripts/lib/docker_net.sh (containerlab reuses an existing network — evidence/01 §4.5). Addresses
+# are fixed: spines .11/.12, leaves .21/.22, clients .31/.32 of MGMT_CIDR (default 172.25.25.0/24).
+# scripts/lib/containerlab.sh exports MGMT_CIDR and CLAB_MGMT_PREFIX (the CIDR's first three
+# octets) so an overridden MGMT_CIDR moves every address with it; containerlab expands
+# ${VAR:=default} itself, so a bare `containerlab deploy -t` lands on exactly the defaults.
+#
+# The management MTU is deliberately NOT set: containerlab's mgmt MTU half-applies silently on
+# SR Linux (evidence/01 §8.5, R-12). Per-link MTU is not set either: the 9500 veth default is above
+# the 9412 port maximum, so the device model owns the fabric number (evidence/01 §8.2). The Linux
+# endpoints set eth1 and every VLAN subinterface to 9348 in lab/clients/setup.sh (RD-10, R-11).
+#
+# Bootstrap (T031; FR-086, R-33): bootstrap/<node>.cfg is a flat SR Linux CLI overlay (no comments:
+# every line is applied by the device CLI) limited to management reachability (mgmt0 in the mgmt
+# ip-vrf), the gNMI server `mgmt` on 57400 with TLS profile `clab-profile` (the TLS server profile
+# containerlab 0.79 generates for this kind from the lab CA — evidence/01 §4.3/§4.4; <26.3 images
+# get it as `system tls server-profile`), /system/configuration/auto-save, and session-limit 64 —
+# sized for the two gNMI clients together: the device-configuration layer (sync profile workers 10
+# plus set/get/discovery sessions, budget 24), gNMIc (one SubscribeRequest per subscription of the
+# path register, budget 24), and 16 for bounded verification tooling and headroom. The default of
+# 20 is what R-33 warns both clients would exhaust together. No fabric or service configuration.
+#
+# Image: the SR Linux pin of versions.lock.yaml compatibilitySet.deviceImage.pinned, by digest.
+# The endpoints run the alpine base the lock already pins by digest (firstPartyImages[].from).
+# Every container carries the ownership label agentic-netops.io/owned-by=<cluster> (CLUSTER_NAME),
+# which scripts/off.sh requires before it removes the lab.
+name: agentic-netops-fabric
+
+mgmt:
+  network: agentic-netops-mgmt
+  ipv4-subnet: ${MGMT_CIDR:=172.25.25.0/24}
+
+topology:
+  defaults:
+    labels:
+      agentic-netops.io/owned-by: ${CLUSTER_NAME:=agentic-netops}
+  kinds:
+    nokia_srlinux:
+      image: ghcr.io/nokia/srlinux:25.7.1@sha256:6ab1250cbff4b536e0996e57d2d9c2a7bf3154028c21e4c978e13254add3c402
+    linux:
+      image: docker.io/library/alpine:3.24.2@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6
+  nodes:
+    spine01:
+      kind: nokia_srlinux
+      type: ixr-d3l
+      mgmt-ipv4: ${CLAB_MGMT_PREFIX:=172.25.25}.11
+      startup-config: bootstrap/spine01.cfg
+      labels:
+        agentic-netops.io/role: spine
+    spine02:
+      kind: nokia_srlinux
+      type: ixr-d3l
+      mgmt-ipv4: ${CLAB_MGMT_PREFIX:=172.25.25}.12
+      startup-config: bootstrap/spine02.cfg
+      labels:
+        agentic-netops.io/role: spine
+    leaf01:
+      kind: nokia_srlinux
+      type: ixr-d2l
+      mgmt-ipv4: ${CLAB_MGMT_PREFIX:=172.25.25}.21
+      startup-config: bootstrap/leaf01.cfg
+      labels:
+        agentic-netops.io/role: leaf
+    leaf02:
+      kind: nokia_srlinux
+      type: ixr-d2l
+      mgmt-ipv4: ${CLAB_MGMT_PREFIX:=172.25.25}.22
+      startup-config: bootstrap/leaf02.cfg
+      labels:
+        agentic-netops.io/role: leaf
+    client01:
+      kind: linux
+      mgmt-ipv4: ${CLAB_MGMT_PREFIX:=172.25.25}.31
+      cmd: tail -f /dev/null
+      binds:
+        - clients/setup.sh:/setup.sh:ro
+      env:
+        CLIENT_VLANS: "${CLIENT01_VLANS:=none}"
+      exec:
+        - sh /setup.sh
+      labels:
+        agentic-netops.io/role: client
+    client02:
+      kind: linux
+      mgmt-ipv4: ${CLAB_MGMT_PREFIX:=172.25.25}.32
+      cmd: tail -f /dev/null
+      binds:
+        - clients/setup.sh:/setup.sh:ro
+      env:
+        CLIENT_VLANS: "${CLIENT02_VLANS:=none}"
+      exec:
+        - sh /setup.sh
+      labels:
+        agentic-netops.io/role: client
+
+  links:
+    # fabric: leafNN ethernet-1/49 -> spine01 ethernet-1/N, leafNN ethernet-1/50 -> spine02 ethernet-1/N
+    - endpoints: ["leaf01:ethernet-1/49", "spine01:ethernet-1/1"]
+    - endpoints: ["leaf01:ethernet-1/50", "spine02:ethernet-1/1"]
+    - endpoints: ["leaf02:ethernet-1/49", "spine01:ethernet-1/2"]
+    - endpoints: ["leaf02:ethernet-1/50", "spine02:ethernet-1/2"]
+    # access: one link per endpoint; services share it through VLAN subinterfaces
+    - endpoints: ["client01:eth1", "leaf01:ethernet-1/1"]
+    - endpoints: ["client02:eth1", "leaf02:ethernet-1/1"]

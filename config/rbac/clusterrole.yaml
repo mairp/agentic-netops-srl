@@ -1,0 +1,38 @@
+# Cluster-wide by design only: Networks live in agentic-netops-intent (the tier's) and
+# agentic-netops-services (the control plane's), so the Network watch is cluster-wide
+# (R-15, NETWORK_WATCH_SCOPE=cluster), and Events about a Network are written in its
+# namespace.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: srl-provider
+  labels:
+    app.kubernetes.io/name: srl-provider
+rules:
+- apiGroups: [fabric.agentic-netops.io]
+  resources: [networks]
+  verbs: [get, list, watch]
+- apiGroups: [fabric.agentic-netops.io]
+  resources: [networks/status]
+  verbs: [get, update, patch]
+- apiGroups: [""]
+  resources: [events]
+  verbs: [create, patch]
+- apiGroups: [events.k8s.io]
+  resources: [events]
+  verbs: [create, patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: srl-provider
+  labels:
+    app.kubernetes.io/name: srl-provider
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: srl-provider
+subjects:
+- kind: ServiceAccount
+  name: srl-provider
+  namespace: agentic-netops-system

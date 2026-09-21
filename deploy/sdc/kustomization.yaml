@@ -1,0 +1,108 @@
+# deploy/sdc — the device-configuration layer: sdcio config-server v0.0.58 (api-server +
+# controller) and data-server v0.0.66, from the pinned tag's own artifacts/ (T035; FR-009, FR-098).
+# upstream/ is vendored by scripts/lib/fetch_upstream.sh and never edited; every change this
+# platform makes is stated below. Applied after deploy/cert-manager is Available:
+#   kubectl apply --server-side -k deploy/sdc
+# Storage: the upstream PersistentVolumeClaims name no storageClassName, so they bind through
+# the cluster's default StorageClass — on kind, `standard` (rancher.io/local-path,
+# WaitForFirstConsumer), which provisions a node-local directory per claim. No hostPath
+# PersistentVolume is shipped at v0.0.58 and none is added here.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+- upstream/ns.yaml
+- upstream/inv.sdcio.dev_discoveryrules.yaml
+- upstream/inv.sdcio.dev_discoveryvendorprofiles.yaml
+- upstream/inv.sdcio.dev_rollouts.yaml
+- upstream/inv.sdcio.dev_schemas.yaml
+- upstream/inv.sdcio.dev_subscriptions.yaml
+- upstream/inv.sdcio.dev_targetconnectionprofiles.yaml
+- upstream/inv.sdcio.dev_targetsyncprofiles.yaml
+- upstream/inv.sdcio.dev_workspaces.yaml
+- upstream/certmanager/clusterissuer.yaml
+- api-server-certificate.yaml
+- upstream/sa-apiserver.yaml
+- upstream/sa-controller.yaml
+- upstream/sa-dataserver.yaml
+- upstream/rbac-role.yaml
+- upstream/rbac-role-binding-auth-reader.yaml
+- upstream/rbac-cluster-role-api-server.yaml
+- upstream/rbac-cluster-role-binding-api-server.yaml
+- upstream/rbac-cluster-role-binding-auth-delegator.yaml
+- upstream/rbac-cluster-role-controller.yaml
+- upstream/rbac-cluster-role-binding-controller.yaml
+- upstream/rbac-cluster-role-data-server-controller.yaml
+- upstream/rbac-cluster-role-binding-data-server-controller.yaml
+- upstream/rbac-cluster-role-metrics.yaml
+- upstream/rbac-cluster-role-metrics_reader.yaml
+- upstream/rbac-cluster-role-binding-metrics.yaml
+- upstream/configmap-data-server.yaml
+- upstream/pv-config-server-store.yaml
+- upstream/pv-data-server-schemadb.yaml
+- upstream/pv-schema-server-schema.yaml
+- upstream/pv-workspace-store.yaml
+- upstream/service-apiserver.yaml
+- upstream/service-data-server.yaml
+- upstream/service-schema-server.yaml
+- upstream/service-metrics.yaml
+- upstream/service-target-metrics.yaml
+- upstream/allow-apiserver-extension-traffic.yaml
+- upstream/allow-metrics-traffic.yaml
+- upstream/deployment-apiserver.yaml
+- upstream/deployment-controller.yaml
+- upstream/statefulset-data-server.yaml
+- upstream/apiservice.yaml
+
+# (b) namespace: every namespaced upstream object already names sdc-system (and the one that
+# must live elsewhere, the auth-reader RoleBinding, names kube-system). No namespace
+# transformer is used: kustomize does not know the ClusterIssuer is cluster-scoped and would
+# stamp a namespace on it. tests/unit/verifyupstream checks the render keeps this true.
+
+patches:
+# (a) images: upstream names its images by kform placeholders (input.context[0].data.*);
+# each placeholder becomes its goreleaser repository here, and `images:` below pins the tag
+# and digest. Pulls are IfNotPresent: a digest-pinned reference never changes.
+- target: {group: apps, kind: Deployment, name: api-server}
+  patch: |-
+    - {op: replace, path: /spec/template/spec/containers/0/image, value: ghcr.io/sdcio/config-server-api-server}
+    - {op: replace, path: /spec/template/spec/containers/0/imagePullPolicy, value: IfNotPresent}
+- target: {group: apps, kind: Deployment, name: controller}
+  patch: |-
+    - {op: replace, path: /spec/template/spec/containers/0/image, value: ghcr.io/sdcio/config-server-controller}
+    - {op: replace, path: /spec/template/spec/containers/0/imagePullPolicy, value: IfNotPresent}
+- target: {group: apps, kind: StatefulSet, name: data-server-controller}
+  patch: |-
+    - {op: test, path: /spec/template/spec/containers/0/name, value: controller}
+    - {op: replace, path: /spec/template/spec/containers/0/image, value: ghcr.io/sdcio/config-server-controller}
+    - {op: replace, path: /spec/template/spec/containers/0/imagePullPolicy, value: IfNotPresent}
+    - {op: test, path: /spec/template/spec/containers/1/name, value: data-server}
+    - {op: replace, path: /spec/template/spec/containers/1/image, value: ghcr.io/sdcio/data-server}
+    - {op: replace, path: /spec/template/spec/containers/1/imagePullPolicy, value: IfNotPresent}
+# FR-086: the device-configuration layer does NOT run subscription-based metric ingestion —
+# the device metric collector is the only one (FR-089). Upstream enables the Subscription
+# reconciler (ENABLE_SUBSCRIPTION=true); config-server reads any value other than "false" as on.
+- target: {group: apps, kind: StatefulSet, name: data-server-controller}
+  patch: |-
+    apiVersion: apps/v1
+    kind: StatefulSet
+    metadata:
+      name: data-server-controller
+      namespace: sdc-system
+    spec:
+      template:
+        spec:
+          containers:
+          - name: controller
+            env:
+            - name: ENABLE_SUBSCRIPTION
+              value: "false"
+
+# (a) pinned to versions.lock.yaml compatibilitySet.deviceConfiguration.images.*.pinned;
+# scripts/ci/verify_upstream_artefacts.sh fails when an entry drifts from the lock.
+images:
+- name: ghcr.io/sdcio/config-server-api-server
+  newTag: "v0.0.58@sha256:bd5d312512ad7484eadb6b8e43ef550f647034abdead80429b8ba17d74041f9e"
+- name: ghcr.io/sdcio/config-server-controller
+  newTag: "v0.0.58@sha256:01c69c589137579db784c769019bc92591899666714f153b5b4b97a761ffea13"
+- name: ghcr.io/sdcio/data-server
+  newTag: "v0.0.66@sha256:fe138dcfcfeb5bee2a615bd4e9616bafc9d27b57ae55cee9360d4fd0d2cecbf7"

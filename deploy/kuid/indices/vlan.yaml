@@ -1,0 +1,15 @@
+# provenance: source=first-party version=v0.1.0
+# The service VLAN allocation band (T038; AD-33; contracts/kuid-claim-profiles.md §1):
+# minID 1000, maxID 4000. The naming band 100–999 — VLANs an operator names — is deliberately
+# OUTSIDE this index and holds no claim, so an allocated VLAN can never equal a named one.
+# kuid v0.0.13 vlan.be.kuid.dev/v1alpha1 VLANIndex (spec.minID/maxID).
+apiVersion: vlan.be.kuid.dev/v1alpha1
+kind: VLANIndex
+metadata:
+  name: fabric01-vlan
+  namespace: kuid-system
+spec:
+  minID: 1000
+  maxID: 4000
+  labels:
+    agentic-netops.io/fabric: fabric01

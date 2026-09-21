@@ -1,0 +1,16 @@
+# provenance: source=first-party version=v0.1.0
+# The VNI allocation band (T038; AD-10; contracts/kuid-claim-profiles.md §1): L2VNI and L3VNI
+# from 10000–20000, a subset of the device range 1..65535 — the platform derives evi := vni,
+# and the EVPN instance identifier is 1..65535, so the band must never widen above 65535.
+# kuid v0.0.13 genid.be.kuid.dev/v1alpha1 GENIDIndex (spec.type 32bit, spec.minID/maxID).
+apiVersion: genid.be.kuid.dev/v1alpha1
+kind: GENIDIndex
+metadata:
+  name: fabric01-vni
+  namespace: kuid-system
+spec:
+  type: 32bit
+  minID: 10000
+  maxID: 20000
+  labels:
+    agentic-netops.io/fabric: fabric01

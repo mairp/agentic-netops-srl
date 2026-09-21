@@ -1,0 +1,20 @@
+# Fixture: the same lab in containerlab's extended link form and eS-N interface spelling.
+name: agentic-netops-fabric
+topology:
+  kinds:
+    nokia_srlinux:
+      image: ghcr.io/nokia/srlinux:25.7.1@sha256:6ab1250cbff4b536e0996e57d2d9c2a7bf3154028c21e4c978e13254add3c402
+  nodes:
+    leaf02: {kind: nokia_srlinux, type: ixr-d2l}
+    leaf01: {kind: nokia_srlinux, type: ixr-d2l}
+    spine02: {kind: nokia_srlinux, type: ixr-d3l}
+    spine01: {kind: nokia_srlinux, type: ixr-d3l}
+    client02: {kind: linux, image: docker.io/library/alpine:3.24.2}
+    client01: {kind: linux, image: docker.io/library/alpine:3.24.2}
+  links:
+    - {type: veth, endpoints: [{node: client02, interface: eth1}, {node: leaf02, interface: e1-1}]}
+    - {type: veth, endpoints: [{node: spine02, interface: e1-2}, {node: leaf02, interface: e1-50}]}
+    - {type: veth, endpoints: [{node: spine01, interface: e1-2}, {node: leaf02, interface: e1-49}]}
+    - {type: veth, endpoints: [{node: client01, interface: eth1}, {node: leaf01, interface: e1-1}]}
+    - {type: veth, endpoints: [{node: leaf01, interface: e1-50}, {node: spine02, interface: e1-1}]}
+    - {type: veth, endpoints: [{node: leaf01, interface: e1-49}, {node: spine01, interface: e1-1}]}

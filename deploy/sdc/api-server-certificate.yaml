@@ -1,0 +1,31 @@
+# provenance: source=first-party version=v0.1.0
+# The config-server api-server's serving certificate (T035; FR-009, FR-019). Upstream ships a
+# static TLS Secret with its private key in the repository (artifacts/secret.yaml); it is not
+# vendored. cert-manager issues the same Secret name (api-server-cert, mounted by the upstream
+# Deployment) from the upstream ClusterIssuer (upstream/certmanager/clusterissuer.yaml).
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: api-server-cert
+  namespace: sdc-system
+  labels:
+    app.kubernetes.io/name: sdc-api-server
+spec:
+  secretName: api-server-cert
+  commonName: api-server.sdc-system.svc
+  dnsNames:
+  - api-server
+  - api-server.sdc-system
+  - api-server.sdc-system.svc
+  - api-server.sdc-system.svc.cluster.local
+  duration: 8760h
+  renewBefore: 720h
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+    rotationPolicy: Always
+  usages: [server auth, digital signature, key encipherment]
+  issuerRef:
+    group: cert-manager.io
+    kind: ClusterIssuer
+    name: selfsigned-cluster-issuer

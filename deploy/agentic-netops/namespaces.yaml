@@ -1,0 +1,19 @@
+# The provider's namespace, and the control-plane-owned namespace for Networks applied with
+# cluster tooling — it exists with no intent tier installed, and removing the tier never
+# touches it (AD-26). The ownership label carries the default cluster name; the lifecycle
+# re-labels it with --cluster-name (scripts/lib/ownership.sh).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: agentic-netops-system
+  labels:
+    agentic-netops.io/owned-by: agentic-netops
+    app.kubernetes.io/part-of: agentic-netops
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: agentic-netops-services
+  labels:
+    agentic-netops.io/owned-by: agentic-netops
+    app.kubernetes.io/part-of: agentic-netops

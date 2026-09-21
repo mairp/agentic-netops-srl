@@ -1,0 +1,14 @@
+# provenance: source=first-party version=v0.1.0
+# The underlay autonomous-system numbers (T038; FR-012; data-model.md §3a): claimed by the
+# Fabric reconciler — spines share 65100, leaves 65101 and 65102 in the default fabric.
+# kuid v0.0.13 as.be.kuid.dev/v1alpha1 ASIndex (spec.minID/maxID).
+apiVersion: as.be.kuid.dev/v1alpha1
+kind: ASIndex
+metadata:
+  name: fabric01-underlay
+  namespace: kuid-system
+spec:
+  minID: 65100
+  maxID: 65199
+  labels:
+    agentic-netops.io/fabric: fabric01

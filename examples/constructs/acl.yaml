@@ -1,0 +1,30 @@
+# A standalone access list (the acl construct): accessLists alone, bound to the subinterface
+# ethernet-1/1.100 that the mac-vrf example creates. Its attachment VLAN is a reference to that
+# subinterface and claims nothing (AD-47).
+apiVersion: fabric.agentic-netops.io/v1alpha1
+kind: Network
+metadata:
+  name: migr-2d3e4f5a6b7c8d9
+  namespace: agentic-netops-intent
+  labels:
+    agentic-netops.io/correlation-id: 2b3c4d5e6f708192a3b4c5d6e7f80912
+    agentic-netops.io/tier: intent
+  annotations:
+    agentic-netops.io/translator: agentic-netops-migration-translator
+    agentic-netops.io/translator-version: v0.1.0
+    agentic-netops.io/mapping-version: v0.1.0
+    agentic-netops.io/migration-input-hash: sha256:1f2e3d4c5b6a79881a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f
+    agentic-netops.io/tenant: acme
+    agentic-netops.io/service-type: acl
+spec:
+  description: Service 2d3e4f5a6b7c8d9 (acl)
+  accessLists:
+  - name: acl-2d3e4f5a6b7c8d9-ingress
+    stage: ingress
+    type: ipv6
+    defaultAction: permit
+    rules:
+    - {name: deny-telnet, priority: 10, action: deny, protocol: tcp, sourcePrefix: "2001:db8:66::/48", destinationPort: "23"}
+    - {name: deny-icmpv6-from-lab, priority: 20, action: deny, protocol: icmpv6, sourcePrefix: "2001:db8:ff::/48"}
+  attachments:
+  - {node: leaf01, attachment: ethernet-1/1, vlan: 100}

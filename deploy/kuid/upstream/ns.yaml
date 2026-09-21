@@ -1,0 +1,7 @@
+# provenance: source=https://raw.githubusercontent.com/kuidio/kuid/7528e81528c2e9f586b6fe657907424ad93c7ead/artifacts/ns.yaml version=v0.0.13 commit=7528e81528c2e9f586b6fe657907424ad93c7ead digest=sha256:67de19116806fc95dd6c4ba50381be93abad328396b8c445ed1b49d118159e8e
+# vendored-by: scripts/lib/fetch_upstream.sh (T035, FR-098) - the bytes after the end marker are the upstream artefact, unmodified; never edit them, re-run the fetcher
+# --- end of provenance header ---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: kuid-system

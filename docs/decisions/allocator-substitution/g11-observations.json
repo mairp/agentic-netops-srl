@@ -1,0 +1,23 @@
+{
+  "aggregated_api": {
+    "healthy": true
+  },
+  "authority": {
+    "image": "ghcr.io/kuidio/kuid-server:v0.0.13@sha256:d6fdae78cc5ba4d14655ef2e77bc3c38eb8201679b52aef56bf550e332800608",
+    "kind": "kuid"
+  },
+  "cleanup": {
+    "read_back": "no vt-scratch-g11 object remains",
+    "removed": true
+  },
+  "cluster": "agentic-netops",
+  "contract": "contracts/kuid-claim-profiles.md §6 (a)–(f)",
+  "failures": [
+    "the scratch indices could not be created"
+  ],
+  "gate_item": "G11",
+  "namespace": "kuid-system",
+  "result": "fail",
+  "schema": "agentic-netops.g11/v1",
+  "utc_time": "2026-09-21T04:31:38Z"
+}
