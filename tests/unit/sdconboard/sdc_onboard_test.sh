@@ -33,6 +33,8 @@ case "${args[0]} ${args[1]:-}" in
   "wait "*) exit 0 ;;
   "get secret") exit "${FAKE_SECRET_RC:-0}" ;;
   "get targets.config.sdcio.dev") cat "$FAKE_TARGETS_JSON"; exit 0 ;;
+  "get schemas.inv.sdcio.dev") [[ -n "${FAKE_SCHEMA_READY:-}" ]] || exit 1; printf '%s' "$FAKE_SCHEMA_READY"; exit 0 ;;
+  "delete schemas.inv.sdcio.dev") exit 0 ;;
   "apply --server-side") cp "${args[3]}/discovery-rule.yaml" "$FAKE_APPLIED"; exit 0 ;;
 esac
 echo "fake kubectl: unexpected: $*" >&2; exit 9
@@ -62,7 +64,7 @@ else fail "revertive planted (rc=$rc)" "$out"; fi
 
 # 3 — a drift-policy annotation key (value names the policy too)
 d="$(case_dir annotation)"
-sed -i 's/^  namespace: sdc-system$/  namespace: sdc-system\n  annotations:\n    agentic-netops.io\/drift-policy: non-revertive/' "$d/discovery-rule.yaml"
+sed -i 's/^  namespace: agentic-netops-system$/  namespace: agentic-netops-system\n  annotations:\n    agentic-netops.io\/drift-policy: non-revertive/' "$d/discovery-rule.yaml"
 out="$(bash "$SO" --dir "$d" --check-only 2>&1)"; rc=$?
 if [[ "$rc" -eq 1 ]] && grep -qF "FAIL [drift-policy] $d/discovery-rule.yaml:" <<<"$out" && grep -qF "key 'metadata.annotations.agentic-netops.io/drift-policy'" <<<"$out" \
    && grep -qF "value 'non-revertive'" <<<"$out"; then
@@ -71,7 +73,7 @@ else fail "annotation planted (rc=$rc)" "$out"; fi
 
 # 4 — a Subscription object
 d="$(case_dir subscription)"
-printf '# provenance: source=first-party version=v0.1.0\napiVersion: inv.sdcio.dev/v1alpha1\nkind: Subscription\nmetadata: {name: ifstats, namespace: sdc-system}\nspec:\n  target: {targetSelector: {}}\n  protocol: gnmi\n  port: 57400\n  subscriptions: [{name: if, mode: sample, paths: [/interface]}]\n' >"$d/subscription.yaml"
+printf '# provenance: source=first-party version=v0.1.0\napiVersion: inv.sdcio.dev/v1alpha1\nkind: Subscription\nmetadata: {name: ifstats, namespace: agentic-netops-system}\nspec:\n  target: {targetSelector: {}}\n  protocol: gnmi\n  port: 57400\n  subscriptions: [{name: if, mode: sample, paths: [/interface]}]\n' >"$d/subscription.yaml"
 out="$(bash "$SO" --dir "$d" --check-only 2>&1)"; rc=$?
 if [[ "$rc" -eq 1 ]] && grep -qF "FAIL [metric-subscription] $d/subscription.yaml:2: subscription-based metric ingestion (a Subscription object)" <<<"$out"; then
   pass "a Subscription object fails naming the file (FR-086)"
@@ -83,6 +85,18 @@ out="$(bash "$SO" --dir "$d" --check-only 2>&1)"; rc=$?
 if [[ "$rc" -eq 1 ]] && grep -qF "FAIL [metric-subscription] $d/target-sync-profile.yaml:" <<<"$out" && grep -qF "spec.sync[0].mode 'onChange' is a Subscribe mode" <<<"$out"; then
   pass "an onChange sync entry fails naming the file"
 else fail "onChange planted (rc=$rc)" "$out"; fi
+
+# 5b — a branch reference in the Schema (AD-75): refused naming the file; the committed Schema
+#      loads the deviation patch from the mirror by tag (the negative control is case 1)
+d="$(case_dir branchref)"; sed -i '0,/^    kind: tag$/! s/^    kind: tag$/    kind: branch/' "$d/schema.yaml"
+out="$(bash "$SO" --dir "$d" --check-only 2>&1)"; rc=$?
+if [[ "$rc" -eq 1 ]] && grep -qF "FAIL [branch-ref] $d/schema.yaml:" <<<"$out" && grep -qF "schema-mirror" <<<"$out"; then
+  pass "a Schema repository loaded by branch fails naming the file (AD-75)"
+else fail "branch ref planted (rc=$rc)" "$out"; fi
+if grep -qF "repoURL: http://schema-mirror.sdc-system.svc.cluster.local/git/srlinux-yang-patch.git" "$ONB/schema.yaml" \
+   && ! grep -q "kind: branch" "$ONB/schema.yaml"; then
+  pass "committed Schema loads the deviation patch from the in-cluster mirror, by tag"
+else fail "committed Schema does not load the patch from the mirror"; fi
 
 # 6 — the committed DiscoveryRule is the default render
 # shellcheck source=../../../scripts/lib/onboarding.sh
@@ -101,16 +115,33 @@ out="$(onboarding::render 10.44.8.0/28 2>&1)"; rc=$?
 : >"$FAKE_KUBECTL_LOG"; rm -f "$FAKE_APPLIED"
 out="$(bash "$SO" 2>&1)"; rc=$?
 if [[ "$rc" -eq 0 ]] && grep -qF "wait crd/discoveryrules.inv.sdcio.dev --for=condition=Established" "$FAKE_KUBECTL_LOG" \
-   && grep -qF "get secret srl-credentials -n sdc-system" "$FAKE_KUBECTL_LOG" \
+   && grep -qF "get secret srl-credentials -n agentic-netops-system" "$FAKE_KUBECTL_LOG" \
    && grep -qxF "apply --server-side -k $ONB" "$FAKE_KUBECTL_LOG" && cmp -s "$FAKE_APPLIED" "$ONB/discovery-rule.yaml"; then
   pass "full run: CRDs Established, Secret present, then 'kubectl apply --server-side -k deploy/sdc/onboarding'"
 else fail "full run (rc=$rc)" "$out
 $(cat "$FAKE_KUBECTL_LOG")"; fi
 
+# 7b — a Schema left Ready=False (config-server never retries a failed load) is deleted BEFORE the
+#      apply so it is reloaded; a Ready one is never touched (the negative control)
+: >"$FAKE_KUBECTL_LOG"; rm -f "$FAKE_APPLIED"
+out="$(FAKE_SCHEMA_READY=False bash "$SO" 2>&1)"; rc=$?
+del="$(grep -n '^delete schemas.inv.sdcio.dev srl.nokia.sdcio.dev-25.7.1 -n agentic-netops-system --wait=true' "$FAKE_KUBECTL_LOG" | cut -d: -f1)"
+app="$(grep -n "^apply --server-side -k $ONB$" "$FAKE_KUBECTL_LOG" | cut -d: -f1)"
+if [[ "$rc" -eq 0 && -n "$del" && -n "$app" && "$del" -lt "$app" ]] && grep -qF "reports Ready=False: deleting it" <<<"$out"; then
+  pass "a Schema reporting Ready=False is deleted (waited out) before the apply, so it is loaded afresh"
+else fail "failed Schema recycled (rc=$rc)" "$out
+$(cat "$FAKE_KUBECTL_LOG")"; fi
+: >"$FAKE_KUBECTL_LOG"
+out="$(FAKE_SCHEMA_READY=True bash "$SO" 2>&1)"; rc=$?
+if [[ "$rc" -eq 0 ]] && ! grep -q '^delete' "$FAKE_KUBECTL_LOG" && grep -qxF "apply --server-side -k $ONB" "$FAKE_KUBECTL_LOG"; then
+  pass "a Ready Schema is never deleted"
+else fail "ready Schema untouched (rc=$rc)" "$out
+$(cat "$FAKE_KUBECTL_LOG")"; fi
+
 # 8 — Secret missing
 : >"$FAKE_KUBECTL_LOG"
 out="$(FAKE_SECRET_RC=1 bash "$SO" 2>&1)"; rc=$?
-if [[ "$rc" -eq 1 ]] && grep -qF "Secret sdc-system/srl-credentials is missing" <<<"$out" && applied_nothing; then
+if [[ "$rc" -eq 1 ]] && grep -qF "Secret agentic-netops-system/srl-credentials is missing" <<<"$out" && applied_nothing; then
   pass "missing srl-credentials Secret fails naming it; nothing applied"
 else fail "missing secret (rc=$rc)" "$out"; fi
 
@@ -133,7 +164,7 @@ printf '{"items":[%s,%s,%s,%s]}' "$(target spine01 172.25.25.11 True)" "$(target
 printf '{"items":[%s,%s,%s]}' "$(target spine01 172.25.25.11 True)" "$(target spine02 172.25.25.12 True)" \
   "$(target leaf02 172.25.25.22 False 'rpc error: connection refused')" >"$TMP/notready.json"
 out="$(FAKE_TARGETS_JSON="$TMP/ready.json" bash "$WT" --timeout 5 --interval 1 2>&1)"; rc=$?
-[[ "$rc" -eq 0 ]] && grep -qF "leaf02 (172.25.25.22): Ready" <<<"$out" && grep -qF "get targets.config.sdcio.dev -n sdc-system -o json" "$FAKE_KUBECTL_LOG" \
+[[ "$rc" -eq 0 ]] && grep -qF "leaf02 (172.25.25.22): Ready" <<<"$out" && grep -qF "get targets.config.sdcio.dev -n agentic-netops-system -o json" "$FAKE_KUBECTL_LOG" \
   && pass "wait-targets: four Ready config.sdcio.dev Targets pass" || fail "wait-targets ready (rc=$rc)" "$out"
 out="$(FAKE_TARGETS_JSON="$TMP/notready.json" bash "$WT" --timeout 2 --interval 1 2>&1)"; rc=$?
 if [[ "$rc" -eq 1 ]] && grep -qF "timed out after 2s" <<<"$out" && grep -qF "leaf01: MISSING" <<<"$out" \

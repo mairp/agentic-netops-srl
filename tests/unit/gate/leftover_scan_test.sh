@@ -8,6 +8,9 @@
 #   - a cluster carrying one gate-labelled Config
 #   - a cluster carrying one gate-labelled scratch namespace
 #   - a node missing from the management network
+#   - (first-party authority, T181) a vt-scratch- IdentifierPool and a gate-labelled
+#     IdentifierClaim in agentic-netops-allocation; a cluster that does not serve the kinds
+#     (kuid selected) is scanned clean
 # and a clean lab starts. Also: a declared fault still in place refuses the start, a declared fault
 # is written before it is made, a link impairment is found, an unreadable datastore fails closed,
 # and the scan captures its device reads as evidence without the credentials in argv.
@@ -47,6 +50,11 @@ cat >"$BIN/kubectl" <<'SH'
 a=" $* "
 if [[ "$a" == *" get configs.config.sdcio.dev "* ]]; then cat "$FAKE/configs.json" 2>/dev/null || echo '{"items":[]}'; exit 0; fi
 if [[ "$a" == *" get namespaces "* ]]; then cat "$FAKE/namespaces.json"; exit 0; fi
+if [[ "$a" == *" get identifierclaims.fabric.agentic-netops.io,identifierpools.fabric.agentic-netops.io -n agentic-netops-allocation "* ]]; then
+  # $FAKE/allocation.json present = the first-party CRDs are served; absent = kuid selected
+  if [[ -f "$FAKE/allocation.json" ]]; then cat "$FAKE/allocation.json"; exit 0; fi
+  echo 'error: the server doesn'"'"'t have a resource type "identifierclaims"' >&2; exit 1
+fi
 echo "fake kubectl: unexpected: $*" >&2; exit 1
 SH
 cat >"$BIN/docker" <<'SH'
@@ -73,7 +81,7 @@ chmod +x "$BIN"/*
 
 NODES_NET='{"Containers":{}}'
 reset_lab() {
-  rm -f "$FAKE"/gnmic/* "$FAKE/configs.json" "$FAKE/qdisc" "$FAKE"/links.* "$FAKE/gnmic.calls"
+  rm -f "$FAKE"/gnmic/* "$FAKE/configs.json" "$FAKE/qdisc" "$FAKE"/links.* "$FAKE/gnmic.calls" "$FAKE/allocation.json"
   local n containers="{}"
   for n in spine01 spine02 leaf01 leaf02 client01 client02; do
     containers="$(jq -c --arg n "clab-agentic-netops-fabric-$n" '. + {("id-" + $n): {Name: $n}}' <<<"$containers")"
@@ -128,9 +136,9 @@ fi
 
 # --- 3. one gate-labelled Config
 reset_lab
-echo '{"items":[{"metadata":{"name":"vt-scratch-g13-leaf01","namespace":"sdc-system","labels":{"agentic-netops.io/gate-owned":"true"}}},{"metadata":{"name":"fabric01-leaf01","namespace":"sdc-system","labels":{}}}]}' >"$FAKE/configs.json"
+echo '{"items":[{"metadata":{"name":"vt-scratch-g13-leaf01","namespace":"agentic-netops-system","labels":{"agentic-netops.io/gate-owned":"true"}}},{"metadata":{"name":"fabric01-leaf01","namespace":"agentic-netops-system","labels":{}}}]}' >"$FAKE/configs.json"
 out="$(scan)"
-if grep -qx 'rc=1' <<<"$out" && grep -q '^LEFTOVER gate-config cluster Config sdc-system/vt-scratch-g13-leaf01' <<<"$out" \
+if grep -qx 'rc=1' <<<"$out" && grep -q '^LEFTOVER gate-config cluster Config agentic-netops-system/vt-scratch-g13-leaf01' <<<"$out" \
    && ! grep -q 'fabric01-leaf01' <<<"$out"; then
   pass "a cluster carrying one gate-labelled Config refuses the start naming it (a platform Config is not named)"
 else
@@ -176,6 +184,25 @@ else
   fail "declare_fault writes declared-faults.json (node, change, probe) and a fault still in place refuses the start" "$out"
 fi
 
+# --- 6b. the same fault id declared by two runs, since reverted: one scan probes both declarations
+#         without an evidence-id collision (evidence is never overwritten) and the lab starts
+reset_lab
+cat >"$FAKE/gnmic/172.25.25.21.json" <<'JSON'
+[{"source":"172.25.25.21","updates":[{"Path":"interface[name=ethernet-1/55]/description","values":{"interface[name=ethernet-1/55]/description":"vt-intent"}}]}]
+JSON
+for run in 20260921T084615Z 20260921T085311Z; do
+  mkdir -p "$TMP/evidence/agentic-netops_agentic-netops-fabric/$run"
+  jq -n '{schema: "agentic-netops.declared-faults/v1", faults: [{id: "vt-scratch-g13-drift", node: "leaf01", change: "drift",
+          probe: {kind: "device-leaf", node: "leaf01", path: "/interface[name=ethernet-1/55]/description", faulted_value: "vt-scratch-g13-drift"},
+          revert: null}]}' >"$TMP/evidence/agentic-netops_agentic-netops-fabric/$run/declared-faults.json"
+done
+out="$(scan)"
+if grep -qx 'rc=0' <<<"$out" && ! grep -q '^LEFTOVER' <<<"$out" && ! grep -q 'already exists' <<<"$out"; then
+  pass "one fault id declared by two runs and since reverted: both declarations probed, no evidence-id collision, the lab starts"
+else
+  fail "one fault id declared by two runs and since reverted: both declarations probed, no evidence-id collision, the lab starts" "$out"
+fi
+
 # --- 7. a host-side link impairment is found
 reset_lab
 printf 'qdisc noqueue 0: dev lo root refcnt 2\nqdisc netem 8001: dev e1-49 root refcnt 2 limit 1000 delay 100ms\n' >"$FAKE/qdisc"
@@ -204,6 +231,33 @@ if grep -qx 'rc=1' <<<"$out" && grep -q '^LEFTOVER vt-scratch-object client02 li
   pass "a vt-scratch- link left on a client container refuses the start naming it"
 else
   fail "a vt-scratch- link left on a client container refuses the start naming it" "$out"
+fi
+
+# --- 10. first-party allocation authority: G11's scratch pool and a gate-labelled claim
+reset_lab
+cat >"$FAKE/allocation.json" <<'JSON'
+{"kind":"List","items":[
+ {"kind":"IdentifierPool","metadata":{"name":"fabric01-vlan","namespace":"agentic-netops-allocation","labels":{}},"spec":{"type":"vlan"}},
+ {"kind":"IdentifierPool","metadata":{"name":"vt-scratch-g11-vlan","namespace":"agentic-netops-allocation","labels":{}},"spec":{"type":"vlan"}},
+ {"kind":"IdentifierClaim","metadata":{"name":"g11-dyn","namespace":"agentic-netops-allocation","labels":{"agentic-netops.io/gate-owned":"true"}},"spec":{"poolRef":{"name":"fabric01-vlan"}}},
+ {"kind":"IdentifierClaim","metadata":{"name":"fabric01-leaf01-loopback","namespace":"agentic-netops-allocation","labels":{}},"spec":{"poolRef":{"name":"fabric01-loopback"}}}]}
+JSON
+out="$(scan)"
+if grep -qx 'rc=1' <<<"$out" \
+   && grep -q '^LEFTOVER gate-allocation cluster IdentifierPool agentic-netops-allocation/vt-scratch-g11-vlan' <<<"$out" \
+   && grep -q '^LEFTOVER gate-allocation cluster IdentifierClaim agentic-netops-allocation/g11-dyn' <<<"$out" \
+   && ! grep -q 'fabric01-' <<<"$out"; then
+  pass "a vt-scratch- IdentifierPool and a gate-labelled IdentifierClaim in agentic-netops-allocation refuse the start naming them (platform pools/claims are not named)"
+else
+  fail "a vt-scratch- IdentifierPool and a gate-labelled IdentifierClaim in agentic-netops-allocation refuse the start naming them (platform pools/claims are not named)" "$out"
+fi
+reset_lab
+echo '{"kind":"List","items":[{"kind":"IdentifierPool","metadata":{"name":"fabric01-vlan","namespace":"agentic-netops-allocation","labels":{}}}]}' >"$FAKE/allocation.json"
+out="$(scan)"
+if grep -qx 'rc=0' <<<"$out" && ! grep -q '^LEFTOVER' <<<"$out"; then
+  pass "first-party authority with only platform pools: the scan is clean"
+else
+  fail "first-party authority with only platform pools: the scan is clean" "$out"
 fi
 
 if [[ "$fails" -gt 0 ]]; then echo "leftover_scan_test: $fails FAILED"; exit 1; fi

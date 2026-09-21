@@ -890,6 +890,19 @@ class Verifier:
                 self.fail(key + ".kind", full, "kind must be tag or hash")
                 continue
             part = parts.get(url, {})
+            mirror = r.get("mirror")
+            if mirror is not None:
+                # AD-75: an in-cluster mirror of the pinned commit, served ONLY under a tag named
+                # after that commit; it is populated from repoURL, which is what is resolved below.
+                mkey, mm = key + ".mirror", mirror if isinstance(mirror, dict) else {}
+                murl, mkind, mref = s(mm.get("repoURL")), s(mm.get("kind")), s(mm.get("ref"))
+                mfull = f"{murl}@{mkind}:{mref}"
+                if not re.match(r"^http://[a-z0-9-]+\.[a-z0-9-]+\.svc\.cluster\.local/", murl):
+                    self.fail(mkey + ".repoURL", mfull, "a Schema mirror is an in-cluster Service URL (http://<svc>.<ns>.svc.cluster.local/…)")
+                if mkind != "tag":
+                    self.fail(mkey + ".kind", mfull, "a Schema mirror serves the pinned commit under a tag — kind must be tag")
+                if kind != "hash" or mref != ref:
+                    self.fail(mkey + ".ref", mfull, f"the mirror's tag must be named after the pinned commit {ref} (kind hash)")
 
             def j(url=url, kind=kind, ref=ref, key=key, full=full, part=part):
                 if kind == "tag":

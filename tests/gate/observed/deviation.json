@@ -1,0 +1,21 @@
+{
+  "answer": "restored-without-visible-deviation",
+  "assertable_by_managed_drift": {
+    "deviation_not_applied": false,
+    "overruled_producible": false,
+    "restoration": true
+  },
+  "config": {
+    "owner": "gate-owned scratch Config",
+    "path": "/interface[name=ethernet-1/55]/description",
+    "priority": 5,
+    "revertive": true
+  },
+  "deviation_visible_before_restore": false,
+  "observation_window_seconds": 180,
+  "poll_interval_seconds": 1,
+  "reason_strings_seen": [],
+  "restoration_observed": true,
+  "schema": "agentic-netops.gate.deviation/v1",
+  "time_to_restoration_seconds": 1
+}

@@ -1,0 +1,211 @@
+{
+  "all_series": [
+    "srl_nokia_network_instance:network_instance_protocols_bgp_evpn_srl_nokia_bgp_evpn:bgp_instance_evi",
+    "srl_nokia_network_instance:network_instance_protocols_bgp_evpn_srl_nokia_bgp_evpn:bgp_instance_oper_state",
+    "srl_nokia_network_instance:network_instance_protocols_srl_nokia_bgp:bgp_neighbor_afi_safi_oper_state",
+    "srl_nokia_network_instance:network_instance_protocols_srl_nokia_bgp:bgp_neighbor_afi_safi_received_routes",
+    "srl_nokia_network_instance:network_instance_protocols_srl_nokia_bgp:bgp_neighbor_session_state"
+  ],
+  "observed_with": {
+    "collector_image": "docker.io/otel/opentelemetry-collector-contrib:0.161.0@sha256:fd328de2552466ad78385e1b1289c3f2402b1c45f265b252aab1955b42845ac1",
+    "encoding": "json_ietf",
+    "gnmic_image": "ghcr.io/openconfig/gnmic:0.47.0@sha256:fd59f5f1c7a98e14ff5b14f85329e5e0a4d49ef1d5b0dddfd910b6caef03b9fb",
+    "subscription_mode": "stream/sample 10s",
+    "subscription_paths": [
+      "/network-instance[name=default]/protocols/bgp/neighbor[peer-address=*]/session-state",
+      "/network-instance[name=default]/protocols/bgp/neighbor[peer-address=*]/afi-safi[afi-safi-name=*]/received-routes",
+      "/network-instance[name=default]/protocols/bgp/neighbor[peer-address=*]/afi-safi[afi-safi-name=*]/oper-state",
+      "/network-instance[name=*]/protocols/bgp-evpn/bgp-instance[id=*]/evi",
+      "/network-instance[name=*]/protocols/bgp-evpn/bgp-instance[id=*]/oper-state"
+    ]
+  },
+  "schema": "agentic-netops.gate.telemetry-series/v1",
+  "series": {
+    "bgp_evpn_instance_evi": [
+      {
+        "labels": [
+          "bgp_instance_id",
+          "network_instance_name",
+          "otel_scope_name",
+          "otel_scope_schema_url",
+          "otel_scope_version",
+          "source",
+          "subscription_name"
+        ],
+        "name": "srl_nokia_network_instance:network_instance_protocols_bgp_evpn_srl_nokia_bgp_evpn:bgp_instance_evi"
+      }
+    ],
+    "bgp_evpn_instance_oper_state": [
+      {
+        "labels": [
+          "bgp_instance_id",
+          "network_instance_name",
+          "otel_scope_name",
+          "otel_scope_schema_url",
+          "otel_scope_version",
+          "source",
+          "subscription_name"
+        ],
+        "name": "srl_nokia_network_instance:network_instance_protocols_bgp_evpn_srl_nokia_bgp_evpn:bgp_instance_oper_state"
+      }
+    ],
+    "evpn_family_oper_state": [
+      {
+        "afi_safi_values": [
+          "evpn",
+          "ipv4-unicast",
+          "ipv6-unicast",
+          "route-target"
+        ],
+        "labels": [
+          "afi_safi_afi_safi_name",
+          "neighbor_peer_address",
+          "network_instance_name",
+          "otel_scope_name",
+          "otel_scope_schema_url",
+          "otel_scope_version",
+          "source",
+          "subscription_name"
+        ],
+        "name": "srl_nokia_network_instance:network_instance_protocols_srl_nokia_bgp:bgp_neighbor_afi_safi_oper_state"
+      }
+    ],
+    "evpn_received_routes": [
+      {
+        "afi_safi_values": [
+          "evpn",
+          "ipv4-unicast"
+        ],
+        "labels": [
+          "afi_safi_afi_safi_name",
+          "neighbor_peer_address",
+          "network_instance_name",
+          "otel_scope_name",
+          "otel_scope_schema_url",
+          "otel_scope_version",
+          "source",
+          "subscription_name"
+        ],
+        "name": "srl_nokia_network_instance:network_instance_protocols_srl_nokia_bgp:bgp_neighbor_afi_safi_received_routes"
+      }
+    ],
+    "evpn_session_state": [
+      {
+        "labels": [
+          "neighbor_peer_address",
+          "network_instance_name",
+          "otel_scope_name",
+          "otel_scope_schema_url",
+          "otel_scope_version",
+          "source",
+          "subscription_name"
+        ],
+        "name": "srl_nokia_network_instance:network_instance_protocols_srl_nokia_bgp:bgp_neighbor_session_state"
+      }
+    ]
+  },
+  "settings": {
+    "collector_prometheus_exporter": {
+      "translation_strategy": "UnderscoreEscapingWithoutSuffixes"
+    },
+    "gnmic_event_processors": {
+      "vt-scratch-oper-state-to-int": {
+        "event-strings": {
+          "transforms": [
+            {
+              "replace": {
+                "apply-on": "value",
+                "new": "1",
+                "old": "^up$"
+              }
+            },
+            {
+              "replace": {
+                "apply-on": "value",
+                "new": "0",
+                "old": "^down$"
+              }
+            }
+          ],
+          "value-names": [
+            ".*oper-state$"
+          ]
+        }
+      },
+      "vt-scratch-session-state-to-int": {
+        "event-strings": {
+          "transforms": [
+            {
+              "replace": {
+                "apply-on": "value",
+                "new": "5",
+                "old": "^established$"
+              }
+            },
+            {
+              "replace": {
+                "apply-on": "value",
+                "new": "4",
+                "old": "^openconfirm$"
+              }
+            },
+            {
+              "replace": {
+                "apply-on": "value",
+                "new": "3",
+                "old": "^opensent$"
+              }
+            },
+            {
+              "replace": {
+                "apply-on": "value",
+                "new": "2",
+                "old": "^active$"
+              }
+            },
+            {
+              "replace": {
+                "apply-on": "value",
+                "new": "1",
+                "old": "^connect$"
+              }
+            },
+            {
+              "replace": {
+                "apply-on": "value",
+                "new": "0",
+                "old": "^idle$"
+              }
+            }
+          ],
+          "value-names": [
+            ".*session-state$"
+          ]
+        }
+      },
+      "vt-scratch-state-as-int": {
+        "event-convert": {
+          "type": "int",
+          "value-names": [
+            ".*session-state$",
+            ".*oper-state$"
+          ]
+        }
+      }
+    },
+    "gnmic_otlp_output": {
+      "append-subscription-name": false,
+      "counter-patterns": [],
+      "event-processors": [
+        "vt-scratch-session-state-to-int",
+        "vt-scratch-oper-state-to-int",
+        "vt-scratch-state-as-int"
+      ],
+      "metric-prefix": "",
+      "protocol": "grpc",
+      "strings-as-attributes": false,
+      "strip-leading-underscore": true,
+      "type": "otlp"
+    }
+  }
+}

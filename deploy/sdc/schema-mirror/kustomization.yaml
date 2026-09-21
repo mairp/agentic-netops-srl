@@ -1,0 +1,22 @@
+# provenance: source=first-party version=v0.1.0
+# deploy/sdc/schema-mirror — the in-cluster, read-only git mirror of the deviation patch repository
+# (T184; AD-75, NFR-003, FR-098, FR-015). config-server v0.0.58 fetches every non-branch Schema ref
+# as a TAG and sdcio/srlinux-yang-patch has no tags, so the commit versions.lock.yaml pins
+# (compatibilitySet.deviationPatch.commit) is served here as refs/tags/<commit>, and
+# deploy/sdc/onboarding/schema.yaml loads it from this Service by that tag — never a branch.
+# Applied by scripts/lib/schema_mirror.sh (AppsReady, after deploy/sdc and before sdc-onboard),
+# which first clones the upstream repository, asserts the locked commit and writes the one-ref
+# bare repository into the ConfigMap schema-mirror-repo (not in this tree: it is built from the
+# upstream repository at provisioning, ownership-labelled, removed with the cluster):
+#   kubectl apply --server-side -k deploy/sdc/schema-mirror
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - deployment.yaml
+  - service.yaml
+# First-party image, built locally and never pulled (scripts/lib/image_build.sh writes the
+# content-hash tag into newTag — a kustomize image override, never a hand edit). `unbuilt` until
+# the first build, which no registry and no local build carries — never `latest`.
+images:
+  - name: schema-mirror
+    newTag: b2b1057f60d654e3fa63064f25c2243d6037be917fa96e23b75efe7fac483ef3

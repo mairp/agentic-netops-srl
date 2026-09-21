@@ -13,6 +13,16 @@
 #   kind::attach_mgmt <cluster> <network>
 #       Connects every node container of <cluster> to the owned <network> (idempotent: an attached
 #       node is left alone). Refuses an unowned network.
+#   kind::isolate_dns <cluster>
+#       Removes the host's `search`/`domain` lines from every node's /etc/resolv.conf, which the
+#       kubelet hands to every ClusterFirst pod. With them, a host search domain that carries a
+#       wildcard record (observed: `search ai`, where `github.com.ai` resolves) makes a pod's
+#       `github.com` (ndots:5) resolve to the wildcard host, and TLS fails with "unrecognized
+#       name" — the device-configuration layer then cannot fetch the pinned YANG repositories
+#       and no Schema, hence no Target, is ever Ready. The lab must not depend on the host's
+#       search list, so the nodes carry none. Nameservers and options are kept. Idempotent: a
+#       node without such lines is left untouched, and CoreDNS is restarted only when a node
+#       changed. Docker does not rewrite a resolv.conf it generated once edited.
 #   kind::delete_cluster <name>
 #       Deletes <name> only when owned. Absent is success.
 #   kind::cluster_exists <name> / kind::cluster_owned <name>
@@ -118,6 +128,35 @@ kind::attach_mgmt() {
       || { log::error "kind: attaching $node to $net failed"; return 1; }
     log::info "kind: attached node $node to $net"
   done <<<"$nodes"
+}
+
+kind::isolate_dns() {
+  if [[ $# -ne 1 ]]; then log::error "usage: kind::isolate_dns <cluster>"; return 2; fi
+  local cluster="$1" node nodes cur new changed=false
+  kind::_require_owned "$cluster" || return 1
+  nodes="$(kind::_kind get nodes --name "$cluster" 2>/dev/null)" || nodes=""
+  [[ -n "$nodes" ]] || { log::error "kind: cluster $cluster has no node containers"; return 1; }
+  while IFS= read -r node; do
+    [[ -n "$node" ]] || continue
+    cur="$(kind::_docker exec "$node" cat /etc/resolv.conf)" \
+      || { log::error "kind: reading /etc/resolv.conf of $node failed"; return 1; }
+    new="$(grep -v -E '^[[:space:]]*(search|domain)([[:space:]]|$)' <<<"$cur" || true)"
+    if [[ "$new" == "$cur" ]]; then
+      log::info "kind: node $node carries no host search domain"
+      continue
+    fi
+    # Written in place (cat >): the file is a bind mount and cannot be replaced by rename.
+    printf '%s\n' "$new" | kind::_docker exec -i "$node" sh -c 'cat > /etc/resolv.conf' \
+      || { log::error "kind: rewriting /etc/resolv.conf of $node failed"; return 1; }
+    log::info "kind: removed the host search domain(s) from $node: $(grep -E '^[[:space:]]*(search|domain)' <<<"$cur" | tr '\n' ' ')"
+    changed=true
+  done <<<"$nodes"
+  if [[ "$changed" == true ]]; then
+    kind::_kubectl --context "kind-${cluster}" -n kube-system rollout restart deployment/coredns >/dev/null \
+      || { log::error "kind: restarting CoreDNS after the resolv.conf change failed"; return 1; }
+    kind::_kubectl --context "kind-${cluster}" -n kube-system rollout status deployment/coredns --timeout=120s >/dev/null \
+      || { log::error "kind: CoreDNS did not roll out after the resolv.conf change"; return 1; }
+  fi
 }
 
 kind::delete_cluster() {

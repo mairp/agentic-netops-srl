@@ -13,17 +13,35 @@
 #                  kind::attach_mgmt)
 #   LabReady       the containerlab topology is deployed and every device's gNMI port accepts
 #                  a connection (containerlab::deploy, containerlab::wait_gnmi_accept)
-#   AppsReady      cert-manager → the allocation authority the lock file selects (KUID) →
-#                  gate item G11 (gate::g11_early: on failure provisioning STOPS here, non-zero,
-#                  naming G11, with nothing above the authority installed) → the
-#                  device-configuration layer (SDC) → the SR Linux provider (DRIFT_POLICY set to
-#                  `revertive` explicitly, the image built from the tree). NOT the observability
-#                  stack: that is ObservabilityReady's, after FabricReady (T134, AD-50).
-#   TargetsReady   lab secrets (lab_secrets::ensure), deploy/sdc/onboarding/ (scripts/lib/
+#   AppsReady      cert-manager → the allocation authority the lock file selects → gate item
+#                  G11 (gate::g11_early: on failure provisioning STOPS here, non-zero, naming
+#                  G11, with nothing above the authority installed) → the authority's seed
+#                  indices/pools → the device-configuration layer (SDC) → the SR Linux provider
+#                  (its claim Role for the selected authority, DRIFT_POLICY set to `revertive`
+#                  explicitly, the image built from the tree). NOT the observability stack:
+#                  that is ObservabilityReady's, after FabricReady (T134, AD-50).
+#                    kuid         deploy/kuid (APIServices Available) → G11 → deploy/kuid/indices
+#                    first-party  the srl-provider image built and loaded (its tag written into
+#                                 deploy/agentic-netops AND deploy/allocation) → deploy/allocation
+#                                 (CRDs Established, Deployment allocation-authority rolled out)
+#                                 → G11 → deploy/allocation/pools; deploy/kuid/ is never applied
+#   TargetsReady   lab secrets (lab_secrets::ensure), the schema mirror of the deviation patch
+#                  (scripts/lib/schema_mirror.sh, AD-75), deploy/sdc/onboarding/ (scripts/lib/
 #                  sdc_onboard.sh), the four device Targets (targets.config.sdcio.dev — the group
-#                  v0.0.58 serves) Ready (scripts/lib/wait_targets.sh)
-#   GateReady      tests/gate/run_gate.sh wrote the gate record; tests/gate/publish_qualification.sh
-#   FabricReady    examples/fabric/ applied; every Fabric in it reports Ready
+#                  v0.0.58 serves) Ready (scripts/lib/wait_targets.sh), then the device metric
+#                  collector (scripts/lib/device_metrics.sh; the Fabric read-back's state source).
+#                  The onboarding set, the credentials Secret and so the Targets are in
+#                  agentic-netops-system (created by deploy/agentic-netops in AppsReady), not
+#                  sdc-system: Targets and everything they use live in agentic-netops-system
+#                  because config-server v0.0.58 lists them in the Target's namespace (AD-82
+#                  decision 2026-09-21-target-namespace). The layer's workloads stay in sdc-system.
+#   GateReady      tests/gate/run_gate.sh wrote the gate record; tests/gate/publish_qualification.sh.
+#                  On a lab already carrying the platform fabric (a re-run) the published record is
+#                  reused only if it is this gate's pass for this cluster, lab and device image;
+#                  otherwise the run stops (re-qualify on stock nodes: off.sh, then provision)
+#   FabricReady    examples/fabric/ applied — its pool references rewritten to the selected
+#                  authority's group/kind/namespace (gate::authority_pool_ref; names unchanged,
+#                  the example files untouched); every Fabric in it reports Ready
 #   IntentTierReady  (--with-intent-tier) not built yet: the run FAILS naming it — it is never
 #                  silently skipped
 #
@@ -89,6 +107,7 @@ KUID_APISERVICES=(v1alpha1.vlan.be.kuid.dev v1alpha1.genid.be.kuid.dev v1alpha1.
 KUID_CLAIM_RESOURCES="vlanclaims.vlan.be.kuid.dev,genidclaims.genid.be.kuid.dev,ipclaims.ipam.be.kuid.dev,asclaims.as.be.kuid.dev"
 FIRSTPARTY_CRDS=(identifierpools.fabric.agentic-netops.io identifierclaims.fabric.agentic-netops.io)
 FIRSTPARTY_NS="agentic-netops-allocation"
+FIRSTPARTY_DEPLOYMENT="allocation-authority"
 
 provision::defaults() {
   : "${CLUSTER_NAME:=agentic-netops}"
@@ -220,6 +239,29 @@ provision::change_of_authority() {
   esac
 }
 
+# provision::build_provider_image — build srl-provider:<contentHash> from the tree (pinned FROMs,
+# verify-pins), load it into the kind cluster, write the tag into deploy/agentic-netops's images:
+# stanza and record the image ID in this run's evidence (scripts/lib/image_build.sh). Prints the
+# reference. The first-party allocation authority runs the same image (SRL_PROVIDER_ROLE).
+provision::build_provider_image() {
+  local ref
+  provision::need image_build::build image_build || return 1
+  provision::need kind::load_image kind || return 1
+  ref="$(image_build::build "$PROVIDER_IMAGE_NAME")" || { log::error "building ${PROVIDER_IMAGE_NAME} failed"; return 1; }
+  [[ "$ref" == "${PROVIDER_IMAGE_NAME}:"* ]] || { log::error "image_build::build printed '${ref}', expected ${PROVIDER_IMAGE_NAME}:<contentHash>"; return 1; }
+  printf '%s' "$ref"
+}
+
+# provision::wait_crds_established <crd…>
+provision::wait_crds_established() {
+  local out
+  if ! out="$(provision::k wait --for=condition=Established --timeout="${PROVISION_WAIT_TIMEOUT}s" "${@/#/crd/}" 2>&1)"; then
+    log::error "timed out after ${PROVISION_WAIT_TIMEOUT}s waiting for CRD(s) $* to be Established"
+    printf '%s\n' "$out" | sed 's/^/    | /' >&2
+    return 1
+  fi
+}
+
 provision::install_authority() {  # <selected>
   case "$1" in
     kuid)
@@ -228,8 +270,27 @@ provision::install_authority() {  # <selected>
       local svc
       for svc in "${KUID_APISERVICES[@]}"; do provision::wait_apiservice "$svc" || return 1; done ;;
     first-party)
+      # The authority's controllers run in the provider's binary and image: build and load it
+      # first, and give deploy/allocation the very tag deploy/agentic-netops gets.
+      local ref
+      ref="$(provision::build_provider_image)" || return 1
+      provision::need image_build::set_image image_build || return 1
+      image_build::set_image "$PROVISION_ROOT/deploy/allocation/kustomization.yaml" "$PROVIDER_IMAGE_NAME" "${ref#*:}" \
+        || { log::error "writing ${ref} into deploy/allocation/kustomization.yaml failed"; return 1; }
+      log::info "allocation authority image ${ref} (deploy/allocation images: ${PROVIDER_IMAGE_NAME} newTag ${ref#*:})"
       provision::apply_k "$PROVISION_ROOT/deploy/allocation" || return 1
-      provision::wait_deployments "$FIRSTPARTY_NS" || return 1 ;;
+      # the manifest carries the default cluster name; the ownership label is this cluster's
+      provision::k label namespace "$FIRSTPARTY_NS" "$(ownership::selector)" --overwrite >/dev/null || return 1
+      provision::wait_crds_established "${FIRSTPARTY_CRDS[@]}" || return 1
+      k8s_wait::rollout "$FIRSTPARTY_NS" "deployment/${FIRSTPARTY_DEPLOYMENT}" "$PROVISION_WAIT_TIMEOUT" || return 1 ;;
+  esac
+}
+
+# provision::seed_authority <selected> — the seed indices / pools, applied only after G11 passed.
+provision::seed_authority() {
+  case "$1" in
+    kuid) provision::apply_k "$PROVISION_ROOT/deploy/kuid/indices" ;;
+    first-party) provision::apply_k "$PROVISION_ROOT/deploy/allocation/pools" ;;
   esac
 }
 
@@ -252,12 +313,6 @@ provision::assert_one_authority() {
 
 # ============================================================== the provider
 
-# provision::compat_json — parts 1–9 of versions.lock.yaml, canonical (sorted keys, compact).
-provision::compat_json() {
-  yq -o=json '.compatibilitySet' "$PROVISION_ROOT/versions.lock.yaml" | jq -S -c .
-}
-provision::compat_id() { printf 'sha256:%s' "$(provision::compat_json | tr -d '\n' | sha256sum | awk '{print $1}')"; }
-
 provision::provider_settings() {
   local owner; owner="$(ownership::selector)"
   provision::k create namespace "$PROVIDER_NS" --dry-run=client -o yaml \
@@ -266,28 +321,23 @@ provision::provider_settings() {
   # explicitly (FR-015, AD-17, AD-34). Written BEFORE the provider is applied.
   provision::k create configmap srl-provider-settings -n "$PROVIDER_NS" \
     --from-literal=drift-policy=revertive --dry-run=client -o yaml | provision::apply_stdin || return 1
-  # The compatibility set the provider validates against and stamps on every Config it
-  # generates (annotation agentic-netops.io/compatibility-set = id); checked by verify-compat.
-  local tmp; tmp="$(mktemp -d)"
-  provision::compat_json >"$tmp/compatibility-set.json"
-  provision::compat_id >"$tmp/id"
-  provision::k create configmap srl-provider-compat -n "$PROVIDER_NS" \
-    --from-file=compatibility-set.json="$tmp/compatibility-set.json" --from-file=id="$tmp/id" \
-    --dry-run=client -o yaml | provision::apply_stdin || { rm -rf "$tmp"; return 1; }
-  rm -rf "$tmp"
+  # The compatibility set is NOT written here: the provider publishes the set it asserts itself
+  # (ConfigMap srl-provider-compatibility-set, from the lock baked into its image), and
+  # make verify-compat compares that with versions.lock.yaml (T050).
 }
 
-provision::install_provider() {
-  local ref
-  provision::need image_build::build image_build || return 1
-  provision::need kind::load_image kind || return 1
-  # Builds srl-provider:<contentHash> from the tree (pinned FROMs, verify-pins), loads it into the
-  # kind cluster, writes the tag into deploy/agentic-netops/kustomization.yaml's images: stanza and
+provision::install_provider() {  # <selected authority>
+  local selected="$1" ref
+  # Builds srl-provider:<contentHash> from the tree (an unchanged tree is not rebuilt: under
+  # first-party the authority's build of the same tree already made it), loads it into the kind
+  # cluster, writes the tag into deploy/agentic-netops/kustomization.yaml's images: stanza and
   # records the image ID in this run's evidence (scripts/lib/image_build.sh).
-  ref="$(image_build::build "$PROVIDER_IMAGE_NAME")" || { log::error "building ${PROVIDER_IMAGE_NAME} failed"; return 1; }
-  [[ "$ref" == "${PROVIDER_IMAGE_NAME}:"* ]] || { log::error "image_build::build printed '${ref}', expected ${PROVIDER_IMAGE_NAME}:<contentHash>"; return 1; }
+  ref="$(provision::build_provider_image)" || return 1
   log::info "provider image ${ref}"
   provision::provider_settings || return 1
+  # The provider's claim Role — in the selected authority's namespace, on its claim resources,
+  # never both (config/rbac/claims/<kind>; data-model.md §23).
+  provision::apply_k "$PROVISION_ROOT/config/rbac/claims/${selected}" || return 1
   provision::apply_k "$PROVISION_ROOT/deploy/agentic-netops" || return 1
   k8s_wait::rollout "$PROVIDER_NS" "deployment/${PROVIDER_DEPLOYMENT}" "$PROVISION_WAIT_TIMEOUT" || return 1
 }
@@ -308,6 +358,7 @@ provision::phase_ClusterReady() {
   provision::need kind::ensure_cluster kind || return 1
   kind::ensure_cluster "$CLUSTER_NAME" || return 1
   kind::attach_mgmt "$CLUSTER_NAME" "$MGMT_NETWORK" || return 1
+  kind::isolate_dns "$CLUSTER_NAME" || return 1
 }
 
 provision::phase_LabReady() {
@@ -341,17 +392,17 @@ provision::phase_AppsReady() {
   # G11 — as soon as the authority is installed; nothing above it before it passes.
   gate::g11_early || return 1
   provision::assert_one_authority "$selected" || return 1
-  if [[ "$selected" == kuid ]]; then
-    provision::apply_k "$PROVISION_ROOT/deploy/kuid/indices" || return 1
-  fi
+  provision::seed_authority "$selected" || return 1
 
   log::info "device-configuration layer (SDC)"
   provision::apply_k "$PROVISION_ROOT/deploy/sdc" || return 1
+  # The layer's own workloads (api-server, controller, data-server) run in sdc-system; its
+  # Targets and their onboarding set are in agentic-netops-system (TargetsReady).
   provision::wait_deployments sdc-system || return 1
   provision::wait_apiservice v1alpha1.config.sdcio.dev || return 1
 
   log::info "SR Linux provider"
-  provision::install_provider || return 1
+  provision::install_provider "$selected" || return 1
   provision::assert_one_authority "$selected" || return 1
 }
 
@@ -359,11 +410,17 @@ provision::phase_TargetsReady() {
   log::phase TargetsReady
   provision::need lab_secrets::ensure lab_secrets || return 1
   lab_secrets::ensure || return 1
+  # The Schema loads the deviation patch from the in-cluster mirror by the tag named after the
+  # locked commit (AD-75): cloned, asserted equal to the lock, served read-only, read back.
+  bash "$PROVISION_LIB/schema_mirror.sh" ensure || { log::error "the schema mirror (scripts/lib/schema_mirror.sh) failed: the Schema cannot load the deviation patch"; return 1; }
   # `make sdc-onboard`: deploy/sdc/onboarding/ server-side (rendered for MGMT_CIDR when it is
   # not the default), after its drift-policy and metric-subscription negatives.
   bash "$PROVISION_LIB/sdc_onboard.sh" || { log::error "onboarding the devices (scripts/lib/sdc_onboard.sh) failed"; return 1; }
   # `make wait-targets`: the four targets.config.sdcio.dev Ready, bounded.
   bash "$PROVISION_LIB/wait_targets.sh" --timeout "$PROVISION_TARGETS_TIMEOUT" || return 1
+  # The device metric collector — the Fabric read-back's state datastore, the second and last
+  # client of the device management server (FR-086, FR-107; AD-82 decision 2026-09-21-state-source).
+  bash "$PROVISION_LIB/device_metrics.sh" ensure || { log::error "the device metric collector (scripts/lib/device_metrics.sh) failed: the Fabric read-back has no state to read"; return 1; }
 }
 
 provision::phase_GateReady() {
@@ -372,15 +429,81 @@ provision::phase_GateReady() {
   for s in run_gate.sh publish_qualification.sh; do
     [[ -f "$PROVISION_ROOT/tests/gate/$s" ]] || { log::error "tests/gate/${s} is missing: the capability gate cannot run"; return 1; }
   done
+  # The gate qualifies STOCK nodes (G8 builds its own scratch fabric and requires none before it).
+  # On a re-run over a lab that already carries the platform fabric, re-running it would fail or
+  # disturb the fabric (SC-002), so GateReady instead requires the published record to be one this
+  # gate made for this lab: pass, same cluster, lab and device image digest, same gate code
+  # (gate_tree_sha256). Anything else stops, naming what differs — never a silent pass (AD-82
+  # decision 2026-09-21-gate-rerun).
+  if [[ -n "$(provision::platform_configs)" ]]; then
+    local q why
+    q="$(provision::k get configmap fabric-qualification -n "$PROVIDER_NS" -o jsonpath='{.data.qualification\.json}' 2>/dev/null || true)"
+    source "$PROVISION_ROOT/tests/gate/lib/tree_hash.sh"
+    if why="$(provision::gate_record_matches "$q" "$CLUSTER_NAME" "$LAB_NAME" "$(evidence::device_image_digest 2>/dev/null || true)" "$(gate::tree_hash "$PROVISION_ROOT")")"; then
+      evidence_run gate.reused -- "${KUBECTL:-kubectl}" --context "kind-${CLUSTER_NAME}" get configmap fabric-qualification -n "$PROVIDER_NS" -o json >/dev/null \
+        || { log::error "capturing the reused gate record failed"; return 1; }
+      log::info "capability gate: the lab carries the platform fabric and the published record is this gate's pass for this lab (${why}) — reused, not re-run on the converged fabric"
+      return 0
+    fi
+    log::error "capability gate: the lab already carries the platform fabric, and the published qualification record cannot be reused: ${why}"
+    log::error "  the gate runs on stock nodes only: remove the lab (scripts/off.sh) and provision again to re-qualify it"
+    return 1
+  fi
   bash "$PROVISION_ROOT/tests/gate/run_gate.sh" || { log::error "the capability gate failed (tests/gate/run_gate.sh); see ${EVIDENCE_DIR}"; return 1; }
   bash "$PROVISION_ROOT/tests/gate/publish_qualification.sh" || { log::error "publishing the qualification record failed"; return 1; }
 }
 
+# provision::platform_configs — the provider's device Configs present (not gate-owned), one per line.
+provision::platform_configs() {
+  provision::k get configs.config.sdcio.dev -n "$PROVIDER_NS" -l '!agentic-netops.io/gate-owned' -o name 2>/dev/null || true
+}
+
+# provision::gate_record_matches <qualification.json> <cluster> <lab> <device digest> <gate tree sha256>
+# — exit 0 (printing what matched) when the published record is a pass by this gate for this lab;
+# else exit 1 printing what differs.
+provision::gate_record_matches() {
+  local q="$1" cluster="$2" lab="$3" digest="$4" tree="$5"
+  if [[ -z "$q" ]] || ! jq -e . >/dev/null 2>&1 <<<"$q"; then
+    echo "no published record (ConfigMap ${PROVIDER_NS}/fabric-qualification absent or unreadable)"; return 1
+  fi
+  jq -r --arg c "$cluster" --arg l "$lab" --arg d "$digest" --arg t "$tree" '
+    . as $q
+    | [ (if .gate.result != "pass" then "gate result \(.gate.result // "absent"), not pass" else empty end),
+      (if .cluster != $c then "cluster \(.cluster // "absent") ≠ \($c)" else empty end),
+      (if .lab != $l then "lab \(.lab // "absent") ≠ \($l)" else empty end),
+      (if ($d == "" or .gate.device_image_digest != $d) then "device image digest \(.gate.device_image_digest // "absent") ≠ \(if $d == "" then "unknown" else $d end)" else empty end),
+      (if .gate.gate_tree_sha256 != $t then "gate code \(.gate.gate_tree_sha256 // "absent") ≠ \($t)" else empty end) ]
+    | if length == 0 then "pass of \($q.gate.finished_utc), evidence \($q.gate.evidence_dir)" else join("; ") end' <<<"$q"
+  jq -e --arg c "$cluster" --arg l "$lab" --arg d "$digest" --arg t "$tree" \
+    '.gate.result == "pass" and .cluster == $c and .lab == $l and $d != "" and .gate.device_image_digest == $d and .gate.gate_tree_sha256 == $t' \
+    >/dev/null <<<"$q"
+}
+
+# provision::fabric_for_authority <file> <authority> — the manifest on stdout with every Fabric pool
+# reference pointing at the selected authority's pool of the same type: group, kind and namespace
+# from gate::authority_pool_ref, the name unchanged (deploy/allocation/pools is generated from
+# deploy/kuid/indices under the same names). loopbackPoolRef and linkPoolRef are ip pools,
+# asnPoolRef an asn pool. The example file itself is never edited.
+provision::fabric_for_authority() {
+  local file="$1" authority="$2" ip asn
+  ip="$(gate::authority_pool_ref "$authority" ip)" || return 1
+  asn="$(gate::authority_pool_ref "$authority" asn)" || return 1
+  PR_IP="$ip" PR_ASN="$asn" yq '
+    (strenv(PR_IP) | split(" ")) as $ip | (strenv(PR_ASN) | split(" ")) as $asn
+    | (select(.kind == "Fabric") | .spec.underlay | (.loopbackPoolRef, .linkPoolRef) | select(. != null))
+        |= (.group = $ip[0] | .kind = $ip[1] | .namespace = $ip[2])
+    | (select(.kind == "Fabric") | .spec.underlay.asnPoolRef | select(. != null))
+        |= (.group = $asn[0] | .kind = $asn[1] | .namespace = $asn[2])' "$file"
+}
+
 provision::phase_FabricReady() {
   log::phase FabricReady
-  local dir="$PROVISION_ROOT/examples/fabric" f names=() n
-  log::info "apply --server-side -f examples/fabric/"
-  provision::k apply --server-side --field-manager="$PROVISION_FIELD_MANAGER" -f "$dir" || return 1
+  local dir="$PROVISION_ROOT/examples/fabric" f names=() n authority
+  authority="$(gate::authority_kind)" || return 1
+  for f in "$dir"/*.yaml; do
+    log::info "apply --server-side -f examples/fabric/${f##*/} (pool references: $(gate::authority_display "$authority"))"
+    provision::fabric_for_authority "$f" "$authority" | provision::apply_stdin || return 1
+  done
   for f in "$dir"/*.yaml; do
     while IFS= read -r n; do [[ -n "$n" ]] && names+=("$n"); done \
       < <(yq -r 'select(.kind == "Fabric") | (.metadata.namespace // "agentic-netops-system") + "/" + .metadata.name' "$f")

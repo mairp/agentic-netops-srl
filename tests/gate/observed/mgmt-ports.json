@@ -1,0 +1,696 @@
+{
+  "image_release": "25.7.1",
+  "listening": [],
+  "nodes": {
+    "leaf01": {
+      "mgmt_namespace_listeners": [
+        {
+          "port": 22,
+          "transport": "tcp"
+        },
+        {
+          "port": 53,
+          "transport": "tcp"
+        },
+        {
+          "port": 53,
+          "transport": "udp"
+        },
+        {
+          "port": 80,
+          "transport": "tcp"
+        },
+        {
+          "port": 161,
+          "transport": "udp"
+        },
+        {
+          "port": 199,
+          "transport": "tcp"
+        },
+        {
+          "port": 443,
+          "transport": "tcp"
+        },
+        {
+          "port": 830,
+          "transport": "tcp"
+        },
+        {
+          "port": 50052,
+          "transport": "tcp"
+        },
+        {
+          "port": 57400,
+          "transport": "tcp"
+        },
+        {
+          "port": 57401,
+          "transport": "tcp"
+        }
+      ],
+      "role": "leaf",
+      "services": [
+        {
+          "admin_state": "unknown",
+          "instance": "eda-discovery",
+          "network_instance": null,
+          "oper_state": "up",
+          "port": 57400,
+          "port_source": "yang-default",
+          "service": "grpc",
+          "services": [],
+          "transport": "tcp"
+        },
+        {
+          "admin_state": "unknown",
+          "instance": "eda-insecure-mgmt",
+          "network_instance": null,
+          "oper_state": "up",
+          "port": 57400,
+          "port_source": "yang-default",
+          "service": "grpc",
+          "services": [],
+          "transport": "tcp"
+        },
+        {
+          "admin_state": "unknown",
+          "instance": "eda-mgmt",
+          "network_instance": null,
+          "oper_state": "down",
+          "port": 57400,
+          "port_source": "yang-default",
+          "service": "grpc",
+          "services": [],
+          "transport": "tcp"
+        },
+        {
+          "admin_state": "unknown",
+          "instance": "insecure-mgmt",
+          "network_instance": null,
+          "oper_state": "up",
+          "port": 57400,
+          "port_source": "yang-default",
+          "service": "grpc",
+          "services": [],
+          "transport": "tcp"
+        },
+        {
+          "admin_state": "unknown",
+          "instance": "mgmt",
+          "network_instance": null,
+          "oper_state": "up",
+          "port": 57400,
+          "port_source": "yang-default",
+          "service": "grpc",
+          "services": [],
+          "transport": "tcp"
+        },
+        {
+          "admin_state": "unknown",
+          "instance": "json-rpc",
+          "network_instance": "mgmt",
+          "oper_state": "up",
+          "port": 80,
+          "port_source": "yang-default",
+          "service": "json-rpc-http",
+          "services": [],
+          "transport": "tcp"
+        },
+        {
+          "admin_state": "unknown",
+          "instance": "json-rpc",
+          "network_instance": "mgmt",
+          "oper_state": "up",
+          "port": 443,
+          "port_source": "yang-default",
+          "service": "json-rpc-https",
+          "services": [],
+          "transport": "tcp"
+        },
+        {
+          "admin_state": "unknown",
+          "instance": "mgmt",
+          "network_instance": null,
+          "oper_state": "up",
+          "port": null,
+          "port_source": "via ssh-server ?",
+          "service": "netconf",
+          "services": [],
+          "transport": "tcp"
+        },
+        {
+          "admin_state": "unknown",
+          "instance": "snmp",
+          "network_instance": "mgmt",
+          "oper_state": "up",
+          "port": 161,
+          "port_source": "protocol-default (no port leaf in the model)",
+          "service": "snmp",
+          "services": [],
+          "transport": "udp"
+        },
+        {
+          "admin_state": "unknown",
+          "instance": "mgmt",
+          "network_instance": null,
+          "oper_state": "up",
+          "port": 22,
+          "port_source": "yang-default",
+          "service": "ssh",
+          "services": [],
+          "transport": "tcp"
+        },
+        {
+          "admin_state": "unknown",
+          "instance": "mgmt-netconf",
+          "network_instance": null,
+          "oper_state": "up",
+          "port": 22,
+          "port_source": "yang-default",
+          "service": "ssh",
+          "services": [],
+          "transport": "tcp"
+        }
+      ]
+    },
+    "leaf02": {
+      "mgmt_namespace_listeners": [
+        {
+          "port": 22,
+          "transport": "tcp"
+        },
+        {
+          "port": 53,
+          "transport": "tcp"
+        },
+        {
+          "port": 53,
+          "transport": "udp"
+        },
+        {
+          "port": 80,
+          "transport": "tcp"
+        },
+        {
+          "port": 161,
+          "transport": "udp"
+        },
+        {
+          "port": 199,
+          "transport": "tcp"
+        },
+        {
+          "port": 443,
+          "transport": "tcp"
+        },
+        {
+          "port": 830,
+          "transport": "tcp"
+        },
+        {
+          "port": 50052,
+          "transport": "tcp"
+        },
+        {
+          "port": 57400,
+          "transport": "tcp"
+        },
+        {
+          "port": 57401,
+          "transport": "tcp"
+        }
+      ],
+      "role": "leaf",
+      "services": [
+        {
+          "admin_state": "unknown",
+          "instance": "eda-discovery",
+          "network_instance": null,
+          "oper_state": "up",
+          "port": 57400,
+          "port_source": "yang-default",
+          "service": "grpc",
+          "services": [],
+          "transport": "tcp"
+        },
+        {
+          "admin_state": "unknown",
+          "instance": "eda-insecure-mgmt",
+          "network_instance": null,
+          "oper_state": "up",
+          "port": 57400,
+          "port_source": "yang-default",
+          "service": "grpc",
+          "services": [],
+          "transport": "tcp"
+        },
+        {
+          "admin_state": "unknown",
+          "instance": "eda-mgmt",
+          "network_instance": null,
+          "oper_state": "down",
+          "port": 57400,
+          "port_source": "yang-default",
+          "service": "grpc",
+          "services": [],
+          "transport": "tcp"
+        },
+        {
+          "admin_state": "unknown",
+          "instance": "insecure-mgmt",
+          "network_instance": null,
+          "oper_state": "up",
+          "port": 57400,
+          "port_source": "yang-default",
+          "service": "grpc",
+          "services": [],
+          "transport": "tcp"
+        },
+        {
+          "admin_state": "unknown",
+          "instance": "mgmt",
+          "network_instance": null,
+          "oper_state": "up",
+          "port": 57400,
+          "port_source": "yang-default",
+          "service": "grpc",
+          "services": [],
+          "transport": "tcp"
+        },
+        {
+          "admin_state": "unknown",
+          "instance": "json-rpc",
+          "network_instance": "mgmt",
+          "oper_state": "up",
+          "port": 80,
+          "port_source": "yang-default",
+          "service": "json-rpc-http",
+          "services": [],
+          "transport": "tcp"
+        },
+        {
+          "admin_state": "unknown",
+          "instance": "json-rpc",
+          "network_instance": "mgmt",
+          "oper_state": "up",
+          "port": 443,
+          "port_source": "yang-default",
+          "service": "json-rpc-https",
+          "services": [],
+          "transport": "tcp"
+        },
+        {
+          "admin_state": "unknown",
+          "instance": "mgmt",
+          "network_instance": null,
+          "oper_state": "up",
+          "port": null,
+          "port_source": "via ssh-server ?",
+          "service": "netconf",
+          "services": [],
+          "transport": "tcp"
+        },
+        {
+          "admin_state": "unknown",
+          "instance": "snmp",
+          "network_instance": "mgmt",
+          "oper_state": "up",
+          "port": 161,
+          "port_source": "protocol-default (no port leaf in the model)",
+          "service": "snmp",
+          "services": [],
+          "transport": "udp"
+        },
+        {
+          "admin_state": "unknown",
+          "instance": "mgmt",
+          "network_instance": null,
+          "oper_state": "up",
+          "port": 22,
+          "port_source": "yang-default",
+          "service": "ssh",
+          "services": [],
+          "transport": "tcp"
+        },
+        {
+          "admin_state": "unknown",
+          "instance": "mgmt-netconf",
+          "network_instance": null,
+          "oper_state": "up",
+          "port": 22,
+          "port_source": "yang-default",
+          "service": "ssh",
+          "services": [],
+          "transport": "tcp"
+        }
+      ]
+    },
+    "spine01": {
+      "mgmt_namespace_listeners": [
+        {
+          "port": 22,
+          "transport": "tcp"
+        },
+        {
+          "port": 53,
+          "transport": "tcp"
+        },
+        {
+          "port": 53,
+          "transport": "udp"
+        },
+        {
+          "port": 80,
+          "transport": "tcp"
+        },
+        {
+          "port": 161,
+          "transport": "udp"
+        },
+        {
+          "port": 199,
+          "transport": "tcp"
+        },
+        {
+          "port": 443,
+          "transport": "tcp"
+        },
+        {
+          "port": 830,
+          "transport": "tcp"
+        },
+        {
+          "port": 50052,
+          "transport": "tcp"
+        },
+        {
+          "port": 57400,
+          "transport": "tcp"
+        },
+        {
+          "port": 57401,
+          "transport": "tcp"
+        }
+      ],
+      "role": "spine",
+      "services": [
+        {
+          "admin_state": "unknown",
+          "instance": "eda-discovery",
+          "network_instance": null,
+          "oper_state": "up",
+          "port": 57400,
+          "port_source": "yang-default",
+          "service": "grpc",
+          "services": [],
+          "transport": "tcp"
+        },
+        {
+          "admin_state": "unknown",
+          "instance": "eda-insecure-mgmt",
+          "network_instance": null,
+          "oper_state": "up",
+          "port": 57400,
+          "port_source": "yang-default",
+          "service": "grpc",
+          "services": [],
+          "transport": "tcp"
+        },
+        {
+          "admin_state": "unknown",
+          "instance": "eda-mgmt",
+          "network_instance": null,
+          "oper_state": "down",
+          "port": 57400,
+          "port_source": "yang-default",
+          "service": "grpc",
+          "services": [],
+          "transport": "tcp"
+        },
+        {
+          "admin_state": "unknown",
+          "instance": "insecure-mgmt",
+          "network_instance": null,
+          "oper_state": "up",
+          "port": 57400,
+          "port_source": "yang-default",
+          "service": "grpc",
+          "services": [],
+          "transport": "tcp"
+        },
+        {
+          "admin_state": "unknown",
+          "instance": "mgmt",
+          "network_instance": null,
+          "oper_state": "up",
+          "port": 57400,
+          "port_source": "yang-default",
+          "service": "grpc",
+          "services": [],
+          "transport": "tcp"
+        },
+        {
+          "admin_state": "unknown",
+          "instance": "json-rpc",
+          "network_instance": "mgmt",
+          "oper_state": "up",
+          "port": 80,
+          "port_source": "yang-default",
+          "service": "json-rpc-http",
+          "services": [],
+          "transport": "tcp"
+        },
+        {
+          "admin_state": "unknown",
+          "instance": "json-rpc",
+          "network_instance": "mgmt",
+          "oper_state": "up",
+          "port": 443,
+          "port_source": "yang-default",
+          "service": "json-rpc-https",
+          "services": [],
+          "transport": "tcp"
+        },
+        {
+          "admin_state": "unknown",
+          "instance": "mgmt",
+          "network_instance": null,
+          "oper_state": "up",
+          "port": null,
+          "port_source": "via ssh-server ?",
+          "service": "netconf",
+          "services": [],
+          "transport": "tcp"
+        },
+        {
+          "admin_state": "unknown",
+          "instance": "snmp",
+          "network_instance": "mgmt",
+          "oper_state": "up",
+          "port": 161,
+          "port_source": "protocol-default (no port leaf in the model)",
+          "service": "snmp",
+          "services": [],
+          "transport": "udp"
+        },
+        {
+          "admin_state": "unknown",
+          "instance": "mgmt",
+          "network_instance": null,
+          "oper_state": "up",
+          "port": 22,
+          "port_source": "yang-default",
+          "service": "ssh",
+          "services": [],
+          "transport": "tcp"
+        },
+        {
+          "admin_state": "unknown",
+          "instance": "mgmt-netconf",
+          "network_instance": null,
+          "oper_state": "up",
+          "port": 22,
+          "port_source": "yang-default",
+          "service": "ssh",
+          "services": [],
+          "transport": "tcp"
+        }
+      ]
+    },
+    "spine02": {
+      "mgmt_namespace_listeners": [
+        {
+          "port": 22,
+          "transport": "tcp"
+        },
+        {
+          "port": 53,
+          "transport": "tcp"
+        },
+        {
+          "port": 53,
+          "transport": "udp"
+        },
+        {
+          "port": 80,
+          "transport": "tcp"
+        },
+        {
+          "port": 161,
+          "transport": "udp"
+        },
+        {
+          "port": 199,
+          "transport": "tcp"
+        },
+        {
+          "port": 443,
+          "transport": "tcp"
+        },
+        {
+          "port": 830,
+          "transport": "tcp"
+        },
+        {
+          "port": 50052,
+          "transport": "tcp"
+        },
+        {
+          "port": 57400,
+          "transport": "tcp"
+        },
+        {
+          "port": 57401,
+          "transport": "tcp"
+        }
+      ],
+      "role": "spine",
+      "services": [
+        {
+          "admin_state": "unknown",
+          "instance": "eda-discovery",
+          "network_instance": null,
+          "oper_state": "up",
+          "port": 57400,
+          "port_source": "yang-default",
+          "service": "grpc",
+          "services": [],
+          "transport": "tcp"
+        },
+        {
+          "admin_state": "unknown",
+          "instance": "eda-insecure-mgmt",
+          "network_instance": null,
+          "oper_state": "up",
+          "port": 57400,
+          "port_source": "yang-default",
+          "service": "grpc",
+          "services": [],
+          "transport": "tcp"
+        },
+        {
+          "admin_state": "unknown",
+          "instance": "eda-mgmt",
+          "network_instance": null,
+          "oper_state": "down",
+          "port": 57400,
+          "port_source": "yang-default",
+          "service": "grpc",
+          "services": [],
+          "transport": "tcp"
+        },
+        {
+          "admin_state": "unknown",
+          "instance": "insecure-mgmt",
+          "network_instance": null,
+          "oper_state": "up",
+          "port": 57400,
+          "port_source": "yang-default",
+          "service": "grpc",
+          "services": [],
+          "transport": "tcp"
+        },
+        {
+          "admin_state": "unknown",
+          "instance": "mgmt",
+          "network_instance": null,
+          "oper_state": "up",
+          "port": 57400,
+          "port_source": "yang-default",
+          "service": "grpc",
+          "services": [],
+          "transport": "tcp"
+        },
+        {
+          "admin_state": "unknown",
+          "instance": "json-rpc",
+          "network_instance": "mgmt",
+          "oper_state": "up",
+          "port": 80,
+          "port_source": "yang-default",
+          "service": "json-rpc-http",
+          "services": [],
+          "transport": "tcp"
+        },
+        {
+          "admin_state": "unknown",
+          "instance": "json-rpc",
+          "network_instance": "mgmt",
+          "oper_state": "up",
+          "port": 443,
+          "port_source": "yang-default",
+          "service": "json-rpc-https",
+          "services": [],
+          "transport": "tcp"
+        },
+        {
+          "admin_state": "unknown",
+          "instance": "mgmt",
+          "network_instance": null,
+          "oper_state": "up",
+          "port": null,
+          "port_source": "via ssh-server ?",
+          "service": "netconf",
+          "services": [],
+          "transport": "tcp"
+        },
+        {
+          "admin_state": "unknown",
+          "instance": "snmp",
+          "network_instance": "mgmt",
+          "oper_state": "up",
+          "port": 161,
+          "port_source": "protocol-default (no port leaf in the model)",
+          "service": "snmp",
+          "services": [],
+          "transport": "udp"
+        },
+        {
+          "admin_state": "unknown",
+          "instance": "mgmt",
+          "network_instance": null,
+          "oper_state": "up",
+          "port": 22,
+          "port_source": "yang-default",
+          "service": "ssh",
+          "services": [],
+          "transport": "tcp"
+        },
+        {
+          "admin_state": "unknown",
+          "instance": "mgmt-netconf",
+          "network_instance": null,
+          "oper_state": "up",
+          "port": 22,
+          "port_source": "yang-default",
+          "service": "ssh",
+          "services": [],
+          "transport": "tcp"
+        }
+      ]
+    }
+  },
+  "schema": "agentic-netops.gate.mgmt-ports/v1",
+  "source": "gNMI Get --type state of /system/{grpc-server,json-rpc-server,ssh-server,netconf-server,snmp} on every device (G2)"
+}

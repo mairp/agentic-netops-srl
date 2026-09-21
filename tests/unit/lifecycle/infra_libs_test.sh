@@ -92,6 +92,13 @@ check "kind: every node attached to the management network" \
   '[[ $rc -eq 0 ]] && jq -e ".Containers[\"$CL-control-plane\"]" "$FAKE_STATE/docker/networks/$NET.json" >/dev/null'
 run_lib kind kind::attach_mgmt "$CL" "$NET"
 check "kind: attach is idempotent" '[[ $rc -eq 0 ]] && ! calls | grep -q "network connect"'
+run_lib kind kind::isolate_dns "$CL"
+check "kind: isolate_dns strips the host search domain, keeps nameserver and options" \
+  '[[ $rc -eq 0 ]] && ! grep -q "^search" "$FAKE_STATE/docker/resolv/$CL-control-plane" && grep -q "^nameserver 172.30.0.1$" "$FAKE_STATE/docker/resolv/$CL-control-plane" && grep -q "^options ndots:0$" "$FAKE_STATE/docker/resolv/$CL-control-plane"'
+check "kind: isolate_dns restarts CoreDNS after a change" 'calls | grep -q "rollout restart deployment/coredns"'
+run_lib kind kind::isolate_dns "$CL"
+check "kind: isolate_dns is idempotent (no rewrite, no restart)" \
+  '[[ $rc -eq 0 ]] && ! calls | grep -q "sh -c cat > /etc/resolv.conf" && ! calls | grep -q "rollout restart"'
 setup kind-foreign
 fakes::cluster "$CL" -
 run_lib kind kind::ensure_cluster "$CL"

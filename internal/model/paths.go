@@ -27,6 +27,7 @@ func (n *FabricNode) WritePaths() []string {
 		}
 		w.add(sub, "ipv4/admin-state")
 		w.add(sub, "ipv4"+elem("address", "ip-prefix", p.IPv4))
+		w.add(sub, "ipv4/unnumbered/admin-state")
 		if p.IPv6 != "" {
 			w.add(sub, "ipv6/admin-state")
 			w.add(sub, "ipv6"+elem("address", "ip-prefix", p.IPv6))
@@ -40,6 +41,7 @@ func (n *FabricNode) WritePaths() []string {
 	w.add(ssub, "admin-state")
 	w.add(ssub, "ipv4/admin-state")
 	w.add(ssub, "ipv4"+elem("address", "ip-prefix", n.SystemIPv4))
+	w.add(ssub, "ipv4/unnumbered/admin-state")
 	if n.SystemIPv6 != "" {
 		w.add(ssub, "ipv6/admin-state")
 		w.add(ssub, "ipv6"+elem("address", "ip-prefix", n.SystemIPv6))
@@ -88,12 +90,15 @@ func (n *FabricNode) WritePaths() []string {
 		if g == OverlayGroup {
 			w.add(gp, "peer-as")
 			w.add(gp, "local-as/as-number")
-			if n.BGP.RouteReflectorClient {
+			if n.BGP.RouteReflectorClient != nil {
 				w.add(gp, "route-reflector/client")
 			}
 		} else {
 			w.add(gp, "export-policy")
 			w.add(gp, "import-policy")
+			if n.BGP.AllowOwnAS > 0 {
+				w.add(gp, "as-path-options/allow-own-as")
+			}
 		}
 		for _, f := range fams {
 			w.add(gp+elem("afi-safi", "afi-safi-name", f), "admin-state")

@@ -1,0 +1,32 @@
+# The intent tier's claim Role on the first-party substitute (AD-74, T182): the same verbs as the
+# kuid variant — get, list, watch, create, delete, NO update and NO patch — on identifierclaims in
+# agentic-netops-allocation, in place of the two kuid claim resources. Pools are not granted: the
+# tier claims, it never reads or writes the authority's ledger. Selected by the lock file at
+# provisioning; T069's deploy/rbac/roles.yaml consumes it.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: kuid-claimer
+  namespace: agentic-netops-allocation
+  labels:
+    app.kubernetes.io/part-of: agentic-netops-intent-tier
+rules:
+- apiGroups: [fabric.agentic-netops.io]
+  resources: [identifierclaims]
+  verbs: [get, list, watch, create, delete]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: kuid-claimer
+  namespace: agentic-netops-allocation
+  labels:
+    app.kubernetes.io/part-of: agentic-netops-intent-tier
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: kuid-claimer
+subjects:
+- kind: ServiceAccount
+  name: intent-allocator
+  namespace: agentic-netops-agents

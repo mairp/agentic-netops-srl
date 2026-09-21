@@ -73,8 +73,8 @@ pq::qualification() {
           properties: {
             "evpn-type2": prop(passed("G8") and allpass("G8"; "^type2:"); ["G8"]; "Type-2 received through a reflecting spine, each way"),
             "evpn-type3": prop(passed("G8") and allpass("G8"; "^type3:"); ["G8"]; "Type-3 received through a reflecting spine, each way"),
-            "reflection": prop(passed("G8") and allpass("G8"; "^reflector-settings:"); ["G8"]; "inter-as-vpn + route-reflector client on the reflectors, shown necessary by the negative control"),
-            "tenant-mtu": prop(passed("G6"); ["G6"]; "9412/9398/9348 and the 9320/9300 payload boundary"),
+            "reflection": prop(passed("G8") and allpass("G8"; "^reflector-settings:") and allpass("G8"; "^reflector-clients-false-stops-reflection$"); ["G8"]; "inter-as-vpn + route-reflector client on the reflectors (read from config, AD-76); route-reflector client false observed to stop reflection, the declarative SC-004 negative control (AD-77)"),
+            "tenant-mtu": prop(passed("G6"); ["G6"]; "9412/9398/9348 committed, 9413/9399 refused at commit, the tenant boundary on the data plane: 9320/9300 pass, 9321/9301 fail (AD-78)"),
             "anycast-gateway-ipv4": prop(passed("G8") and allpass("G8"; "^anycast-gateway-ipv4$"); ["G8"]; "IPv4 anycast gateway reached across the fabric"),
             "anycast-gateway-ipv6": (prop(passed("G8") and allpass("G8"; "^property:anycast-gateway-ipv6$"); ["G8"]; "IPv6 anycast gateway reached end to end") + {gated: true})
           }
@@ -84,7 +84,7 @@ pq::qualification() {
           properties: {
             "evpn-type5-ipv4": prop(passed("G8") and allpass("G8"; "^type5-ipv4"); ["G8"]; "IPv4 Type-5 received through a reflecting spine, installed, routed end to end"),
             "evpn-type5-ipv6": (prop(passed("G8") and allpass("G8"; "^property:ipv6-type5"); ["G8"]; "IPv6 Type-5 received through a reflecting spine, installed, routed end to end") + {gated: true}),
-            "tenant-mtu": prop(passed("G6"); ["G6"]; "9412/9398/9348 and the 9320/9300 payload boundary")
+            "tenant-mtu": prop(passed("G6"); ["G6"]; "9412/9398/9348 committed, 9413/9399 refused at commit, the tenant boundary on the data plane: 9320/9300 pass, 9321/9301 fail (AD-78)")
           }
         },
         "acl": {
@@ -103,7 +103,8 @@ pq::qualification() {
           and ([.value.properties[] | select((.gated // false) | not) | .qualified] | all)))) as $constructs
     | {schema: "agentic-netops.fabric-qualification/v1",
        gate: {result: .result, finished_utc: .finished_utc, evidence_dir: .evidence_dir,
-              failed_items: .failed_items, device_image_digest: .device_image_digest},
+              failed_items: .failed_items, device_image_digest: .device_image_digest,
+              gate_tree_sha256: (.gate_tree_sha256 // null)},
        cluster: $cluster, lab: .lab,
        items: ($it | with_entries(.value = .value.status)),
        constructs: $constructs,

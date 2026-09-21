@@ -54,10 +54,18 @@ func renderInterfaces(n *model.FabricNode) *list {
 // addressFamilies adds the ipv4 (always) and ipv6 (when derived) containers of
 // a routed subinterface. ipv4/ipv6 come from srl_nokia-if-ip by `uses`, so they
 // carry no module qualification (evidence/02-evpn-constructs.md §0).
+//
+// ipv4/unnumbered/admin-state is stated as `disable` although that is the model
+// default: every ipv4 address carries the must `../../unnumbered/admin-state !=
+// 'enable'`, and the device-configuration layer's validator (data-server v0.0.66,
+// the pin at the time, and sdc-lite offline) evaluates it against the absent node rather than the
+// default, refusing the address. Observed live against the Targets, pass 37;
+// the if-feature ipv4-unnumbered is advertised by all four nodes (G3).
 func addressFamilies(sub container, v4, v6 string) {
 	sub["ipv4"] = container{
 		"admin-state": adminState(true),
 		"address":     newList("ip-prefix").add(container{"ip-prefix": v4}),
+		"unnumbered":  container{"admin-state": adminState(false)},
 	}
 	if v6 != "" {
 		sub["ipv6"] = container{

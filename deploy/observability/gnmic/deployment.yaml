@@ -1,0 +1,43 @@
+# gNMIc, the device metric collector's device client (FR-086, FR-089). Its configuration —
+# targets rendered for MGMT_CIDR, subscriptions, the OTLP output and its event processors — is the
+# ConfigMap device-metrics-gnmic written by scripts/lib/device_metrics.sh. The credentials are the
+# collector's own copy, monitoring/srl-credentials (scripts/lib/lab_secrets.sh): never a literal.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: device-metrics-gnmic
+  namespace: monitoring
+  labels: {app.kubernetes.io/name: device-metrics-gnmic, app.kubernetes.io/part-of: agentic-netops}
+spec:
+  replicas: 1
+  strategy: {type: Recreate}   # never two collectors holding device sessions at once (FR-086)
+  selector:
+    matchLabels: {app.kubernetes.io/name: device-metrics-gnmic}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: device-metrics-gnmic, app.kubernetes.io/part-of: agentic-netops}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+      - name: gnmic
+        image: ghcr.io/openconfig/gnmic
+        imagePullPolicy: IfNotPresent
+        args: ["--config", "/etc/gnmic/gnmic.yaml", "subscribe"]
+        env:
+        - name: GNMIC_USERNAME
+          valueFrom: {secretKeyRef: {name: srl-credentials, key: username}}
+        - name: GNMIC_PASSWORD
+          valueFrom: {secretKeyRef: {name: srl-credentials, key: password}}
+        resources:
+          requests: {cpu: 20m, memory: 32Mi}
+          limits: {cpu: 500m, memory: 128Mi}
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities: {drop: [ALL]}
+        volumeMounts: [{name: cfg, mountPath: /etc/gnmic}]
+      volumes: [{name: cfg, configMap: {name: device-metrics-gnmic}}]

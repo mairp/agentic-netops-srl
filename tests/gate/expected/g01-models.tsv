@@ -1,5 +1,7 @@
 # module<TAB>revision — the newest (latest-dated) revision statement of each module the gate requires (G1), read from
 # nokia/srlinux-yang-models tag v25.7.1 (commit badcf9977fe672437907cdae7daebb27a1361c36, versions.lock.yaml part 2).
+# srl_nokia-features is NOT listed: it declares YANG features only and the pinned image does not advertise it in
+# Capabilities (observed 2026-09-21); the feature set is G3's check (/system/features), not G1's.
 # G1 asserts each is advertised by gNMI Capabilities at exactly this revision. Regenerate only from the pinned tag.
 srl_nokia-interfaces	2025-07-31
 srl_nokia-network-instance	2025-03-31
@@ -21,4 +23,3 @@ srl_nokia-ip-route-tables	2020-06-30
 srl_nokia-rib-bgp	2020-06-30
 srl_nokia-routing-policy	2025-03-31
 srl_nokia-vxlan-tunnel-vtep	2020-10-31
-srl_nokia-features	2021-03-31

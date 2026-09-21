@@ -6,6 +6,7 @@ import (
 	"time"
 
 	fabricv1 "github.com/mairp/agentic-netops-srl/api/fabric/v1alpha1"
+	"github.com/mairp/agentic-netops-srl/pkg/kuid"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -83,5 +84,38 @@ func TestSplitP2PAndLoopback(t *testing.T) {
 	}
 	if p, err := hostPrefix32("10.0.0.7/24"); err != nil || p != "10.0.0.7/32" {
 		t.Errorf("%s %v", p, err)
+	}
+}
+
+// T182: a pool reference must name the index the installed authority serves, as the
+// adapter reports it; a mismatch names the field, what it states and what is served.
+func TestPoolRefsFollowTheAuthority(t *testing.T) {
+	f := &fabricv1.Fabric{}
+	ref := func(g, k string) *fabricv1.PoolRef {
+		return &fabricv1.PoolRef{Group: g, Kind: k, Name: "p", Namespace: "n"}
+	}
+	f.Spec.Underlay.LoopbackPoolRef = ref("ipam.be.kuid.dev", "IPIndex")
+	f.Spec.Underlay.LinkPoolRef = ref("ipam.be.kuid.dev", "IPIndex")
+	f.Spec.Underlay.ASNPoolRef = ref("as.be.kuid.dev", "ASIndex")
+	if err := checkPoolRefs(f, kuid.NewUpstream(nil)); err != nil {
+		t.Fatalf("kuid refs under kuid: %v", err)
+	}
+	err := checkPoolRefs(f, kuid.NewFirstParty(nil))
+	if err == nil {
+		t.Fatal("kuid refs accepted under first-party")
+	}
+	for _, s := range []string{"spec.underlay.loopbackPoolRef names ipam.be.kuid.dev/IPIndex", "spec.underlay.asnPoolRef names as.be.kuid.dev/ASIndex",
+		"spec.underlay.linkPoolRef", "(first-party)", "fabric.agentic-netops.io/IdentifierPool"} {
+		if !strings.Contains(err.Error(), s) {
+			t.Errorf("message lacks %q: %v", s, err)
+		}
+	}
+	fp := ref("fabric.agentic-netops.io", "IdentifierPool")
+	f.Spec.Underlay.LoopbackPoolRef, f.Spec.Underlay.LinkPoolRef, f.Spec.Underlay.ASNPoolRef = fp, fp, fp
+	if err := checkPoolRefs(f, kuid.NewFirstParty(nil)); err != nil {
+		t.Fatalf("first-party refs under first-party: %v", err)
+	}
+	if err := checkPoolRefs(f, kuid.NewUpstream(nil)); err == nil || !strings.Contains(err.Error(), "(kuid) serves IP claims from ipam.be.kuid.dev/IPIndex") {
+		t.Fatalf("first-party refs under kuid: %v", err)
 	}
 }

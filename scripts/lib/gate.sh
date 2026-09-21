@@ -16,6 +16,12 @@
 #   gate::warn_substitute [lock]    on `first-party`, warn the substitute BY NAME (every run)
 #   gate::g11_early                 run tests/gate/g11_allocation_claim.sh; on failure name
 #                                   G11 and return non-zero
+#   gate::authority_namespace <kind>  the namespace the authority's pools and claims live in
+#   gate::authority_pool_ref <kind> <ip|asn|vlan|vni>
+#                                   "<group> <kind> <namespace>" of a pool reference to that
+#                                   authority's pool of that type — what a Fabric's pool
+#                                   references carry; the name is the same on both sides
+#                                   (deploy/allocation/pools is generated from deploy/kuid/indices)
 #
 # The lock file is the tree's own <repo>/versions.lock.yaml and the round trip the tree's
 # own tests/gate/g11_allocation_claim.sh: neither path is overridable by a flag or a
@@ -52,6 +58,32 @@ gate::authority_display() {
     first-party) printf 'the first-party allocator substitute (IdentifierPool/IdentifierClaim in fabric.agentic-netops.io, namespace agentic-netops-allocation)' ;;
     none) printf 'no allocation authority' ;;
     *) printf '%s' "$1" ;;
+  esac
+}
+
+# gate::authority_namespace <kind>
+gate::authority_namespace() {
+  case "$1" in
+    kuid) printf 'kuid-system' ;;
+    first-party) printf 'agentic-netops-allocation' ;;
+    *) log::error "allocation authority: unknown kind '$1' (kuid | first-party)"; return 2 ;;
+  esac
+}
+
+# gate::authority_pool_ref <kind> <ip|asn|vlan|vni> — "<group> <kind> <namespace>" (data-model.md
+# §23: under substitution a Fabric's pool references change group and kind — and namespace —
+# and nothing else).
+gate::authority_pool_ref() {
+  local authority="$1" type="${2:-}"
+  case "$authority:$type" in
+    kuid:ip)   printf 'ipam.be.kuid.dev IPIndex kuid-system' ;;
+    kuid:asn)  printf 'as.be.kuid.dev ASIndex kuid-system' ;;
+    kuid:vlan) printf 'vlan.be.kuid.dev VLANIndex kuid-system' ;;
+    kuid:vni)  printf 'genid.be.kuid.dev GENIDIndex kuid-system' ;;
+    first-party:ip|first-party:asn|first-party:vlan|first-party:vni)
+               printf 'fabric.agentic-netops.io IdentifierPool agentic-netops-allocation' ;;
+    *) log::error "allocation authority: no pool reference for '${authority}' type '${type}' (kuid | first-party; ip | asn | vlan | vni)"
+       return 2 ;;
   esac
 }
 

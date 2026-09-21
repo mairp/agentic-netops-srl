@@ -27,13 +27,20 @@ package verify
 //     is enabled), keyed to the loopbacks the Fabric itself allocated.
 //
 // Configuration integrity, on every reflecting spine: inter-as-vpn and
-// route-reflector client read back true. Both are CONFIGURATION leaves that
-// the state datastore mirrors, so this is a configuration-integrity check —
-// it shows the setting is applied, never that reflection works (AD-31;
-// reflection is shown by G8, T051's probe and the first spanning service). A
-// spine that does not report either — whether the device lost it or the
-// Fabric declares overlay.interASVPN false — is NotConverged naming the spine
-// and the setting (AD-43).
+// route-reflector client read back as the Fabric declares them
+// (spec.overlay.interASVPN, spec.overlay.reflectorClients). Both are
+// CONFIGURATION leaves, read from the CONFIGURATION datastore — the node's
+// running configuration as the layer holds it — because SR Linux 25.7.1's
+// state datastore does not mirror them (AD-76). This is a configuration-
+// integrity check: it shows the setting is applied, never that reflection
+// works (AD-31; reflection is shown by G8, T051's probe and the first spanning
+// service). A spine whose read-back differs from the declaration is
+// NotConverged naming the spine and the setting; and a Fabric that declares
+// overlay.reflectorClients false — SC-004's declarative negative control — is
+// NotConverged naming each reflecting spine and route-reflector client
+// whatever the device reads (AD-77). overlay.interASVPN false is no longer a
+// convergence rule of its own: it is checked as declared equals read back
+// only (AD-77).
 //
 // It NEVER counts EVPN routes (FR-100, AD-23): no received-routes, active-routes
 // or RIB path is ever read. The Fabric converges before any service exists,
@@ -45,6 +52,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -120,8 +128,13 @@ type FabricInput struct {
 	// Model is the canonical fabric model the Configs were rendered from; its
 	// nodes, ports, neighbours and allocated loopbacks key every read.
 	Model *model.FabricModel
-	// InterASVPN is spec.overlay.interASVPN as declared.
+	// InterASVPN is spec.overlay.interASVPN as declared; the configuration-
+	// integrity check expects it read back on every reflecting spine.
 	InterASVPN bool
+	// ReflectorClients is spec.overlay.reflectorClients as declared (true when
+	// absent); the configuration-integrity check expects it read back on every
+	// reflecting spine, and false makes the Fabric NotConverged (AD-77).
+	ReflectorClients bool
 	// TargetNamespace is the namespace of the layer's Targets.
 	TargetNamespace string
 	// Nodes carries the written-side input of every node of Model.
@@ -150,6 +163,9 @@ type FabricResult struct {
 	// Paths are every state path this pass read, sorted (evidence, and what
 	// the no-route-count test inspects).
 	Paths []string
+	// ConfigPaths are every path this pass read from the configuration
+	// datastore (the configuration-integrity leaves, AD-76), sorted.
+	ConfigPaths []string
 }
 
 // Passed reports whether no invariant is missing.
@@ -212,7 +228,7 @@ func (f *Fabric) VerifyFabric(ctx context.Context, in FabricInput) (FabricResult
 	for i := range nodes {
 		n := &nodes[i]
 		target := Target{Namespace: in.TargetNamespace, Name: n.Name}
-		missing, cleared, paths, err := f.verifyNode(ctx, target, n, in, written[n.Name], findings[n.Name])
+		missing, cleared, paths, cfgPaths, err := f.verifyNode(ctx, target, n, in, written[n.Name], findings[n.Name])
 		if err != nil {
 			if ctx.Err() != nil {
 				err = fmt.Errorf("read timed out after %s: %w", timeout, err)
@@ -223,6 +239,7 @@ func (f *Fabric) VerifyFabric(ctx context.Context, in FabricInput) (FabricResult
 		res.Missing = append(res.Missing, missing...)
 		res.ClearedFindings = append(res.ClearedFindings, cleared...)
 		res.Paths = append(res.Paths, paths...)
+		res.ConfigPaths = append(res.ConfigPaths, cfgPaths...)
 	}
 	if len(causes) > 0 {
 		return FabricResult{}, &CouldNotRunError{Causes: causes}
@@ -239,19 +256,34 @@ func (f *Fabric) VerifyFabric(ctx context.Context, in FabricInput) (FabricResult
 	})
 	sort.Ints(res.ClearedFindings)
 	sort.Strings(res.Paths)
+	sort.Strings(res.ConfigPaths)
 	return res, nil
 }
 
-// Expectation is one state leaf and the value it must read.
+// Datastore is the datastore an Expectation is read from.
+type Datastore string
+
+const (
+	// DatastoreState is the device's state datastore (applied side).
+	DatastoreState Datastore = "state"
+	// DatastoreConfiguration is the node's running configuration as the
+	// layer holds it — where a configuration-integrity leaf is read, because
+	// the state datastore does not mirror it (AD-76).
+	DatastoreConfiguration Datastore = "configuration"
+)
+
+// Expectation is one leaf, the datastore it is read from and the value it
+// must read.
 type Expectation struct {
-	Path  string
-	Want  string
-	Check Check
-	What  string
+	Path      string
+	Want      string
+	Check     Check
+	What      string
+	Datastore Datastore
 }
 
 func (f *Fabric) verifyNode(ctx context.Context, target Target, n *model.FabricNode, in FabricInput,
-	w FabricNodeInput, fs []FindingInput) ([]Invariant, []int, []string, error) {
+	w FabricNodeInput, fs []FindingInput) ([]Invariant, []int, []string, []string, error) {
 	var missing []Invariant
 	miss := func(c Check, format string, a ...any) {
 		missing = append(missing, Invariant{Node: n.Name, Check: c, Detail: fmt.Sprintf(format, a...)})
@@ -266,14 +298,14 @@ func (f *Fabric) verifyNode(ctx context.Context, target Target, n *model.FabricN
 		case apierrors.IsNotFound(err):
 			miss(CheckWritten, "Config %s absent", w.ConfigName)
 		case err != nil:
-			return nil, nil, nil, fmt.Errorf("read Config %s: %w", w.ConfigName, err)
+			return nil, nil, nil, nil, fmt.Errorf("read Config %s: %w", w.ConfigName, err)
 		default:
 			if ok, why := configApplied(cfg); !ok {
 				miss(CheckWritten, "Config %s not applied by the layer: %s", w.ConfigName, why)
 			}
 			dev, err := f.Configs.GetConfigDeviation(ctx, w.ConfigName)
 			if err != nil {
-				return nil, nil, nil, fmt.Errorf("read Deviation of Config %s: %w", w.ConfigName, err)
+				return nil, nil, nil, nil, fmt.Errorf("read Deviation of Config %s: %w", w.ConfigName, err)
 			}
 			if dev != nil && len(dev.Spec.Deviations) > 0 {
 				var ps []string
@@ -289,16 +321,16 @@ func (f *Fabric) verifyNode(ctx context.Context, target Target, n *model.FabricN
 	// --- written side: the rendered content in the running datastore ---
 	running, err := f.Reader.Running(ctx, target)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 	var runningDoc any
 	if err := json.Unmarshal(running, &runningDoc); err != nil {
-		return nil, nil, nil, fmt.Errorf("running configuration of %s is not JSON: %w", n.Name, err)
+		return nil, nil, nil, nil, fmt.Errorf("running configuration of %s is not JSON: %w", n.Name, err)
 	}
 	if len(w.Rendered) > 0 {
 		var want any
 		if err := json.Unmarshal(w.Rendered, &want); err != nil {
-			return nil, nil, nil, fmt.Errorf("rendered document of %s is not JSON: %w", n.Name, err)
+			return nil, nil, nil, nil, fmt.Errorf("rendered document of %s is not JSON: %w", n.Name, err)
 		}
 		if absent := missingLeaves(want, runningDoc, ""); len(absent) > 0 {
 			shown := absent
@@ -309,12 +341,28 @@ func (f *Fabric) verifyNode(ctx context.Context, target Target, n *model.FabricN
 		}
 	}
 
-	// --- applied side and configuration integrity: one state read ---
-	exps := Expectations(in.Model, n, in.InterASVPN)
-	var paths []string
+	// --- configuration integrity: read from the configuration datastore ---
+	// (AD-76: the state datastore of SR Linux 25.7.1 does not mirror these
+	// configuration leaves, so they are read from the running configuration;
+	// still a configuration-integrity check, never applied-side evidence)
+	exps := Expectations(in.Model, n, in.InterASVPN, in.ReflectorClients)
+	var paths, cfgPaths []string
 	for _, e := range exps {
+		if e.Datastore == DatastoreConfiguration {
+			cfgPaths = append(cfgPaths, e.Path)
+			if vals := ConfigValues(runningDoc, e.Path); !contains(vals, e.Want) {
+				miss(e.Check, "%s: %s reads %s in the configuration datastore, want %s", e.What, e.Path, show(vals), e.Want)
+			}
+			continue
+		}
 		paths = append(paths, e.Path)
 	}
+	if n.BGP.RouteReflectorClient != nil && !in.ReflectorClients {
+		miss(CheckConfigurationIntegrity,
+			"configuration-integrity check (read from the configuration datastore): reflecting spine %s — route-reflector client is declared false by spec.overlay.reflectorClients; a reflector declared not to reflect is not converged", n.Name)
+	}
+
+	// --- applied side: one state read ---
 	objPaths := map[int][]string{}
 	for _, fi := range fs {
 		for _, o := range fi.DeviceObjects {
@@ -326,17 +374,16 @@ func (f *Fabric) verifyNode(ctx context.Context, target Target, n *model.FabricN
 	paths = dedupe(paths)
 	got, err := f.Reader.State(ctx, target, paths)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 	for _, e := range exps {
+		if e.Datastore != DatastoreState {
+			continue
+		}
 		vals := got[e.Path]
 		if !contains(vals, e.Want) {
 			miss(e.Check, "%s: %s reads %s, want %s", e.What, e.Path, show(vals), e.Want)
 		}
-	}
-	if n.BGP.RouteReflectorClient && !in.InterASVPN {
-		miss(CheckConfigurationIntegrity,
-			"configuration-integrity check: reflecting spine %s — inter-as-vpn is declared false by spec.overlay.interASVPN; a reflector declared unable to reflect is not converged", n.Name)
 	}
 
 	// --- findings: cleared only when every object is absent from both datastores ---
@@ -353,16 +400,22 @@ func (f *Fabric) verifyNode(ctx context.Context, target Target, n *model.FabricN
 			cleared = append(cleared, fi.Index)
 		}
 	}
-	return missing, cleared, paths, nil
+	return missing, cleared, paths, cfgPaths, nil
 }
 
-// Expectations are the applied-side and configuration-integrity leaves of node
-// n and the value each must read. Every path is keyed to the Fabric's own
-// objects; none is a route count.
-func Expectations(m *model.FabricModel, n *model.FabricNode, interASVPNDeclared bool) []Expectation {
+// Expectations are the applied-side leaves (state datastore) and the
+// configuration-integrity leaves (configuration datastore, AD-76) of node n and
+// the value each must read; the configuration-integrity ones read back as
+// declared. Every path is keyed to the Fabric's own objects; none is a route
+// count.
+func Expectations(m *model.FabricModel, n *model.FabricNode, interASVPNDeclared, reflectorClientsDeclared bool) []Expectation {
 	var out []Expectation
 	add := func(c Check, what, path, want string) {
-		out = append(out, Expectation{Path: path, Want: want, Check: c, What: what})
+		ds := DatastoreState
+		if c == CheckConfigurationIntegrity {
+			ds = DatastoreConfiguration
+		}
+		out = append(out, Expectation{Path: path, Want: want, Check: c, What: what, Datastore: ds})
 	}
 	for _, p := range n.FabricPorts {
 		add(CheckInterfaceOperState, "interface "+p.Name, InterfaceOperStatePath(p.Name), OperStateUp)
@@ -394,11 +447,11 @@ func Expectations(m *model.FabricModel, n *model.FabricNode, interASVPNDeclared 
 		}
 	}
 
-	if n.BGP.RouteReflectorClient || n.BGP.InterASVPN != nil {
-		add(CheckConfigurationIntegrity, "configuration-integrity check: reflecting spine "+n.Name+" setting inter-as-vpn",
-			InterASVPNPath(), LeafTrue)
-		add(CheckConfigurationIntegrity, "configuration-integrity check: reflecting spine "+n.Name+" setting route-reflector client",
-			RouteReflectorClientPath(model.OverlayGroup), LeafTrue)
+	if n.BGP.RouteReflectorClient != nil || n.BGP.InterASVPN != nil {
+		add(CheckConfigurationIntegrity, "configuration-integrity check (read from the configuration datastore): reflecting spine "+n.Name+" setting inter-as-vpn",
+			InterASVPNPath(), strconv.FormatBool(interASVPNDeclared))
+		add(CheckConfigurationIntegrity, "configuration-integrity check (read from the configuration datastore): reflecting spine "+n.Name+" setting route-reflector client",
+			RouteReflectorClientPath(model.OverlayGroup), strconv.FormatBool(reflectorClientsDeclared))
 	}
 	return out
 }
@@ -440,13 +493,15 @@ func RouteActivePath(family, key, prefix string) string {
 }
 
 // InterASVPNPath is …/protocols/bgp/afi-safi[afi-safi-name=srl_nokia-common:evpn]/evpn/inter-as-vpn
-// — a configuration leaf the state datastore mirrors (configuration integrity).
+// — a configuration leaf the state datastore does not mirror, read from the
+// configuration datastore (configuration integrity, AD-76).
 func InterASVPNPath() string {
 	return bgpPath() + "/afi-safi[afi-safi-name=" + EVPNAFISAFIName + "]/evpn/inter-as-vpn"
 }
 
 // RouteReflectorClientPath is …/protocols/bgp/group[group-name=<g>]/route-reflector/client
-// — a configuration leaf the state datastore mirrors (configuration integrity).
+// — a configuration leaf the state datastore does not mirror, read from the
+// configuration datastore (configuration integrity, AD-76).
 func RouteReflectorClientPath(group string) string {
 	return bgpPath() + "/group[group-name=" + group + "]/route-reflector/client"
 }
@@ -540,6 +595,109 @@ func deviceObjectInRunning(doc any, obj string) bool {
 		}
 	}
 	return false
+}
+
+// ConfigValues reads path (gNMI string form) from a configuration document —
+// the node's running configuration as the layer holds it — and returns the
+// value of every leaf instance it matches, in document order. Object keys
+// match by local name (module qualification may be omitted), list keys by
+// value with identityrefs compared by local name; a list the path leaves
+// unkeyed matches every entry. A path the document does not hold is nil.
+func ConfigValues(doc any, path string) []string {
+	cur := []any{doc}
+	for _, el := range splitPathElems(path) {
+		name, keys := parseElem(el)
+		var next []any
+		for _, c := range cur {
+			v, ok := lookupOK(asMap(c), name)
+			if !ok {
+				continue
+			}
+			if arr, isList := v.([]any); isList {
+				for _, e := range arr {
+					if keysMatch(asMap(e), keys) {
+						next = append(next, e)
+					}
+				}
+				continue
+			}
+			if len(keys) == 0 {
+				next = append(next, v)
+			}
+		}
+		cur = next
+	}
+	var out []string
+	for _, c := range cur {
+		switch c.(type) {
+		case map[string]any, []any:
+			continue
+		case nil:
+			out = append(out, "")
+		default:
+			out = append(out, fmt.Sprint(c))
+		}
+	}
+	return out
+}
+
+// splitPathElems splits a gNMI string path on the slashes outside key brackets.
+func splitPathElems(path string) []string {
+	var out []string
+	depth, start := 0, 0
+	for i := 0; i < len(path); i++ {
+		switch path[i] {
+		case '[':
+			depth++
+		case ']':
+			depth--
+		case '/':
+			if depth == 0 {
+				if i > start {
+					out = append(out, path[start:i])
+				}
+				start = i + 1
+			}
+		}
+	}
+	if start < len(path) {
+		out = append(out, path[start:])
+	}
+	return out
+}
+
+// parseElem splits one path element name[k=v][k2=v2] into its name and keys.
+func parseElem(el string) (string, map[string]string) {
+	i := strings.IndexByte(el, '[')
+	if i < 0 {
+		return el, nil
+	}
+	name, rest := el[:i], el[i:]
+	keys := map[string]string{}
+	for len(rest) > 0 && rest[0] == '[' {
+		j := strings.IndexByte(rest, ']')
+		if j < 0 {
+			break
+		}
+		if k, v, ok := strings.Cut(rest[1:j], "="); ok {
+			keys[k] = v
+		}
+		rest = rest[j+1:]
+	}
+	return name, keys
+}
+
+func keysMatch(e map[string]any, keys map[string]string) bool {
+	if e == nil {
+		return false
+	}
+	for k, want := range keys {
+		v, ok := lookupOK(e, k)
+		if !ok || !scalarEqual(v, want) {
+			return false
+		}
+	}
+	return true
 }
 
 func findList(doc any, name string) []map[string]any {

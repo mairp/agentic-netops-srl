@@ -1,0 +1,11 @@
+# deploy/observability/otel-collector — the OpenTelemetry Collector of the device metric pipeline
+# (OTLP in, Prometheus exporter out), installed at TargetsReady through
+# deploy/observability/device-metrics (AD-82 decision 2026-09-21-state-source). T129 completes it
+# (the tier metric filter).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - otel-collector.yaml
+images:
+  - name: docker.io/otel/opentelemetry-collector-contrib
+    newTag: "0.161.0@sha256:fd328de2552466ad78385e1b1289c3f2402b1c45f265b252aab1955b42845ac1"

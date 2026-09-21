@@ -26,6 +26,15 @@
 #                     raw.githubusercontent.com/kuidio/kuid/<commit>/); version and commit
 #                     are the ones versions.lock.yaml pins; and the sha256 of the bytes after
 #                     the end marker still equals the recorded digest (the file is unmodified).
+#   substitute-shape  nothing of the first-party allocation authority — every file under
+#                     deploy/allocation/, config/crd/conditional/, config/rbac/allocation/ and
+#                     config/rbac/claims/first-party/ — declares an object in any *.kuid.dev
+#                     group (its apiVersion, a CRD's spec.group or an APIService's spec.group),
+#                     an object or CRD whose kind is named like a kuid kind (IPIndex, ASIndex,
+#                     VLANIndex, GENIDIndex, IPClaim, …, IPEntry, … — any
+#                     (IP|AS|VLAN|GENID|EXTCOMM)(Index|Claim|Entry)), or an RBAC rule on a
+#                     *.kuid.dev group: the substitute is never in, and never shaped to imitate,
+#                     an upstream API group (FR-098, FR-104; data-model.md §23)
 #   image-pin         every `images:` entry of deploy/{cert-manager,sdc,kuid}/kustomization.yaml
 #                     is `<name>:<newTag>` equal to a `pinned:` value of versions.lock.yaml, and
 #                     no kustomization there pulls a remote resource (http[s]:// or github.com/).
@@ -216,6 +225,52 @@ for rel in files:
                 fail("go-group", rel, i, f"first-party Go API declares upstream group {m.group(1)} (FR-098)")
     except OSError:
         pass
+
+# ------------------------------------------------------------------ substitute-shape
+SUBSTITUTE_ROOTS = ("deploy/allocation/", "config/crd/conditional/", "config/rbac/allocation/",
+                    "config/rbac/claims/first-party/")
+KUID_GROUP = re.compile(r"(^|\.)kuid\.dev$")
+KUID_KIND = re.compile(r"^(IP|AS|VLAN|GENID|EXTCOMM)(Index|Claim|Entry)(List)?$", re.I)
+def group_of_api_version(av):
+    av = str(av or "")
+    return av.split("/", 1)[0] if "/" in av else ""
+for rel in files:
+    if not rel.startswith(SUBSTITUTE_ROOTS) or not rel.endswith((".yaml", ".yml", ".json")):
+        continue
+    try:
+        text = open(os.path.join(root, rel), encoding="utf-8").read()
+        docs = list(yaml.compose_all(text, Loader=getattr(yaml, "CSafeLoader", yaml.SafeLoader)))
+    except (UnicodeDecodeError, OSError, yaml.YAMLError) as e:
+        fail("substitute-shape", rel, None, f"cannot be parsed, so it cannot be shown free of *.kuid.dev objects: {e}")
+        continue
+    for d in docs:
+        if not isinstance(d, yaml.MappingNode):
+            continue
+        line = d.start_mark.line + 1
+        kind = scalar(child(d, "kind")) or ""
+        name = scalar(child(child(d, "metadata"), "name")) or "?"
+        av_group = group_of_api_version(scalar(child(d, "apiVersion")))
+        if KUID_GROUP.search(av_group):
+            fail("substitute-shape", rel, line, f"{kind or 'object'} {name} is in the kuid API group {av_group} (FR-098)")
+        if KUID_KIND.match(kind):
+            fail("substitute-shape", rel, line, f"{kind} {name} is named like a kuid kind (FR-098: the substitute never imitates kuid)")
+        if kind in ("CustomResourceDefinition", "APIService"):
+            spec = child(d, "spec")
+            g = scalar(child(spec, "group")) or ""
+            if KUID_GROUP.search(g):
+                fail("substitute-shape", rel, line, f"{kind} {name} serves the kuid API group {g} (FR-098)")
+            for key in ("kind", "listKind", "singular", "plural"):
+                v = scalar(child(child(spec, "names"), key)) or ""
+                if KUID_KIND.match(v) or re.match(r"^(ip|as|vlan|genid|extcomm)(index|indices|indexes|claims?|entry|entries)$", v, re.I):
+                    fail("substitute-shape", rel, line, f"{kind} {name} names.{key} '{v}' is named like a kuid kind (FR-098)")
+        if kind in ("Role", "ClusterRole"):
+            rules = child(d, "rules")
+            for r in (rules.value if isinstance(rules, yaml.SequenceNode) else []):
+                ag = child(r, "apiGroups")
+                for g in (ag.value if isinstance(ag, yaml.SequenceNode) else []):
+                    if KUID_GROUP.search(scalar(g) or ""):
+                        fail("substitute-shape", rel, r.start_mark.line + 1,
+                             f"{kind} {name} grants on the kuid API group {scalar(g)} — the substitute's identities touch only fabric.agentic-netops.io (FR-104)")
 
 # ------------------------------------------------------------------ image-pin
 pinned = set()

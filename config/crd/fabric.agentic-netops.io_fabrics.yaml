@@ -299,6 +299,13 @@ spec:
                       InterASVPN is rendered as inter-as-vpn on every reflecting spine; false is accepted —
                       the declarative way to withdraw reflection (AD-43).
                     type: boolean
+                  reflectorClients:
+                    default: true
+                    description: |-
+                      ReflectorClients is rendered as route-reflector client on every reflecting spine's
+                      overlay group as stated; false is accepted — the declarative way to withdraw
+                      reflection, SC-004's negative control (AD-77).
+                    type: boolean
                   routeReflectors:
                     description: RouteReflectors names the route-reflecting spines.
                     items:
@@ -343,12 +350,16 @@ spec:
                       from.
                     properties:
                       group:
-                        description: Group of the index, e.g. ipam.be.kuid.dev.
+                        description: |-
+                          Group of the index: the one the installed allocation authority serves — e.g.
+                          ipam.be.kuid.dev under kuid, fabric.agentic-netops.io under first-party. Any other
+                          is refused (Accepted=False/InvalidIntent).
                         maxLength: 253
                         minLength: 1
                         type: string
                       kind:
-                        description: Kind of the index, e.g. IPIndex.
+                        description: 'Kind of the index: e.g. IPIndex or ASIndex under
+                          kuid, IdentifierPool under first-party.'
                         maxLength: 63
                         minLength: 1
                         type: string
@@ -373,12 +384,16 @@ spec:
                       are claimed from.
                     properties:
                       group:
-                        description: Group of the index, e.g. ipam.be.kuid.dev.
+                        description: |-
+                          Group of the index: the one the installed allocation authority serves — e.g.
+                          ipam.be.kuid.dev under kuid, fabric.agentic-netops.io under first-party. Any other
+                          is refused (Accepted=False/InvalidIntent).
                         maxLength: 253
                         minLength: 1
                         type: string
                       kind:
-                        description: Kind of the index, e.g. IPIndex.
+                        description: 'Kind of the index: e.g. IPIndex or ASIndex under
+                          kuid, IdentifierPool under first-party.'
                         maxLength: 63
                         minLength: 1
                         type: string
@@ -403,12 +418,16 @@ spec:
                       claimed from.
                     properties:
                       group:
-                        description: Group of the index, e.g. ipam.be.kuid.dev.
+                        description: |-
+                          Group of the index: the one the installed allocation authority serves — e.g.
+                          ipam.be.kuid.dev under kuid, fabric.agentic-netops.io under first-party. Any other
+                          is refused (Accepted=False/InvalidIntent).
                         maxLength: 253
                         minLength: 1
                         type: string
                       kind:
-                        description: Kind of the index, e.g. IPIndex.
+                        description: 'Kind of the index: e.g. IPIndex or ASIndex under
+                          kuid, IdentifierPool under first-party.'
                         maxLength: 63
                         minLength: 1
                         type: string

@@ -17,6 +17,12 @@
 #                   through argv — so no evidence record (which captures argv) ever holds them.
 #   GNMIC / KUBECTL / DOCKER   client overrides (tests put fakes on PATH instead)
 #   KUBE_CONTEXT    overrides kind-<cluster>
+#   LAB_TARGET_NS   namespace of the layer's Targets, and so of every Config, Deviation and
+#                   RunningConfig a verification tool reads or writes for them (default
+#                   agentic-netops-system). Targets and everything they use live in
+#                   agentic-netops-system because config-server v0.0.58 lists them in the
+#                   Target's namespace (AD-82 decision 2026-09-21-target-namespace); the layer's
+#                   workloads stay in sdc-system.
 #
 # Addresses follow the brief's fixed plan: spines .11/.12, leaves .21/.22, clients .31/.32 of
 # MGMT_CIDR. containerlab names containers clab-<lab>-<node>.
@@ -41,6 +47,7 @@ __AGENTIC_NETOPS_TESTS_LAB_SH=1
 : "${SRL_USER:=admin}"
 : "${GNMI_PORT:=57400}"
 : "${GNMIC_TIMEOUT:=30s}"
+: "${LAB_TARGET_NS:=agentic-netops-system}"
 export LAB_NAME CLUSTER_NAME MGMT_NETWORK MGMT_CIDR
 
 # The reserved scratch prefix and the gate-owned label (T043 i, ii). Declared here because every
@@ -105,7 +112,23 @@ lab::gnmic_argv() {
 # default ":::" delimiter is one colon away from an IPv6 literal.
 LAB_SET_DELIM=";;;"
 # lab::upd <path> <json> — one --update argument
-lab::upd() { printf '%s' "${1}${LAB_SET_DELIM}json_ietf${LAB_SET_DELIM}${2}"; }
+lab::upd() { local p v; read -r p v < <(lab::keyleaf "$1" "$2"); printf '%s' "${p}${LAB_SET_DELIM}json_ietf${LAB_SET_DELIM}${v}"; }
+
+# lab::keyleaf <path> <json> — SR Linux refuses a Set on a list's key leaf ("Cannot set key leaf",
+# observed 2026-09-21 on 25.7.1); a write of `…/list[k=v]/k` is sent as the entry itself,
+# `…/list[k=v]` with `{}`, which creates the entry with the key taken from the path. Prints
+# "<path> <json>" (the json value never carries a newline).
+lab::keyleaf() {
+  local p="$1" v="$2" leaf parent last
+  leaf="${p##*/}"
+  parent="${p%/*}"
+  last="${parent##*]/}"   # the parent's own element, every [k=v] of it (values may carry '/')
+  if [[ "$parent" == *"]" && "$last" == *"[${leaf}="* ]]; then
+    printf '%s %s\n' "$parent" '{}'
+  else
+    printf '%s %s\n' "$p" "$v"
+  fi
+}
 
 lab::kubectl() {
   "${KUBECTL:-kubectl}" --context "${KUBE_CONTEXT:-kind-${CLUSTER_NAME}}" "$@"

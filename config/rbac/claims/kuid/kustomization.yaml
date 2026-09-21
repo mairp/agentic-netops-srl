@@ -1,0 +1,8 @@
+# The provider's claim Role under allocationAuthority.kind: kuid (FR-104, FR-109, AD-16;
+# contracts/kuid-claim-profiles.md §5, data-model.md §23). Applied by scripts/provision.sh
+# only when versions.lock.yaml selects kuid — never together with ../first-party:
+#   kubectl apply --server-side -k config/rbac/claims/kuid
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+- role.yaml

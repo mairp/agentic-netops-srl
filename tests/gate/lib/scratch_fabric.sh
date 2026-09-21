@@ -15,8 +15,10 @@
 #                          routed ip-mtu 9398; the spines accept their own AS once (allow-own-as 1)
 #                          so each spine learns the other spine's loopback through a leaf
 #   overlay iBGP EVPN      fabric AS 65000 on the overlay group (local-as), both spines route
-#                          reflectors; inter-as-vpn is set on the spines as a SEPARATE step so G8
-#                          can run its negative control (inter-as-vpn absent) first
+#                          reflectors (route-reflector client true); inter-as-vpn is set on the
+#                          spines as a SEPARATE step (G8 removes it again for a recorded
+#                          observation), and route-reflector client is flipped to false and back
+#                          for SC-004's negative control (AD-77)
 #   tenant (leaves)        mac-vrf vt-scratch-macvrf (VLAN 3990 on ethernet-1/1, L2VNI/EVI 13990)
 #                          with a dual-stack anycast gateway irb0.3990 (203.0.113.1/26,
 #                          2001:db8:3990::1/64, ip-mtu 9348) in ip-vrf vt-scratch-ipvrf
@@ -40,6 +42,7 @@
 #   scratch::loopback <node>        scratch::asn <node>          scratch::leaf_index <leaf>
 #   scratch::underlay_updates <node>            PATH<TAB>JSON lines
 #   scratch::inter_as_vpn_updates              (spines, the separate step)
+#   scratch::reflector_client_updates <true|false>  (spines: G8's declared reflection control)
 #   scratch::tenant_updates <leaf>
 #   scratch::probe_updates <leaf> <evi> <l2vni>  (T051's minimal instance on the rendered fabric)
 #   scratch::roots <node> <plan>     scratch::named_deletes <node> <plan>
@@ -190,9 +193,17 @@ scratch::underlay_updates() {
   fi
 }
 
-# the separate step on the reflectors — the setting whose absence G8's negative control shows
+# the separate step on the reflectors — a rendered setting under the configuration-integrity check;
+# its removal is a RECORDED observation of G8, no longer a control (AD-77)
 scratch::inter_as_vpn_updates() {
   printf '%s\t%s\n' "/network-instance[name=default]/protocols/bgp/afi-safi[afi-safi-name=srl_nokia-common:evpn]/evpn/inter-as-vpn" true
+}
+
+# scratch::reflector_client_updates <true|false> — route-reflector client on the reflector's overlay
+# group, AS STATED: false is what Fabric.spec.overlay.reflectorClients: false renders (T186), the
+# declared change G8 must observe to stop reflection before SC-004's control is admitted (AD-77)
+scratch::reflector_client_updates() {
+  printf '%s\t%s\n' "/network-instance[name=default]/protocols/bgp/group[group-name=${SCRATCH_GROUP_OVERLAY}]/route-reflector/client" "$1"
 }
 
 # scratch::_evpn_instance <ni> <type mac-vrf|ip-vrf> <vni> <vxlan-type bridged|routed>
@@ -374,7 +385,7 @@ scratch::apply() {
   local p v
   while IFS=$'\t' read -r p v; do
     [[ -n "$p" ]] || continue
-    argv+=(--update "${p}${LAB_SET_DELIM}json_ietf${LAB_SET_DELIM}${v}")
+    argv+=(--update "$(lab::upd "$p" "$v")")
   done < <("$fn" "$@")
   [[ ${#argv[@]} -gt 0 ]] || return 0
   scratch::_dev "$id" "$node" set --delimiter "$LAB_SET_DELIM" "${argv[@]}"
@@ -438,13 +449,14 @@ scratch::client_up() {
   script="set -e
 ip link add link eth1 name ${SCRATCH_CLIENT_IF} type vlan id ${SCRATCH_VLAN}
 ip link set dev ${SCRATCH_CLIENT_IF} mtu ${SCRATCH_TENANT_MTU}
+echo 0 > /proc/sys/net/ipv6/conf/${SCRATCH_CLIENT_IF}/accept_dad
 ip link set dev ${SCRATCH_CLIENT_IF} up
 ip addr add $(scratch::client_addr4 "$c")/26 dev ${SCRATCH_CLIENT_IF}
-ip -6 addr add $(scratch::client_addr6 "$c")/64 dev ${SCRATCH_CLIENT_IF} nodad
+ip -6 addr add $(scratch::client_addr6 "$c")/64 dev ${SCRATCH_CLIENT_IF}
 ip route add 198.18.0.0/24 via ${SCRATCH_GW4%/*} dev ${SCRATCH_CLIENT_IF}
 ip -6 route add 2001:db8:ffff::/64 via ${SCRATCH_GW6%/*} dev ${SCRATCH_CLIENT_IF}
-ip -d link show dev eth1
-ip -d link show dev ${SCRATCH_CLIENT_IF}"
+ip link show dev eth1
+ip link show dev ${SCRATCH_CLIENT_IF}"
   evidence_run "$(gate::id "G08.client-up.${c}" 2>/dev/null || echo "G08.client-up.${c}")" -- \
     lab::docker exec "$(lab::container "$c")" sh -c "$script"
 }

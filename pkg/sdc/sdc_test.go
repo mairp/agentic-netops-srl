@@ -58,7 +58,7 @@ func req() ConfigRequest {
 	return ConfigRequest{
 		Source:           Source{Kind: SourceNetwork, Namespace: "agentic-netops-intent", Name: "migr-4b7e19c2a05d3f6", UID: "uid-1", Generation: 3},
 		Node:             "leaf01",
-		TargetNamespace:  "sdc-system",
+		TargetNamespace:  "agentic-netops-system",
 		Priority:         PriorityService,
 		Revertive:        true,
 		Value:            []byte(`{"srl_nokia-interfaces:interface":[]}`),
@@ -85,7 +85,7 @@ func TestApplyConfigCreatesUpstreamConfigWithContract(t *testing.T) {
 	if gvk.Group != "config.sdcio.dev" || gvk.Kind != "Config" {
 		t.Errorf("stored GVK %v", gvk)
 	}
-	if got.Labels[LabelTargetName] != "leaf01" || got.Labels[LabelTargetNamespace] != "sdc-system" {
+	if got.Labels[LabelTargetName] != "leaf01" || got.Labels[LabelTargetNamespace] != "agentic-netops-system" {
 		t.Errorf("target labels %v", got.Labels)
 	}
 	if got.Labels[LabelNetworkNamespace] != "agentic-netops-intent" || got.Labels[LabelNetworkName] != "migr-4b7e19c2a05d3f6" {
@@ -208,7 +208,7 @@ func TestListConfigsByLabel(t *testing.T) {
 	if err != nil || len(got) != 2 {
 		t.Fatalf("ListConfigsForNetwork = %d, %v", len(got), err)
 	}
-	got, err = c.ListConfigsForTarget(ctx, "sdc-system", "leaf01")
+	got, err = c.ListConfigsForTarget(ctx, "agentic-netops-system", "leaf01")
 	if err != nil || len(got) != 2 {
 		t.Fatalf("ListConfigsForTarget = %d, %v", len(got), err)
 	}
@@ -220,30 +220,30 @@ func readyCond(typ condv1alpha1.ConditionType, st metav1.ConditionStatus) condv1
 
 func TestTargetReadinessUsesUpstreamConditions(t *testing.T) {
 	ctx := context.Background()
-	ready := &configv1alpha1.Target{ObjectMeta: metav1.ObjectMeta{Namespace: "sdc-system", Name: "leaf01"}}
+	ready := &configv1alpha1.Target{ObjectMeta: metav1.ObjectMeta{Namespace: "agentic-netops-system", Name: "leaf01"}}
 	ready.SetConditions(
 		readyCond(condv1alpha1.ConditionTypeReady, metav1.ConditionTrue),
 		readyCond(configv1alpha1.ConditionTypeTargetDiscoveryReady, metav1.ConditionTrue),
 		readyCond(configv1alpha1.ConditionTypeTargetDatastoreReady, metav1.ConditionTrue),
 		readyCond(configv1alpha1.ConditionTypeTargetConnectionReady, metav1.ConditionTrue),
 	)
-	notReady := &configv1alpha1.Target{ObjectMeta: metav1.ObjectMeta{Namespace: "sdc-system", Name: "leaf02"}}
+	notReady := &configv1alpha1.Target{ObjectMeta: metav1.ObjectMeta{Namespace: "agentic-netops-system", Name: "leaf02"}}
 	notReady.SetConditions(readyCond(condv1alpha1.ConditionTypeReady, metav1.ConditionTrue),
 		readyCond(configv1alpha1.ConditionTypeTargetConnectionReady, metav1.ConditionFalse))
 	fc := fake.NewClientBuilder().WithScheme(newScheme(t)).WithObjects(ready, notReady).Build()
 	c := New(fc)
-	r, err := c.TargetReady(ctx, "sdc-system", "leaf01")
+	r, err := c.TargetReady(ctx, "agentic-netops-system", "leaf01")
 	if err != nil || !r.Ready {
 		t.Fatalf("leaf01: %+v %v", r, err)
 	}
-	r, err = c.TargetReady(ctx, "sdc-system", "leaf02")
+	r, err = c.TargetReady(ctx, "agentic-netops-system", "leaf02")
 	if err != nil || r.Ready || r.Reason == "" {
 		t.Fatalf("leaf02: %+v %v", r, err)
 	}
-	if _, err := c.TargetReady(ctx, "sdc-system", "missing"); err == nil {
+	if _, err := c.TargetReady(ctx, "agentic-netops-system", "missing"); err == nil {
 		t.Fatal("a missing target must be an error, not a not-Ready report")
 	}
-	ts, err := c.ListTargets(ctx, "sdc-system")
+	ts, err := c.ListTargets(ctx, "agentic-netops-system")
 	if err != nil || len(ts) != 2 {
 		t.Fatalf("ListTargets = %d %v", len(ts), err)
 	}
@@ -251,24 +251,24 @@ func TestTargetReadinessUsesUpstreamConditions(t *testing.T) {
 
 func TestSchemaAndDeviationReads(t *testing.T) {
 	ctx := context.Background()
-	sch := &invv1alpha1.Schema{ObjectMeta: metav1.ObjectMeta{Namespace: "sdc-system", Name: "srl.nokia.sdcio.dev-25.10.1"},
+	sch := &invv1alpha1.Schema{ObjectMeta: metav1.ObjectMeta{Namespace: "agentic-netops-system", Name: "srl.nokia.sdcio.dev-25.10.1"},
 		Spec: invv1alpha1.SchemaSpec{Provider: "srl.nokia.sdcio.dev", Version: "25.10.1"}}
 	sch.SetConditions(readyCond(condv1alpha1.ConditionTypeReady, metav1.ConditionTrue))
 	dev := &configv1alpha1.Deviation{
 		ObjectMeta: metav1.ObjectMeta{Namespace: SystemNamespace,
 			Name:   configv1alpha1.DeviationName(configv1alpha1.DeviationType_CONFIG, "svc.leaf01"),
-			Labels: map[string]string{LabelTargetName: "leaf01", LabelTargetNamespace: "sdc-system"}},
+			Labels: map[string]string{LabelTargetName: "leaf01", LabelTargetNamespace: "agentic-netops-system"}},
 		Spec: configv1alpha1.DeviationSpec{Deviations: []configv1alpha1.ConfigDeviation{
 			{Path: "/b", Reason: DeviationOverruled}, {Path: "/a", Reason: DeviationOverruled}, {Path: "/c", Reason: DeviationNotApplied},
 		}},
 	}
 	fc := fake.NewClientBuilder().WithScheme(newScheme(t)).WithObjects(sch, dev).Build()
 	c := New(fc)
-	got, err := c.FindSchema(ctx, "sdc-system", "srl.nokia.sdcio.dev", "25.10.1")
+	got, err := c.FindSchema(ctx, "agentic-netops-system", "srl.nokia.sdcio.dev", "25.10.1")
 	if err != nil || got == nil {
 		t.Fatalf("FindSchema = %v %v", got, err)
 	}
-	if got, _ := c.FindSchema(ctx, "sdc-system", "srl.nokia.sdcio.dev", "0.0"); got != nil {
+	if got, _ := c.FindSchema(ctx, "agentic-netops-system", "srl.nokia.sdcio.dev", "0.0"); got != nil {
 		t.Fatal("found a schema of another version")
 	}
 	d, err := c.GetConfigDeviation(ctx, "svc.leaf01")
@@ -281,7 +281,7 @@ func TestSchemaAndDeviationReads(t *testing.T) {
 	if d, err := c.GetConfigDeviation(ctx, "none.leaf01"); d != nil || err != nil {
 		t.Errorf("missing deviation = %v %v", d, err)
 	}
-	ds, err := c.ListDeviationsForTarget(ctx, SystemNamespace, "sdc-system", "leaf01")
+	ds, err := c.ListDeviationsForTarget(ctx, SystemNamespace, "agentic-netops-system", "leaf01")
 	if err != nil || len(ds) != 1 {
 		t.Fatalf("ListDeviationsForTarget = %d %v", len(ds), err)
 	}

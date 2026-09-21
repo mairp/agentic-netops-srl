@@ -76,7 +76,10 @@ type Settings struct {
 	BackoffBase time.Duration
 	BackoffCap  time.Duration
 	MaxAttempts int
-	// TargetNamespace holds the layer's Targets, SchemaNamespace its Schemas.
+	// TargetNamespace holds the layer's Targets, SchemaNamespace its Schemas. Both default to
+	// sdc.SystemNamespace: Targets and everything they use live in agentic-netops-system
+	// because config-server v0.0.58 lists them in the Target's namespace (AD-82 decision
+	// 2026-09-21-target-namespace).
 	TargetNamespace string
 	SchemaNamespace string
 }
@@ -90,8 +93,8 @@ func DefaultSettings() Settings {
 		BackoffBase:       250 * time.Millisecond,
 		BackoffCap:        10 * time.Second,
 		MaxAttempts:       6,
-		TargetNamespace:   "sdc-system",
-		SchemaNamespace:   "sdc-system",
+		TargetNamespace:   sdc.SystemNamespace,
+		SchemaNamespace:   sdc.SystemNamespace,
 	}
 }
 
@@ -259,6 +262,9 @@ func (p *pass) run(ctx context.Context) (ctrl.Result, error) {
 	}
 	in, err := analyse(f)
 	if err != nil {
+		return p.terminal(p.conds.SetNotAccepted(status.ReasonInvalidIntent, err.Error()))
+	}
+	if err := checkPoolRefs(f, r.Claims); err != nil {
 		return p.terminal(p.conds.SetNotAccepted(status.ReasonInvalidIntent, err.Error()))
 	}
 	networks := &fabricv1.NetworkList{}
@@ -455,7 +461,8 @@ func (p *pass) run(ctx context.Context) (ctrl.Result, error) {
 		}
 		return ctrl.Result{RequeueAfter: next.Sub(p.now)}, nil
 	}
-	vin := verify.FabricInput{Model: m, InterASVPN: interASVPN(f), TargetNamespace: st.TargetNamespace}
+	vin := verify.FabricInput{Model: m, InterASVPN: interASVPN(f), ReflectorClients: reflectorClients(f),
+		TargetNamespace: st.TargetNamespace}
 	for _, node := range names {
 		name, _ := sdc.ConfigName(f.Name, node)
 		vin.Nodes = append(vin.Nodes, verify.FabricNodeInput{Node: node, ConfigName: name, Rendered: rendered[node].JSON})
@@ -713,10 +720,16 @@ func interASVPN(f *fabricv1.Fabric) bool {
 	return f.Spec.Overlay.InterASVPN == nil || *f.Spec.Overlay.InterASVPN
 }
 
+// reflectorClients is spec.overlay.reflectorClients as declared; absent is the
+// CRD default, true (AD-77).
+func reflectorClients(f *fabricv1.Fabric) bool {
+	return f.Spec.Overlay.ReflectorClients == nil || *f.Spec.Overlay.ReflectorClients
+}
+
 func modelInput(f *fabricv1.Fabric, in *intent, cr *claimsResult) model.FabricInput {
 	mi := model.FabricInput{
 		Name: f.Name, FabricASN: uint32(f.Spec.Overlay.FabricASN), InterASVPN: interASVPN(f),
-		AddressFamilies: in.families,
+		ReflectorClients: reflectorClients(f), AddressFamilies: in.families,
 		MTU: model.FabricMTU{PortMTU: uint32(f.Spec.MTU.PortMTU), UnderlayIPMTU: uint32(f.Spec.MTU.UnderlayIPMTU),
 			BridgedL2MTU: uint32(f.Spec.MTU.BridgedL2MTU), TenantIPMTU: uint32(f.Spec.MTU.TenantIPMTU)},
 		Links: cr.links,

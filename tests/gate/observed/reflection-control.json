@@ -1,0 +1,7 @@
+{
+  "control": "route-reflector client false on every reflecting spine overlay group (Fabric.spec.overlay.reflectorClients: false), every session established; no Type-2/3/5 received through the spines",
+  "decision": "AD-77",
+  "interASVPNRemovedReflectionContinues": true,
+  "observation": "inter-as-vpn removed from every reflecting spine with route-reflector client true: Type-3 still received through the spines (recorded, not a control)",
+  "reflectorClientsFalseStopsReflection": true
+}

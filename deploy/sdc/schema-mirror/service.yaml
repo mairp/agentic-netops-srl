@@ -1,0 +1,19 @@
+# provenance: source=first-party version=v0.1.0
+# The mirror's Service: http://schema-mirror.sdc-system.svc.cluster.local/git/srlinux-yang-patch.git
+# (T184; AD-75). Cluster-internal only; nothing outside the cluster reaches it.
+apiVersion: v1
+kind: Service
+metadata:
+  name: schema-mirror
+  namespace: sdc-system
+  labels:
+    app.kubernetes.io/name: schema-mirror
+    app.kubernetes.io/part-of: agentic-netops
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: schema-mirror
+  ports:
+  - name: http
+    port: 80
+    targetPort: http

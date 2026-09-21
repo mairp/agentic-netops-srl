@@ -1,0 +1,22 @@
+{
+  "srl_nokia-network-instance:network-instance": [
+    {
+      "admin-state": "enable",
+      "name": "default",
+      "protocols": {
+        "srl_nokia-bgp:bgp": {
+          "admin-state": "enable",
+          "afi-safi": [
+            {
+              "admin-state": "enable",
+              "afi-safi-name": "srl_nokia-common:ipv4-unicast"
+            }
+          ],
+          "autonomous-system": 65101,
+          "router-id": "10.0.0.1"
+        }
+      },
+      "type": "srl_nokia-network-instance:default"
+    }
+  ]
+}

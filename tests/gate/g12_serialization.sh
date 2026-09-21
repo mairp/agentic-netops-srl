@@ -85,7 +85,7 @@ g12::run() {
        network_instance_type_default: val("ni-type-default"),
        subinterface_type_bridged: val("subif-type-bridged"),
        vxlan_interface_type_routed: val("vxlan-if-type-routed"),
-       afi_safi_name_evpn: ([$e[] | select(.name | startswith("bgp-afi-safi")) | .updates[]?.values[]?.value | select(type == "string" and test("evpn$"))] | unique),
+       afi_safi_name_evpn: ([$e[] | select(.name | startswith("bgp-afi-safi")) | .updates[]?.values[]?.value | ((.. | objects | .["afi-safi-name"]? | strings), strings) | select(test("evpn$"))] | unique),
        route_type_bgp: val("route-type-default-bgp"),
        route_type_ip_vrf_evpn: val("route-type-ipvrf-evpn"),
        empty_leaf_primary: val("irb-primary-empty-leaf"),

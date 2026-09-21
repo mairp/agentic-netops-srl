@@ -1,0 +1,31 @@
+# deploy/allocation — the first-party allocation authority, the one permitted substitute for
+# kuid-server (T179; FR-104, FR-098, AD-74; data-model.md §23; contracts/kuid-claim-profiles.md
+# §7; decision record docs/decisions/allocator-substitution.md). Applied by scripts/provision.sh
+# ONLY when versions.lock.yaml selects allocationAuthority.kind: first-party — then deploy/kuid/
+# is never applied (the two never coexist; make verify-compat):
+#   kubectl apply --server-side -k deploy/allocation
+# namespace.yaml           agentic-netops-allocation (ownership-labelled)
+# ../../config/crd/conditional   IdentifierPool / IdentifierClaim (fabric.agentic-netops.io) —
+#                          referenced, never copied; config/crd (the default kustomization)
+#                          installs neither
+# ../../config/rbac/allocation   the authority's ServiceAccount and namespaced Role
+# deployment.yaml          Deployment allocation-authority: the provider's own image with
+#                          SRL_PROVIDER_ROLE=allocation-authority
+# The seed pools are NOT here: deploy/allocation/pools is applied separately, once the CRDs are
+# established, the Deployment is rolled out and gate item G11 has passed (like deploy/kuid/indices).
+# Nothing here is in, or shaped like, a *.kuid.dev group (make verify-upstream-artefacts).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - namespace.yaml
+  - ../../config/crd/conditional
+  - ../../config/rbac/allocation
+  - deployment.yaml
+# The authority runs the provider image, built locally and never pulled: scripts/provision.sh
+# writes the same content-hash tag scripts/lib/image_build.sh writes into
+# deploy/agentic-netops/kustomization.yaml into newTag below (a kustomize image override, never a
+# hand edit). Until it has, newTag is the placeholder `unbuilt`, which no registry and no local
+# build carries, so an unbuilt deployment fails visibly (ErrImageNeverPull) — never `latest`.
+images:
+  - name: srl-provider
+    newTag: 95152c27545775ffa2f3d31c819954bed7babb6ce8a51f37be4841303577fd80

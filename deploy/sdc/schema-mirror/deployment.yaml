@@ -1,0 +1,89 @@
+# provenance: source=first-party version=v0.1.0
+# The schema mirror (T184; AD-75): git smart HTTP, upload-pack only — receive-pack is refused by the
+# server and by the repository's own http.receivepack=false — from a read-only root filesystem.
+# The container refuses to start unless the seeded repository's ONLY ref is
+# refs/tags/<LOCKED_COMMIT> at LOCKED_COMMIT (docker/schema-mirror/entrypoint.sh); both the seed
+# and LOCKED_COMMIT are written by scripts/lib/schema_mirror.sh from versions.lock.yaml into the
+# ConfigMap schema-mirror-repo, after the host-side clone has asserted the same commit.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: schema-mirror
+  namespace: sdc-system
+  labels:
+    app.kubernetes.io/name: schema-mirror
+    app.kubernetes.io/part-of: agentic-netops
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: schema-mirror
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: schema-mirror
+        app.kubernetes.io/part-of: agentic-netops
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: schema-mirror
+        # Sentinel tag (64 zeros: no build has that content hash); kustomization.yaml's images:
+        # override replaces it with the content-hash tag scripts/lib/image_build.sh writes.
+        image: schema-mirror:0000000000000000000000000000000000000000000000000000000000000000
+        imagePullPolicy: Never
+        env:
+        - name: LOCKED_COMMIT
+          valueFrom:
+            configMapKeyRef:
+              name: schema-mirror-repo
+              key: locked-commit
+        - name: REPO
+          value: srlinux-yang-patch
+        - name: SEED
+          value: /seed/repo.tar
+        ports:
+        - name: http
+          containerPort: 8080
+        readinessProbe:
+          httpGet:
+            path: /git/srlinux-yang-patch.git/info/refs?service=git-upload-pack
+            port: http
+          periodSeconds: 10
+        livenessProbe:
+          tcpSocket:
+            port: http
+          initialDelaySeconds: 5
+          periodSeconds: 20
+        resources:
+          requests:
+            cpu: 10m
+            memory: 16Mi
+          limits:
+            cpu: 200m
+            memory: 64Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: [ALL]
+        volumeMounts:
+        - {name: seed, mountPath: /seed, readOnly: true}
+        - {name: srv, mountPath: /srv}
+        - {name: tmp, mountPath: /tmp}
+      volumes:
+      - name: seed
+        configMap:
+          name: schema-mirror-repo
+          items:
+          - {key: repo.tar, path: repo.tar}
+      - name: srv
+        emptyDir: {sizeLimit: 16Mi}
+      - name: tmp
+        emptyDir: {sizeLimit: 16Mi}

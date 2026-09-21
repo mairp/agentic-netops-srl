@@ -2,8 +2,9 @@
 # lab_secrets_test.sh — scripts/lib/lab_secrets.sh against a fake kubectl (T037; FR-019, FR-096,
 # AD-50). Offline: tests/unit/lifecycle/fakes.sh.
 #
-# Asserts: srl-credentials in sdc-system (username/password/ca from the containerlab CA); namespace
-# monitoring created with the ownership label; the collector's copy in monitoring; grafana-admin
+# Asserts: srl-credentials in agentic-netops-system, the Targets' namespace (AD-82 decision
+# 2026-09-21-target-namespace), and nothing in sdc-system (username/password/ca from the
+# containerlab CA); namespace monitoring created with the ownership label; the collector's copy in monitoring; grafana-admin
 # with a generated (non-default, >= 24 char) password preserved across re-runs; every object
 # labelled; no credential value in argv or the log; an unowned monitoring / Secret refused; the
 # removal deletes exactly the owned objects and is idempotent.
@@ -29,7 +30,7 @@ setup() {
   export LAB_SECRETS_CA_FILE="$W/ca.pem"
   printf -- '-----BEGIN CERTIFICATE-----\nTEFCLUNBLUZJWFRVUkU=\n-----END CERTIFICATE-----\n' >"$LAB_SECRETS_CA_FILE"
   fakes::cluster "$CL" "$CL"
-  fakes::k8s "$CL" _ namespace sdc-system "$CL"
+  fakes::k8s "$CL" _ namespace agentic-netops-system "$CL"
 }
 run_ls() { # <fn> [VAR=v…]
   local fn="$1"; shift
@@ -47,8 +48,9 @@ owner_of() { jq -r '.metadata.labels["agentic-netops.io/owned-by"] // ""' "$1"; 
 setup fresh
 run_ls lab_secrets::ensure
 check "ensure: exits 0" '[[ $rc -eq 0 ]]'
-S1="$(obj sdc-system secret srl-credentials)"
-check "ensure: srl-credentials exists in sdc-system" '[[ -f "$S1" ]]'
+S1="$(obj agentic-netops-system secret srl-credentials)"
+check "ensure: srl-credentials exists in agentic-netops-system" '[[ -f "$S1" ]]'
+check "ensure: nothing is written into sdc-system (the layer's workloads only)" '[[ ! -e "$FAKE_STATE/k8s/$CL/sdc-system" ]]'
 check "ensure: username is the containerlab default (admin)" '[[ "$(b64d "$S1" username)" == admin ]]'
 check "ensure: password is the containerlab default" '[[ "$(b64d "$S1" password)" == "NokiaSrl1!" ]]'
 check "ensure: ca is the containerlab-generated CA PEM" '[[ "$(b64d "$S1" ca)" == "$(cat "$LAB_SECRETS_CA_FILE")" && "$(b64d "$S1" ca.crt)" == "$(cat "$LAB_SECRETS_CA_FILE")" ]]'
@@ -93,10 +95,10 @@ run_ls lab_secrets::ensure
 check "refuse: a missing containerlab CA fails naming it" '[[ $rc -ne 0 ]] && grep -q "containerlab CA" <<<"$out"'
 check "refuse: nothing was applied without the CA" '! grep -q " apply " "$FAKE_STATE/calls.log"'
 
-setup no-sdc-ns
-rm -f "$(obj _ namespace sdc-system)"
+setup no-target-ns
+rm -f "$(obj _ namespace agentic-netops-system)"
 run_ls lab_secrets::ensure
-check "refuse: no sdc-system namespace → fails naming AppsReady" '[[ $rc -ne 0 ]] && grep -q "sdc-system does not exist" <<<"$out"'
+check "refuse: no agentic-netops-system namespace → fails naming AppsReady" '[[ $rc -ne 0 ]] && grep -q "agentic-netops-system does not exist" <<<"$out" && grep -q "AppsReady" <<<"$out"'
 
 setup foreign-monitoring
 fakes::k8s "$CL" _ namespace monitoring -
@@ -105,9 +107,9 @@ check "refuse: an unowned monitoring namespace is never adopted" '[[ $rc -ne 0 ]
 check "refuse: nothing written into the unowned monitoring" '[[ ! -f "$(obj monitoring secret grafana-admin)" && ! -f "$(obj monitoring secret srl-credentials)" ]]'
 
 setup foreign-secret
-fakes::k8s "$CL" sdc-system secret srl-credentials -
+fakes::k8s "$CL" agentic-netops-system secret srl-credentials -
 run_ls lab_secrets::ensure
-check "refuse: an unowned srl-credentials is not overwritten" '[[ $rc -ne 0 ]] && [[ "$(owner_of "$(obj sdc-system secret srl-credentials)")" == "" ]]'
+check "refuse: an unowned srl-credentials is not overwritten" '[[ $rc -ne 0 ]] && [[ "$(owner_of "$(obj agentic-netops-system secret srl-credentials)")" == "" ]]'
 
 # ------------------------------------------------------------------ remove
 setup remove
@@ -116,16 +118,16 @@ fakes::k8s "$CL" monitoring secret someone-elses -
 run_ls lab_secrets::remove
 check "remove: exits 0" '[[ $rc -eq 0 ]]'
 check "remove: the three Secrets are gone" \
-  '[[ ! -f "$(obj sdc-system secret srl-credentials)" && ! -f "$(obj monitoring secret srl-credentials)" && ! -f "$(obj monitoring secret grafana-admin)" ]]'
+  '[[ ! -f "$(obj agentic-netops-system secret srl-credentials)" && ! -f "$(obj monitoring secret srl-credentials)" && ! -f "$(obj monitoring secret grafana-admin)" ]]'
 check "remove: the owned monitoring namespace is gone" '[[ ! -f "$(obj _ namespace monitoring)" ]]'
-check "remove: sdc-system itself is not this step's to delete" '[[ -f "$(obj _ namespace sdc-system)" ]]'
+check "remove: agentic-netops-system itself is not this step's to delete" '[[ -f "$(obj _ namespace agentic-netops-system)" ]]'
 run_ls lab_secrets::remove
 check "remove (re-run): success no-op" '[[ $rc -eq 0 ]] && ! grep -q " delete " "$FAKE_STATE/calls.log"'
 
 setup remove-foreign
-fakes::k8s "$CL" sdc-system secret srl-credentials -
+fakes::k8s "$CL" agentic-netops-system secret srl-credentials -
 run_ls lab_secrets::remove
-check "remove: an unowned srl-credentials is refused and kept" '[[ $rc -ne 0 && -f "$(obj sdc-system secret srl-credentials)" ]]'
+check "remove: an unowned srl-credentials is refused and kept" '[[ $rc -ne 0 && -f "$(obj agentic-netops-system secret srl-credentials)" ]]'
 
 printf '\nlab_secrets_test: %d passed, %d failed\n' "$pass" "$fail"
 [[ "$fail" -eq 0 ]]

@@ -1,0 +1,11 @@
+# The first-party allocation authority's namespace (T179; FR-104, AD-74; data-model.md §23):
+# IdentifierPools and IdentifierClaims live here, and nowhere else. The ownership label carries
+# the default cluster name; scripts/provision.sh re-labels it with --cluster-name, and
+# scripts/off.sh removes it only when that label is exactly its cluster's (scripts/lib/ownership.sh).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: agentic-netops-allocation
+  labels:
+    agentic-netops.io/owned-by: agentic-netops
+    app.kubernetes.io/part-of: agentic-netops

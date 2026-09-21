@@ -1,0 +1,24 @@
+# deploy/observability/device-metrics — the device metric collector (FR-089, FR-086, FR-107; AD-82
+# decision 2026-09-21-state-source in docs/decisions/live-findings.md).
+#
+# gNMIc subscribes the four nodes (sample, 10 s) with the collector's own copy of the lab device
+# credentials (monitoring/srl-credentials, scripts/lib/lab_secrets.sh) and exports OTLP to the
+# OpenTelemetry Collector, whose Prometheus exporter serves the samples. It is the SECOND and last
+# client of the device management server (FR-086: the device-configuration layer and this
+# collector; the gRPC session limit of lab/bootstrap is sized for the two).
+#
+# It is installed at TargetsReady, before FabricReady, because the Fabric's applied-side read-back
+# reads the device's state from it: the pinned device-configuration layer exposes no state datastore
+# (config-server v0.0.58 / data-server v0.0.72: no GetData RPC, target sync reads CONFIG only), and
+# FR-107 forbids the read-back a device client of its own. The observability stack of T129/T130/T134
+# (Prometheus, Grafana, rules) later scrapes this same collector; the pipeline settings below are
+# G7's observed ones (tests/gate/observed/telemetry-series.json), which T129 ships unchanged.
+#
+# The gNMIc configuration (targets rendered for MGMT_CIDR) is the ConfigMap device-metrics-gnmic,
+# written by scripts/lib/device_metrics.sh; the workloads are ../gnmic and ../otel-collector:
+#   kubectl apply --server-side -k deploy/observability/device-metrics
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../otel-collector
+  - ../gnmic

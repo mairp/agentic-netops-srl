@@ -17,7 +17,20 @@
 #      delete); the substitute is warned by name
 #   6. the same with no bound claim → proceeds (kuid removed before the switch)
 #   7. the reverse direction: kuid selected over an installed first-party holding no bound
-#      claim → proceeds: first-party removed, kuid installed, G11 run, the rest installed
+#      claim → proceeds: first-party removed, kuid installed, G11 run, the rest installed; and
+#      holding a bound IdentifierClaim → stops naming the service, neither authority touched
+# and, on the recorded substitute (lock kind first-party, T180/T181):
+#   8. a healthy fake first-party authority → the srl-provider image is built and its tag written
+#      into deploy/allocation too, deploy/allocation applied, G11 passes against identifierclaims in
+#      agentic-netops-allocation (observations (a)–(f), authority.kind first-party), then the pools,
+#      the device-configuration layer (SDC), the provider's first-party claim Role and the provider;
+#      the substitute is warned by name with its decision record and failed-gate evidence
+#   9. a failing fake first-party authority (dynamic claim never reports a value; stated claim
+#      binds a different value) → non-zero NAMING G11, zero applies above the authority (no pools,
+#      no SDC, no claim Role, no provider)
+#  10. in every first-party run the call log shows NO apply under deploy/kuid/
+# The kuid cases run on a copy of the tree whose lock selects kind: kuid (a fixture lock); the
+# first-party cases on one whose lock selects first-party with both references.
 # Offline and fast: no docker, no network, no cluster; every wait and read-back is bounded
 # by small values passed through the environment.
 # shellcheck disable=SC2015  # `cond && pass … || fail …` is safe: pass always returns 0
@@ -39,23 +52,40 @@ done
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
-# make_tree <dir> — a copy of the parts of the tree AppsReady reads, with stub A1 libraries
-# (image build and kind image load) and empty kustomizations.
+fp_lock() {  # fp_lock <tree> — select the substitute, with both references
+  yq -i '.allocationAuthority = {"kind": "first-party", "decisionRecord": "docs/decisions/allocator-substitution.md",
+         "failedGateEvidence": {"path": "docs/decisions/allocator-substitution/g11-observations.json", "sha256": "0000000000000000000000000000000000000000000000000000000000000000"}}' "$1/versions.lock.yaml"
+}
+
+# make_tree <dir> [kuid|first-party] — a copy of the parts of the tree AppsReady reads, with stub
+# A1 libraries (image build and kind image load), empty kustomizations and a fixture lock that
+# selects the given authority (default kuid).
 make_tree() {
-  local t="$1"
-  mkdir -p "$t/scripts" "$t/tests/gate" "$t/bin"
+  local t="$1" kind="${2:-kuid}"
+  mkdir -p "$t/scripts" "$t/tests/gate" "$t/tests/lib" "$t/bin"
   cp -r "$ROOT/scripts/lib" "$t/scripts/lib"
   cp "$ROOT/scripts/provision.sh" "$t/scripts/provision.sh"
   cp "$ROOT/tests/gate/g11_allocation_claim.sh" "$t/tests/gate/"
+  cp "$ROOT/tests/lib/lab.sh" "$t/tests/lib/"
   cp "$ROOT/versions.lock.yaml" "$t/versions.lock.yaml"
   local d
-  for d in cert-manager kuid kuid/indices sdc sdc/onboarding agentic-netops observability; do
-    mkdir -p "$t/deploy/$d"
-    printf 'apiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\nresources: []\n' >"$t/deploy/$d/kustomization.yaml"
+  for d in deploy/cert-manager deploy/kuid deploy/kuid/indices deploy/sdc deploy/sdc/onboarding deploy/agentic-netops \
+           deploy/observability deploy/allocation deploy/allocation/pools config/rbac/claims/kuid config/rbac/claims/first-party; do
+    mkdir -p "$t/$d"
+    printf 'apiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\nresources: []\n' >"$t/$d/kustomization.yaml"
   done
+  printf 'images:\n- name: srl-provider\n  newTag: unbuilt\n' >>"$t/deploy/allocation/kustomization.yaml"
+  case "$kind" in
+    kuid) yq -i '.allocationAuthority = {"kind": "kuid"}' "$t/versions.lock.yaml" ;;
+    first-party) fp_lock "$t" ;;
+  esac
   cat >"$t/scripts/lib/image_build.sh" <<'EOF'
 image_build::content_hash() { echo "0123456789ab"; }
 image_build::build() { echo "build $1" >>"$FAKE_KUBE_STATE/calls"; echo "$1:0123456789ab"; }
+image_build::set_image() {
+  echo "set_image ${1#"$PWD"/} $2 $3" >>"$FAKE_KUBE_STATE/calls"
+  IB_NAME="$2" IB_TAG="$3" yq -i '(.images[] | select(.name == strenv(IB_NAME))).newTag = strenv(IB_TAG)' "$1"
+}
 EOF
   cat >"$t/scripts/lib/kind.sh" <<'EOF'
 kind::load_image() { echo "kind load $2 into $1" >>"$FAKE_KUBE_STATE/calls"; }
@@ -83,13 +113,19 @@ run_apps() {
   ) >"$t/out" 2>&1
 }
 
-# applies_above_authority <tree> — apply lines for SDC, the provider, observability
+# applies_above_authority <tree> — apply lines for the seed indices/pools, SDC, the provider (its
+# claim Role, settings, deploy/agentic-netops — and, on kuid, its image build: on first-party the
+# authority itself runs that image, so its build is below the authority) and observability
 applies_above_authority() {
   grep -E '^kubectl .*\bapply\b' "$1/state/calls" 2>/dev/null \
-    | grep -E 'deploy/sdc|deploy/agentic-netops$|deploy/observability|monitoring' || true
+    | grep -E 'deploy/kuid/indices|deploy/allocation/pools|deploy/sdc|deploy/agentic-netops$|config/rbac/claims|deploy/observability|monitoring' || true
   grep -E '^kubectl .*\bcreate\b.*(srl-provider-settings|srl-provider-compat)' "$1/state/calls" 2>/dev/null || true
-  grep -E '^build srl-provider' "$1/state/calls" 2>/dev/null || true
+  if [[ "$(yq -r .allocationAuthority.kind "$1/versions.lock.yaml")" == kuid ]]; then
+    grep -E '^build srl-provider' "$1/state/calls" 2>/dev/null || true
+  fi
 }
+# kuid_applies <tree> — any apply under deploy/kuid/
+kuid_applies() { grep -E '^kubectl .*\bapply\b.*deploy/kuid' "$1/state/calls" 2>/dev/null || true; }
 
 # ------------------------------------------------------------------ 1, 2: G11 fails → stop
 for mode in no-value wrong-value; do
@@ -206,12 +242,6 @@ fi
 if grep -q 'deploy/observability' "$t/state/calls"; then fail "healthy: AppsReady touched observability (it is ObservabilityReady's)"; else pass "healthy: AppsReady does not install observability"; fi
 
 # ------------------------------------------------------------------ 5: change of authority, bound claim
-fp_lock() {  # fp_lock <tree> — select the substitute, with both references
-  yq -i '.allocationAuthority = {"kind": "first-party", "decisionRecord": "docs/decisions/allocator-substitution.md",
-         "failedGateEvidence": {"path": ".evidence/x/g11-observations.json", "sha256": "0000000000000000000000000000000000000000000000000000000000000000"}}' "$1/versions.lock.yaml"
-  mkdir -p "$1/deploy/allocation"
-  printf 'apiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\nresources: []\n' >"$1/deploy/allocation/kustomization.yaml"
-}
 bound_one='{"items": [
   {"kind": "VLANClaim", "metadata": {"name": "agentic-netops-services.svc-a.vlan-v1", "namespace": "kuid-system",
     "labels": {"agentic-netops.io/network-namespace": "agentic-netops-services", "agentic-netops.io/network-name": "svc-a"}},
@@ -219,7 +249,7 @@ bound_one='{"items": [
   {"kind": "GENIDClaim", "metadata": {"name": "pending", "namespace": "kuid-system", "labels": {}},
    "spec": {"index": "vni"}, "status": {}}]}'
 
-t="$TMP/change-bound"; make_tree "$t"; fp_lock "$t"
+t="$TMP/change-bound"; make_tree "$t" first-party
 mkdir -p "$t/state"; touch "$t/state/installed-kuid"; printf '%s\n' "$bound_one" >"$t/state/bound-kuid.json"
 rc=0; run_apps "$t" healthy || rc=$?
 if [[ "$rc" -ne 0 ]] && grep -q 'Network agentic-netops-services/svc-a rests on VLANClaim kuid-system/agentic-netops-services.svc-a.vlan-v1' "$t/out"; then
@@ -237,7 +267,7 @@ grep -q 'ALLOCATION AUTHORITY SUBSTITUTED' "$t/out" && grep -q 'IdentifierPool/I
   && pass "change (bound): the first-party substitute is warned by name" || fail "change (bound): substitute not warned by name"
 
 # ------------------------------------------------------------------ 6: change of authority, none bound
-t="$TMP/change-none"; make_tree "$t"; fp_lock "$t"
+t="$TMP/change-none"; make_tree "$t" first-party
 mkdir -p "$t/state"; touch "$t/state/installed-kuid"
 jq '.items |= map(select(.metadata.name == "pending"))' <<<"$bound_one" >"$t/state/bound-kuid.json"
 rc=0; run_apps "$t" healthy || rc=$?
@@ -246,12 +276,16 @@ if grep -q 'proceeding with the change of authority' "$t/out" && grep -qE '^kube
 else
   fail "change (none bound): should proceed and remove kuid" "$(cat "$t/out")"
 fi
-if grep -qE '^kubectl .*apply .*-k .*/deploy/allocation$' "$t/state/calls" && [[ "$rc" -ne 0 ]] && grep -q 'G11 FAILED' "$t/out" \
-   && [[ -z "$(applies_above_authority "$t")" ]]; then
-  pass "change (none bound): the substitute is installed and faces G11 (not built for it here → stops naming G11, nothing above installed)"
+if grep -qE '^kubectl .*apply .*-k .*/deploy/allocation$' "$t/state/calls" && [[ "$rc" -eq 0 ]] \
+   && jq -e '.result == "pass" and .authority.kind == "first-party"' "$t/evidence/g11-observations.json" >/dev/null 2>&1; then
+  pass "change (none bound): the substitute is installed, faces G11 on its own claims and passes; AppsReady completes"
 else
-  fail "change (none bound): expected deploy/allocation applied, then a G11 stop" "$(cat "$t/out")"
+  fail "change (none bound): expected deploy/allocation applied, G11 passed on first-party (rc=$rc)" "$(cat "$t/out")"
 fi
+after_delete="$(sed -n '/delete -k .*\/deploy\/kuid\( \|$\)/,$p' "$t/state/calls" | grep -E '^kubectl .*\bapply\b.*deploy/kuid' || true)"
+[[ -z "$after_delete" ]] && pass "change (none bound): after kuid's removal nothing under deploy/kuid/ is applied again" \
+  || fail "change (none bound): deploy/kuid applied after the switch to first-party" "$after_delete"
+
 
 # ------------------------------------------------------------------ 7: reverse direction
 t="$TMP/change-reverse"; make_tree "$t"
@@ -273,6 +307,126 @@ if [[ "$rc" -ne 0 ]] && grep -q 'intent-tier service correlation-id c-42 rests o
 else
   fail "change (reverse, bound): should stop naming correlation-id c-42 with nothing touched (rc=$rc)" "$(cat "$t2/out"; echo "$touched")"
 fi
+
+# ------------------------------------------------------------------ 8: first-party, healthy
+t="$TMP/fp-healthy"; make_tree "$t" first-party
+rc=0; run_apps "$t" healthy || rc=$?
+if [[ "$rc" -eq 0 ]]; then pass "first-party healthy: AppsReady completes (G11 passed on the substitute)"; else fail "first-party healthy: AppsReady should pass (rc=$rc)" "$(cat "$t/out")"; fi
+calls_seq="$(grep -nE '^build srl-provider|^set_image deploy/allocation/kustomization.yaml srl-provider|apply .*-k .*/deploy/allocation$|create -f .*vt-scratch-g11|apply .*-k .*/deploy/allocation/pools$|apply .*-k .*/deploy/sdc$|apply .*-k .*/config/rbac/claims/first-party$|apply .*-k .*/deploy/agentic-netops$' "$t/state/calls" \
+  | sed -E 's/^[0-9]+:(build srl-provider|set_image deploy\/allocation).*/\1/; s/^[0-9]+:.*create -f .*vt-scratch-g11.*/G11/; s/^[0-9]+:.*-k .*\/(deploy\/allocation\/pools|deploy\/allocation|deploy\/sdc|config\/rbac\/claims\/first-party|deploy\/agentic-netops)$/\1/' | uniq | paste -sd'>' -)"
+want_seq="build srl-provider>set_image deploy/allocation>deploy/allocation>G11>deploy/allocation/pools>deploy/sdc>build srl-provider>config/rbac/claims/first-party>deploy/agentic-netops"
+if [[ "$calls_seq" == "$want_seq" ]]; then
+  pass "first-party healthy: image built, its tag written into deploy/allocation, authority applied, G11, pools, SDC, claim Role, provider — in that order"
+else
+  fail "first-party healthy: AppsReady order" "got:  $calls_seq"$'\n'"want: $want_seq"
+fi
+if grep -q '^set_image deploy/allocation/kustomization.yaml srl-provider 0123456789ab$' "$t/state/calls" \
+   && [[ "$(yq -r '.images[] | select(.name == "srl-provider") | .newTag' "$t/deploy/allocation/kustomization.yaml")" == 0123456789ab ]]; then
+  pass "first-party healthy: deploy/allocation runs the very tag the provider build produced (srl-provider:0123456789ab)"
+else
+  fail "first-party healthy: deploy/allocation's images: newTag is not the built tag" "$(cat "$t/deploy/allocation/kustomization.yaml")"
+fi
+grep -qE '^kubectl .*label namespace agentic-netops-allocation agentic-netops.io/owned-by=agentic-netops --overwrite' "$t/state/calls" \
+  && pass "first-party healthy: agentic-netops-allocation carries this cluster's ownership label" \
+  || fail "first-party healthy: the allocation namespace was not ownership-labelled"
+obs="$t/evidence/g11-observations.json"
+if jq -e '.result == "pass" and .authority.kind == "first-party" and .namespace == "agentic-netops-allocation"
+          and .aggregated_api.healthy and .observations.a.held and .observations.b.held
+          and .observations.c.recorded and .observations.c.allocation == "lowest-free" and .observations.d.held
+          and .observations.e.held and .observations.f.held and .round_trip.released and .cleanup.removed
+          and .round_trip.vlan.status_value == 1000' "$obs" >/dev/null 2>&1; then
+  pass "first-party healthy: g11-observations.json records authority.kind first-party and (a)–(f), round trip, cleanup"
+else
+  fail "first-party healthy: g11-observations.json incomplete" "$(jq . "$obs" 2>&1)"
+fi
+if jq -e '.observations.b.refusal_message | test("held by claim agentic-netops-allocation/vt-scratch-g11-stated-a")' "$obs" >/dev/null 2>&1 \
+   && jq -e '.observations.b.refusal_reason == "Conflict" and .observations.a.negative_control.refused_reason == "OutOfRange"' "$obs" >/dev/null 2>&1; then
+  pass "first-party healthy: (b) refused Conflict naming <namespace>/<holder>; (a)'s control refused OutOfRange"
+else
+  fail "first-party healthy: refusal reasons/holder" "$(jq '.observations.a, .observations.b' "$obs" 2>&1)"
+fi
+nc_ok=true
+for c in g11-min-id g11-label-selector g11-stated-value g11-stated-conflict g11-release-synchronous; do
+  jq -e '.kind == "negative_control" and .negative_control_failed == true' "$t/evidence/$c.negative-control.json" >/dev/null 2>&1 || { nc_ok=false; echo "    missing/failed: $c"; }
+done
+[[ "$nc_ok" == true ]] && pass "first-party healthy: every negative control (d, e annotation, a out-of-pool, b, f) is recorded and failed" \
+  || fail "first-party healthy: negative controls not all recorded as failing"
+if grep -q '^  annotations:' "$t/evidence/g11-speclabel-claim.stdout" 2>/dev/null && ! sed -n '/^  labels:/,/^  annotations:/p' "$t/evidence/g11-speclabel-claim.stdout" | grep -q g11-probe; then
+  pass "first-party healthy: (e)'s control writes the label as an annotation (IdentifierClaim has no spec.labels)"
+else
+  fail "first-party healthy: (e)'s control claim" "$(cat "$t/evidence/g11-speclabel-claim.stdout" 2>&1 | head -20)"
+fi
+if grep -hE '^kubectl .*(create|apply|delete|get) ' "$t/state/calls" | grep -E 'identifier|vt-scratch' | grep -vq -- '--context kind-agentic-netops'; then
+  fail "first-party healthy: a G11 kubectl call without the cluster context"
+else
+  pass "first-party healthy: every G11 kubectl call names the cluster context"
+fi
+rec_ok=true
+for f in "$t"/evidence/g11-*.json; do
+  case "$f" in */g11-observations.json) continue ;; esac
+  jq -e '.schema == "agentic-netops.evidence/v1"' "$f" >/dev/null 2>&1 || { rec_ok=false; echo "    not an evidence record: $f"; }
+done
+if [[ "$rec_ok" == true ]] && ve="$(bash "$ROOT/scripts/lib/verify_evidence.sh" "$t/evidence" 2>&1)"; then
+  pass "first-party healthy: every G11 call is run-captured evidence and verifies: $(tail -n1 <<<"$ve" | sed 's/^verify-evidence: //')"
+else
+  fail "first-party healthy: G11's evidence does not verify" "${ve:-}"
+fi
+labels_ok="$(yq -r '[.metadata.name, .metadata.labels["agentic-netops.io/gate-owned"]] | join(" ")' "$t/evidence/g11-pools.yaml" 2>/dev/null | grep -v '^$' | sort | paste -sd, -)"
+[[ "$labels_ok" == "vt-scratch-g11-narrow true,vt-scratch-g11-vlan true,vt-scratch-g11-vni true" ]] \
+  && pass "first-party healthy: the scratch pools are vt-scratch-g11-* and gate-owned (agentic-netops.io/gate-owned=true)" \
+  || fail "first-party healthy: scratch pool names/labels" "$labels_ok"
+if [[ -z "$(find "$t/state/objects" -type f 2>/dev/null)" ]]; then
+  pass "first-party healthy: G11's scratch pools and claims were removed (read back)"
+else
+  fail "first-party healthy: scratch objects left behind" "$(find "$t/state/objects" -type f)"
+fi
+[[ -z "$(kuid_applies "$t")" ]] && pass "first-party healthy: the call log shows NO apply under deploy/kuid/" || fail "first-party healthy: deploy/kuid applied" "$(kuid_applies "$t")"
+grep -q 'config/rbac/claims/kuid' "$t/state/calls" && fail "first-party healthy: the kuid claim Role was applied" \
+  || pass "first-party healthy: only the first-party claim Role is applied (config/rbac/claims/first-party)"
+if grep -q 'ALLOCATION AUTHORITY SUBSTITUTED' "$t/out" && grep -q 'decision record: docs/decisions/allocator-substitution.md' "$t/out" \
+   && grep -q 'failed G11 evidence: docs/decisions/allocator-substitution/g11-observations.json' "$t/out"; then
+  pass "first-party healthy: the substitute is warned by name with its decision record and failed-gate evidence"
+else
+  fail "first-party healthy: substitute warning incomplete" "$(grep -i substitut "$t/out")"
+fi
+
+# ------------------------------------------------------------------ 9: first-party, failing
+for mode in no-value wrong-value; do
+  t="$TMP/fp-$mode"; make_tree "$t" first-party
+  rc=0; run_apps "$t" "$mode" || rc=$?
+  if [[ "$rc" -ne 0 ]] && grep -q 'G11 FAILED' "$t/out"; then
+    pass "first-party $mode: AppsReady exits non-zero ($rc) naming G11"
+  else
+    fail "first-party $mode: AppsReady should exit non-zero naming G11 (rc=$rc)" "$(cat "$t/out")"
+  fi
+  above="$(applies_above_authority "$t")"
+  [[ -z "$above" ]] && pass "first-party $mode: zero applies above the authority (no pools, SDC, claim Role, provider, observability)" \
+    || fail "first-party $mode: something above the authority was installed after G11 failed" "$above"
+  grep -qE '^kubectl .*apply .*-k .*/deploy/allocation$' "$t/state/calls" \
+    && pass "first-party $mode: the substitute was installed before G11 ran" || fail "first-party $mode: deploy/allocation not applied"
+  if jq -e '.result == "fail" and .authority.kind == "first-party" and (.failures | length > 0)' "$t/evidence/g11-observations.json" >/dev/null 2>&1; then
+    pass "first-party $mode: g11-observations.json records the failure on first-party: $(jq -r '.failures[0]' "$t/evidence/g11-observations.json" | cut -c1-90)"
+  else
+    fail "first-party $mode: g11-observations.json missing or not a first-party failure" "$(cat "$t/evidence/g11-observations.json" 2>&1)"
+  fi
+  [[ -z "$(find "$t/state/objects" -type f 2>/dev/null)" ]] && pass "first-party $mode: scratch pools and claims removed after the failure" \
+    || fail "first-party $mode: scratch objects left behind" "$(find "$t/state/objects" -type f)"
+  [[ -z "$(kuid_applies "$t")" ]] && pass "first-party $mode: the call log shows NO apply under deploy/kuid/" || fail "first-party $mode: deploy/kuid applied"
+done
+case_f="$(jq -r '.failures | join(" ")' "$TMP/fp-no-value/evidence/g11-observations.json" 2>/dev/null)"
+[[ "$case_f" == *"status.value"*"terminal"* ]] && pass "first-party no-value: the claim reporting no status.value is recorded as terminal (R-31)" \
+  || fail "first-party no-value: failure should say the claim reported no value and is terminal" "$case_f"
+case_f="$(jq -r '.failures | join(" ")' "$TMP/fp-wrong-value/evidence/g11-observations.json" 2>/dev/null)"
+[[ "$case_f" == *"(a)"*"did not bind exactly"* ]] && pass "first-party wrong-value: observation (a) is the failure recorded" \
+  || fail "first-party wrong-value: failure should name observation (a)" "$case_f"
+
+# ------------------------------------------------------------------ 10: no deploy/kuid in any first-party run
+all_fp=""
+for d in change-bound change-none fp-healthy fp-no-value fp-wrong-value; do
+  [[ "$d" == change-none ]] && continue   # the switch deletes deploy/kuid first (checked above)
+  all_fp+="$(kuid_applies "$TMP/$d")"
+done
+[[ -z "$all_fp" ]] && pass "no first-party run applied anything under deploy/kuid/" || fail "a first-party run applied deploy/kuid" "$all_fp"
 
 echo
 if [[ "$fails" -eq 0 ]]; then echo "g11_stop_test: all checks passed"; exit 0; fi

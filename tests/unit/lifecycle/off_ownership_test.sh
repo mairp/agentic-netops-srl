@@ -15,6 +15,9 @@
 #   * the audit-record hook: store absent → no-op; store present and export failing → stops with
 #     nothing deleted; --discard-audit-record → proceeds, printed and recorded
 #   * --purge-intent-tier is reserved (exit 2, nothing touched)
+#   * the first-party allocation authority's namespace agentic-netops-allocation: owned → removed
+#     after the Secrets and before the cluster, a second run a no-op; present but unowned (or owned
+#     by another cluster) → the whole teardown refused with nothing deleted; absent → not touched
 set -euo pipefail
 
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../../.." && pwd)"
@@ -47,9 +50,9 @@ setup() {
   for n in spine01 spine02 leaf01 leaf02; do fakes::container "clab-$LAB-$n" "$LAB" nokia_srlinux "$CL"; done
   for n in client01 client02; do fakes::container "clab-$LAB-$n" "$LAB" linux "$CL"; done
   fakes::cluster "$CL" "$CL"
-  fakes::k8s "$CL" _ namespace sdc-system "$CL"
+  fakes::k8s "$CL" _ namespace agentic-netops-system "$CL"
   fakes::k8s "$CL" _ namespace monitoring "$CL"
-  fakes::k8s "$CL" sdc-system secret srl-credentials "$CL"
+  fakes::k8s "$CL" agentic-netops-system secret srl-credentials "$CL"
   fakes::k8s "$CL" monitoring secret srl-credentials "$CL"
   fakes::k8s "$CL" monitoring secret grafana-admin "$CL"
   fakes::image "$SRL_IMG"; fakes::image "$KIND_IMG"
@@ -87,7 +90,7 @@ check "teardown: the lab directory (generated CA) is gone" '[[ ! -e "$CLAB_LABDI
 check "teardown: order is lab → secrets → cluster → network" \
   '[[ "$(deleting_calls | sed -E "s/^(containerlab destroy|kubectl|kind delete|docker network rm).*/\1/" | uniq | tr "\n" "|")" == "containerlab destroy|kubectl|kind delete|docker network rm|" ]]'
 check "teardown: the generated Secrets were deleted before the cluster" \
-  'calls | grep -q "kubectl .*delete secret srl-credentials -n sdc-system" && calls | grep -q "kubectl .*delete secret grafana-admin -n monitoring"'
+  'calls | grep -q "kubectl .*delete secret srl-credentials -n agentic-netops-system" && calls | grep -q "kubectl .*delete secret grafana-admin -n monitoring"'
 check "teardown: no image was removed" '[[ -z "$(image_removal_calls)" ]] && images_intact'
 check "teardown without --preserve-evidence: the planted evidence is byte-identical" 'planted_intact'
 check "teardown without --preserve-evidence: no evidence capture was added" \
@@ -204,6 +207,34 @@ setup no-store
 printf '#!/usr/bin/env bash\necho called >>"$FAKE_STATE/exported"\n' >"$W/bin/ok-export"; chmod +x "$W/bin/ok-export"
 OFF_AUDIT_EXPORT_CMD="$W/bin/ok-export" run_off
 check "audit: no store → the export is not attempted (no-op)" '[[ $rc -eq 0 && ! -e "$FAKE_STATE/exported" ]]'
+
+# ------------------------------------------------------------------ the allocation authority's namespace
+setup alloc-owned
+fakes::k8s "$CL" _ namespace agentic-netops-allocation "$CL"
+run_off
+check "allocation: an owned agentic-netops-allocation → teardown exits 0" '[[ $rc -eq 0 ]] && world_absent'
+check "allocation: the namespace is deleted (ownership-checked) after the Secrets, before the cluster" \
+  '[[ "$(deleting_calls | grep -nE "delete secret grafana-admin|delete namespace agentic-netops-allocation|^kind delete" | cut -d: -f2- | sed -E "s/.*(grafana-admin|agentic-netops-allocation|kind delete).*/\1/" | paste -sd"|" -)" == "grafana-admin|agentic-netops-allocation|kind delete" ]]'
+check "allocation: its removal is named" 'grep -q "removed namespace agentic-netops-allocation" <<<"$out"'
+check "allocation: the planted evidence is byte-identical" 'planted_intact'
+run_off
+check "allocation, second run: success no-op" '[[ $rc -eq 0 && -z "$(deleting_calls)" ]]'
+
+setup alloc-unowned
+fakes::k8s "$CL" _ namespace agentic-netops-allocation -
+run_off
+check "allocation: an unlabelled agentic-netops-allocation refuses the whole teardown" '[[ $rc -ne 0 ]]'
+check "allocation: the namespace is named" 'grep -q "refusing to touch namespace/agentic-netops-allocation" <<<"$out"'
+check "allocation: NOTHING was deleted" '[[ -z "$(deleting_calls)" && -e "$FAKE_STATE/kind/$CL" ]]'
+
+setup alloc-foreign
+fakes::k8s "$CL" _ namespace agentic-netops-allocation agentic-netops-2
+run_off
+check "allocation: a namespace owned by another cluster refuses, nothing deleted" '[[ $rc -ne 0 && -z "$(deleting_calls)" ]]'
+
+setup alloc-absent
+run_off
+check "allocation: absent → never deleted (no delete call names it)" '[[ $rc -eq 0 ]] && ! calls | grep -q "delete namespace agentic-netops-allocation"'
 
 # ------------------------------------------------------------------ reserved flag, usage
 setup purge

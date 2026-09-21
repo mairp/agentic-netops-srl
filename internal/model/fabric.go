@@ -24,6 +24,10 @@ type FabricInput struct {
 	Name       string
 	FabricASN  uint32
 	InterASVPN bool
+	// ReflectorClients is spec.overlay.reflectorClients as declared (default
+	// true): rendered as `route-reflector client` on every reflecting spine's
+	// overlay group as stated (AD-77).
+	ReflectorClients bool
 	// AddressFamilies is spec.underlay.addressFamilies; empty means the
 	// default, both. IPv4 is always required: the VXLAN tunnel endpoint is
 	// IPv4-only on the pinned image (evidence/02-evpn-constructs.md §1.3).
@@ -125,16 +129,25 @@ type FabricBGP struct {
 	RouterID         string
 	// Overlay AS on the overlay group: the fabric constant.
 	OverlayAS uint32
-	// RouteReflectorClient renders `route-reflector client true` on the
-	// overlay group of a reflecting spine.
-	RouteReflectorClient bool
+	// RouteReflectorClient is rendered as `route-reflector client` on the
+	// overlay group of a reflecting spine as stated — true or false, never
+	// dropped (AD-77); nil on a node that is not a reflector.
+	RouteReflectorClient *bool
 	// InterASVPN is rendered on every reflecting spine as stated — true or
 	// false, never dropped (AD-43); nil on a node that is not a reflector.
 	InterASVPN *bool
 	// IPv6Unicast enables the ipv6-unicast family and the per-link IPv6
 	// underlay sessions (group UnderlayV6Group).
 	IPv6Unicast bool
-	Neighbors   []BGPNeighbor
+	// AllowOwnAS is rendered as `as-path-options allow-own-as` on the
+	// underlay groups of a node whose underlay AS another node shares (the
+	// spines): without it the node drops, by AS-path loop detection, the
+	// other's loopback re-advertised through a leaf, and the read-back's
+	// loopback-route invariant — every other node's system0.0 active — could
+	// never hold. It is what G8's scratch fabric observed the invariant on
+	// (tests/gate/lib/scratch_fabric.sh). Zero: not rendered.
+	AllowOwnAS uint8
+	Neighbors  []BGPNeighbor
 }
 
 // FabricNode is everything the fabric renders on one node.
@@ -222,6 +235,11 @@ func BuildFabric(in FabricInput) (*FabricModel, error) {
 	sort.Strings(reflectors)
 	sort.Strings(leaves)
 
+	asUsers := map[uint32]int{}
+	for _, n := range in.Nodes {
+		asUsers[n.ASN]++
+	}
+
 	out := map[string]*FabricNode{}
 	for _, n := range in.Nodes {
 		fn := &FabricNode{
@@ -235,10 +253,14 @@ func BuildFabric(in FabricInput) (*FabricModel, error) {
 				IPv6Unicast:      v6,
 			},
 		}
+		if asUsers[n.ASN] > 1 {
+			fn.BGP.AllowOwnAS = 1
+		}
 		if n.RouteReflector {
 			v := in.InterASVPN
 			fn.BGP.InterASVPN = &v
-			fn.BGP.RouteReflectorClient = true
+			rc := in.ReflectorClients
+			fn.BGP.RouteReflectorClient = &rc
 			// A reflector peers with every leaf loopback.
 			for _, l := range leaves {
 				fn.BGP.Neighbors = append(fn.BGP.Neighbors, BGPNeighbor{

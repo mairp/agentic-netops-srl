@@ -93,6 +93,18 @@ case "$1" in
       files+=("$f")
     done
     jq -s '.' "${files[@]}" ;;
+  exec)
+    # docker exec [-i] <node> cat /etc/resolv.conf | sh -c 'cat > /etc/resolv.conf' — the node's
+    # resolv.conf is state/docker/resolv/<node> (default: a host search domain, as observed).
+    shift; [[ "$1" == -i ]] && shift
+    node="$1"; shift
+    mkdir -p "$S/resolv"; rf="$S/resolv/$node"
+    [[ -f "$rf" ]] || printf 'search ai\nnameserver 172.30.0.1\noptions ndots:0\n' >"$rf"
+    case "$*" in
+      "cat /etc/resolv.conf") cat "$rf" ;;
+      "sh -c cat > /etc/resolv.conf") cat >"$rf" ;;
+      *) exit 0 ;;
+    esac ;;
   ps)
     shift
     filters=()

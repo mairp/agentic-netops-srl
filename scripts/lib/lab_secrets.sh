@@ -3,13 +3,17 @@
 # §Prerequisites, §1 TargetsReady; evidence/01 §4.1, §4.4).
 #
 #   lab_secrets::ensure
-#       1. `srl-credentials` in sdc-system — keys `username`, `password` (the lab device
+#       1. `srl-credentials` in agentic-netops-system (the Targets' namespace) — keys `username`, `password` (the lab device
 #          credentials: SRL_USER / SRL_PASS, default containerlab's nokia_srlinux defaults) and `ca`
 #          (+ `ca.crt`, same PEM): the containerlab-generated lab CA,
 #          <lab dir>/.tls/ca/ca.pem, which verifies the devices' gNMI server certificate
 #          (authenticate-client is false: no client certificate exists or is needed). `username` /
 #          `password` are the keys the device-configuration layer's target credentials read; `ca`
-#          the key its TLS secret reads.
+#          the key its TLS secret reads. Targets and everything they use live in
+#          agentic-netops-system because config-server v0.0.58 lists them in the Target's
+#          namespace (AD-82 decision 2026-09-21-target-namespace). That namespace is created by
+#          deploy/agentic-netops in AppsReady, before TargetsReady runs this step; it is not this
+#          step's to create or delete.
 #       2. namespace `monitoring`, created here, idempotently, with the ownership label — this step
 #          is the first thing that writes into it; the observability stack arrives much later and
 #          installs into the namespace it finds (AD-50). An existing `monitoring` that is not owned
@@ -40,7 +44,7 @@ source "$(dirname -- "${BASH_SOURCE[0]}")/ownership.sh"
 source "$(dirname -- "${BASH_SOURCE[0]}")/containerlab.sh"
 
 LAB_SECRETS_FIELD_MANAGER="agentic-netops-lifecycle"
-LAB_SECRETS_SDC_NS="sdc-system"
+LAB_SECRETS_TARGET_NS="agentic-netops-system"
 LAB_SECRETS_MON_NS="monitoring"
 LAB_SECRETS_CREDS="srl-credentials"
 LAB_SECRETS_GRAFANA="grafana-admin"
@@ -111,8 +115,8 @@ lab_secrets::ensure() {
     log::error "lab_secrets: $ca_file is not a PEM certificate"
     return 1
   fi
-  if ! lab_secrets::_exists namespace "$LAB_SECRETS_SDC_NS"; then
-    log::error "lab_secrets: namespace $LAB_SECRETS_SDC_NS does not exist (AppsReady not met: deploy/sdc creates it)"
+  if ! lab_secrets::_exists namespace "$LAB_SECRETS_TARGET_NS"; then
+    log::error "lab_secrets: namespace $LAB_SECRETS_TARGET_NS does not exist (AppsReady not met: deploy/agentic-netops creates it)"
     return 1
   fi
   local LS_USER LS_PASS LS_CA
@@ -122,7 +126,7 @@ lab_secrets::ensure() {
   export LS_USER LS_PASS LS_CA
   local rc=0
   LS_KEYS="username=LS_USER password=LS_PASS ca=LS_CA ca.crt=LS_CA" \
-    lab_secrets::_apply_secret "$LAB_SECRETS_SDC_NS" "$LAB_SECRETS_CREDS" device-credentials || rc=1
+    lab_secrets::_apply_secret "$LAB_SECRETS_TARGET_NS" "$LAB_SECRETS_CREDS" device-credentials || rc=1
   if [[ "$rc" -eq 0 ]]; then
     lab_secrets::_ensure_namespace "$LAB_SECRETS_MON_NS" || rc=1
   fi
@@ -169,7 +173,7 @@ lab_secrets::_delete_owned() {
 
 lab_secrets::remove() {
   local rc=0
-  lab_secrets::_delete_owned secret "$LAB_SECRETS_CREDS" "$LAB_SECRETS_SDC_NS" || rc=1
+  lab_secrets::_delete_owned secret "$LAB_SECRETS_CREDS" "$LAB_SECRETS_TARGET_NS" || rc=1
   lab_secrets::_delete_owned secret "$LAB_SECRETS_CREDS" "$LAB_SECRETS_MON_NS" || rc=1
   lab_secrets::_delete_owned secret "$LAB_SECRETS_GRAFANA" "$LAB_SECRETS_MON_NS" || rc=1
   lab_secrets::_delete_owned namespace "$LAB_SECRETS_MON_NS" || rc=1

@@ -52,11 +52,13 @@ type FabricNode struct {
 
 // PoolRef references an allocation index.
 type PoolRef struct {
-	// Group of the index, e.g. ipam.be.kuid.dev.
+	// Group of the index: the one the installed allocation authority serves — e.g.
+	// ipam.be.kuid.dev under kuid, fabric.agentic-netops.io under first-party. Any other
+	// is refused (Accepted=False/InvalidIntent).
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=253
 	Group string `json:"group"`
-	// Kind of the index, e.g. IPIndex.
+	// Kind of the index: e.g. IPIndex or ASIndex under kuid, IdentifierPool under first-party.
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=63
 	Kind string `json:"kind"`
@@ -108,6 +110,12 @@ type OverlaySpec struct {
 	// the declarative way to withdraw reflection (AD-43).
 	// +optional
 	InterASVPN *bool `json:"interASVPN,omitempty"`
+	// ReflectorClients is rendered as route-reflector client on every reflecting spine's
+	// overlay group as stated; false is accepted — the declarative way to withdraw
+	// reflection, SC-004's negative control (AD-77).
+	// +kubebuilder:default=true
+	// +optional
+	ReflectorClients *bool `json:"reflectorClients,omitempty"`
 	// TunnelInterface is the fabric constant vxlan0.
 	// +kubebuilder:validation:Enum=vxlan0
 	// +kubebuilder:default=vxlan0

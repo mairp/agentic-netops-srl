@@ -5,6 +5,10 @@
 # TargetConnectionProfile, TargetSyncProfile or DiscoveryRule has such a field at config-server
 # v0.0.58, so the policy has one home only — the provider's DRIFT_POLICY, stamped on the
 # `revertive` field of every Config it generates (T042).
+# Every object here is in agentic-netops-system, as is the credentials Secret: Targets and
+# everything they use live in agentic-netops-system because config-server v0.0.58 lists them in
+# the Target's namespace (AD-82 decision 2026-09-21-target-namespace). The layer's own workloads
+# (deploy/sdc) and the schema mirror stay in sdc-system.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
@@ -13,10 +17,10 @@ resources:
 - target-sync-profile.yaml
 - discovery-rule.yaml
 
-# The credentials Secret is referenced by NAME only. It is created in sdc-system at provisioning
-# time by scripts/lib/lab_secrets.sh (lab_secrets::ensure) and is never a manifest here. The name
-# is carried by a build-time-only ConfigMap (local-config: never applied) and substituted into
-# the DiscoveryRule's generator placeholder.
+# The credentials Secret is referenced by NAME only. It is created in agentic-netops-system at
+# provisioning time by scripts/lib/lab_secrets.sh (lab_secrets::ensure) and is never a manifest
+# here. The name is carried by a build-time-only ConfigMap (local-config: never applied) and
+# substituted into the DiscoveryRule's generator placeholder.
 configMapGenerator:
 - name: onboarding-references
   literals:

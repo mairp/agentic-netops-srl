@@ -65,6 +65,15 @@ spec:
                 required:
                 - name
                 type: object
+              prefixLength:
+                description: |-
+                  PrefixLength is, on an ip pool only, the length of a dynamic prefix claim (e.g. 31
+                  for a point-to-point link); absent, a dynamic ip claim is one host address (/32 or
+                  /128). A stated value carries its own length.
+                format: int32
+                maximum: 128
+                minimum: 1
+                type: integer
               requested:
                 description: |-
                   Requested is the stated value to claim, as text (a number, or an address/prefix for

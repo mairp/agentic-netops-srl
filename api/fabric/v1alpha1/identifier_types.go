@@ -60,14 +60,39 @@ type IdentifierPoolStatus struct {
 	// ObservedGeneration is the generation the status reflects.
 	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
-	// Allocated is the number of identifiers currently claimed.
+	// Allocated is the number of identifiers currently claimed: len(allocations).
 	// +optional
 	Allocated int64 `json:"allocated,omitempty"`
+	// Allocations is the pool's ledger — the arbitration record. A value is held exactly
+	// when an entry names it; the claim controller appends an entry, with an optimistic
+	// update of this status, before it reports the value on the claim, and removes it
+	// before it lets the claim go. At most one entry per value.
+	// +listType=map
+	// +listMapKey=value
+	// +optional
+	Allocations []IdentifierAllocation `json:"allocations,omitempty"`
 	// Conditions of the pool.
 	// +listType=map
 	// +listMapKey=type
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
+}
+
+// IdentifierAllocation is one ledger entry of a pool: a value and the claim holding it.
+type IdentifierAllocation struct {
+	// Value is the held identifier in canonical text: a decimal number, or a masked prefix
+	// ("10.1.0.0/31", "10.0.0.1/32") for an ip pool.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=64
+	Value string `json:"value"`
+	// Claim is the name of the holding IdentifierClaim, in the pool's namespace.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=253
+	Claim string `json:"claim"`
+	// ClaimUID is the holding claim's UID: a later claim of the same name is another claim.
+	// +kubebuilder:validation:MaxLength=64
+	// +optional
+	ClaimUID string `json:"claimUID,omitempty"`
 }
 
 // IdentifierPool is the substitute allocator's pool (conditional kind).
@@ -116,6 +141,13 @@ type IdentifierClaimSpec struct {
 	// +kubebuilder:validation:MaxLength=64
 	// +optional
 	Requested string `json:"requested,omitempty"`
+	// PrefixLength is, on an ip pool only, the length of a dynamic prefix claim (e.g. 31
+	// for a point-to-point link); absent, a dynamic ip claim is one host address (/32 or
+	// /128). A stated value carries its own length.
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=128
+	// +optional
+	PrefixLength *int32 `json:"prefixLength,omitempty"`
 }
 
 // IdentifierClaimStatus reports the allocation.

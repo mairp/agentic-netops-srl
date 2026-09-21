@@ -44,6 +44,8 @@ GATE_CHECKS="$GATE_REPO_ROOT/tests/gate/lib/checks.sh"
 : "${GATE_WAIT_BGP:=180}"      # sessions / EVPN oper-state
 : "${GATE_WAIT_ROUTES:=120}"   # EVPN routes through the reflectors
 : "${GATE_WAIT_NEG:=45}"       # the window a mid-item negative control is watched for
+: "${GATE_WAIT_WITHDRAW:=90}"  # the bounded wait for EVPN routes to withdraw after G8's declared
+                               # reflection-stopping change, before its negative control is run
 : "${GATE_PINNED_VERSION:=25.7.1}"
 export CHECK_INTERVAL="${CHECK_INTERVAL:-5}"
 
@@ -177,11 +179,13 @@ gate::observed() {
 # ---------------------------------------------------------------- cluster helpers
 
 # gate::target_of <node> — "<namespace> <name>" of the SDC Target whose name is the node or whose
-# address is the node's management address
+# address is the node's management address, looked up in LAB_TARGET_NS (tests/lib/lab.sh) — the
+# namespace a gate-owned Config must then be created in, since config-server v0.0.58 lists a
+# Target's Configs in the Target's own namespace (AD-82 decision 2026-09-21-target-namespace)
 gate::target_of() {
   local node="$1" addr out
   addr="$(lab::addr "$node")"
-  out="$(lab::kubectl get targets.inv.sdcio.dev -A -o json 2>/dev/null)" || return 1
+  out="$(lab::kubectl get targets.config.sdcio.dev -n "$LAB_TARGET_NS" -o json 2>/dev/null)" || return 1
   jq -r --arg n "$node" --arg a "$addr" '
     [.items[] | select(.metadata.name == $n or (.metadata.name | endswith("-" + $n))
                        or ((.spec.address // "") | split(":")[0]) == $a)]

@@ -1,5 +1,5 @@
 # deploy/sdc — the device-configuration layer: sdcio config-server v0.0.58 (api-server +
-# controller) and data-server v0.0.66, from the pinned tag's own artifacts/ (T035; FR-009, FR-098).
+# controller) and data-server v0.0.72 (re-pinned, AD-80), from the pinned tag's own artifacts/ (T035; FR-009, FR-098).
 # upstream/ is vendored by scripts/lib/fetch_upstream.sh and never edited; every change this
 # platform makes is stated below. Applied after deploy/cert-manager is Available:
 #   kubectl apply --server-side -k deploy/sdc
@@ -105,4 +105,4 @@ images:
 - name: ghcr.io/sdcio/config-server-controller
   newTag: "v0.0.58@sha256:01c69c589137579db784c769019bc92591899666714f153b5b4b97a761ffea13"
 - name: ghcr.io/sdcio/data-server
-  newTag: "v0.0.66@sha256:fe138dcfcfeb5bee2a615bd4e9616bafc9d27b57ae55cee9360d4fd0d2cecbf7"
+  newTag: "v0.0.72@sha256:f294c2b3810da2d92c4cba0affede839743e75d9343e4ccc80b38e39bd95dca0"

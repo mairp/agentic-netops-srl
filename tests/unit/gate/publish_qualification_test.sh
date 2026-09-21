@@ -72,6 +72,15 @@ if jq -e '.data["mac-vrf"] == "unqualified" and .data["ip-vrf"] == "unqualified"
           and .data.acl == "qualified" and .data.vlan == "qualified"' <<<"$cm2" >/dev/null; then
   pass "a failed G8 makes mac-vrf and ip-vrf (and their properties) unqualified, never assumed"
 else fail "a failed G8 makes mac-vrf and ip-vrf (and their properties) unqualified" "$(jq .data <<<"$cm2")"; fi
+# AD-77: reflection is qualified only with its declarative negative control observed
+if jq -e '.data["mac-vrf.reflection"] == "qualified"' <<<"$cm" >/dev/null; then
+  pass "reflection qualified when the reflector settings pass and route-reflector client false was observed to stop reflection"
+else fail "reflection qualified with its control observed" "$(jq .data <<<"$cm")"; fi
+jq '(.items.G8.checks[] | select(.name == "reflector-clients-false-stops-reflection")) |= (.status = "fail" | .exit_status = 1)' "$FIX" >"$TMP/noctl.json"
+cm3="$(run_pub "$F1" --record "$TMP/noctl.json" --dry-run 2>/dev/null)"
+if jq -e '.data["mac-vrf.reflection"] == "unqualified"' <<<"$cm3" >/dev/null; then
+  pass "reflection unqualified when the declarative control was NOT observed to stop reflection (AD-77)"
+else fail "reflection unqualified without its observed control" "$(jq .data <<<"$cm3")"; fi
 
 # --- 3. namespace absent: created, then the ConfigMap applied --server-side
 F3="$TMP/f3"; mkdir -p "$F3"

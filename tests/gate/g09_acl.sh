@@ -11,10 +11,17 @@
 #      — accepted or refused is recorded; refused, the item fails (Open item 19: the gate stops and
 #      the fallback is a recorded change)
 #   2. ingress: an IPv4 and an IPv6 filter (statistics-per-entry, entries 10 and the reserved 65535)
-#      bound input — TCAM on input only, per-subinterface entries listed, programming complete
+#      bound input — the keyed binding in running, TCAM on input only per entry (A1–A3, keyed by
+#      filter name, type and sequence-id), programming complete, and A4 — the binding APPLIED: ICMP
+#      and ICMPv6 sent through the subinterface raise each filter's own entry-10 matched-packets
+#      above the baseline read before the traffic. 25.7.1 mirrors no part of /acl/interface into
+#      state (observed live 2026-09-21), so the keyed binding in state that AD-79 named is recorded,
+#      not judged (AD-82 decision 2026-09-21-acl-binding-state, docs/decisions/live-findings.md). The per-subinterface ENTRY LIST under the binding is RECORDED, not asserted: the
+#      device leaves it empty for a shared (not subinterface-specific) ingress filter that is
+#      programmed and bound (observed on 25.7.1) — observation per_subinterface_entry_list
 #   3. egress: an IPv4 filter with subinterface-specific output-only bound output — its result is
 #      the qualification PROPERTY egress-acl (published per property, refused by name when
-#      unqualified; not an item failure)
+#      unqualified; not an item failure); its per-subinterface entry list is recorded the same way
 #   4. removal, read back
 GATE_HERE="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then exec bash "$GATE_HERE/run_gate.sh" --only G9 "$@"; fi
@@ -51,9 +58,17 @@ g09::bare_updates() {
   printf '%s\t%s\n' "$b/interface-ref/interface" "$(scratch::_q "$port")" "$b/interface-ref/subinterface" "$idx"
 }
 
+# g09::per_sub <evidence-id> — {"<seq>": true|false} from the OBSERVATION lines acl_applied printed
+# (the last attempt's value per entry): is the entry listed under the subinterface's binding?
+g09::per_sub() {
+  sed -n 's/^OBSERVATION per-subinterface-entry [^ ]* [^ ]* [^ ]* \([0-9]*\) \(present\|absent\)$/\1 \2/p' \
+    "$EVIDENCE_DIR/${1}.stdout" 2>/dev/null \
+    | jq -R -s -c 'split("\n") | map(select(length > 0) | split(" ")) | reduce .[] as $e ({}; .[$e[0]] = ($e[1] == "present"))' 2>/dev/null || echo '{}'
+}
+
 g09::run() {
   gate::item_begin G9 "ACL programming, keyed applied-side read-back per direction, egress qualification"
-  local leaf ifid rc
+  local leaf ifid rc per='{}'
   leaf="$(lab::leaves | head -1)"
   ifid="${SCRATCH_ACCESS_PORT}.${SCRATCH_VLAN}"
 
@@ -69,10 +84,32 @@ g09::run() {
   # 2. ingress, IPv4 and IPv6, under that binding
   rc=0; scratch::apply "$leaf" "G09.ingress" g09::ingress_updates "$ifid" >/dev/null || rc=$?
   gate::item_check "ingress-committed" "$rc" "IPv4 + IPv6 filters bound input on $ifid (one transaction)"
+  # A4, the applied side of the binding (AD-82 decision 2026-09-21-acl-binding-state): 25.7.1 mirrors
+  # no part of /acl/interface into state, so the binding is shown APPLIED by traffic — ICMP and
+  # ICMPv6 from the first client over the scratch mac-vrf enter the leaf on exactly $ifid, the one
+  # place these filters are bound, and each filter's own entry-10 matched-packets must rise above the
+  # baseline read before the traffic (keyed by filter name, type and sequence-id)
+  local c1 c2 dst4 dst6 base4 base6
+  c1="$(lab::clients | sed -n 1p)"; c2="$(lab::clients | sed -n 2p)"
+  dst4="$(scratch::client_addr4 "$c2")"; dst6="$(scratch::client_addr6 "$c2")"
+  base4="$(gate::run "G09.in4.baseline" -- bash "$GATE_CHECKS" acl_counter "$leaf" "$G9_IN4" ipv4 10 2>/dev/null | tail -1)"
+  base6="$(gate::run "G09.in6.baseline" -- bash "$GATE_CHECKS" acl_counter "$leaf" "$G9_IN6" ipv6 10 2>/dev/null | tail -1)"
+  [[ "$base4" =~ ^[0-9]+$ ]] || base4=0; [[ "$base6" =~ ^[0-9]+$ ]] || base6=0
+  rc=0; CHECK_WAIT=30 gate::record "G09.traffic-v4" G9-acl-traffic ping "$c1" 4 "$dst4" - ok || rc=$?
+  gate::item_check "ingress-traffic-v4" "$rc" "ICMP $c1 → $dst4 through $ifid"
+  rc=0; CHECK_WAIT=30 gate::record "G09.traffic-v6" G9-acl-traffic ping "$c1" 6 "$dst6" - ok || rc=$?
+  gate::item_check "ingress-traffic-v6" "$rc" "ICMPv6 $c1 → $dst6 through $ifid"
+  rc=0; CHECK_WAIT=30 gate::ready "G09.in4.matched" G9-acl-matched acl_matched "$leaf" "$G9_IN4" ipv4 10 "$base4" || rc=$?
+  gate::item_check "ingress-ipv4-matched" "$rc" "$G9_IN4/ipv4 entry 10 matched the ICMP on its binding (A4)"
+  rc=0; CHECK_WAIT=30 gate::ready "G09.in6.matched" G9-acl-matched acl_matched "$leaf" "$G9_IN6" ipv6 10 "$base6" || rc=$?
+  gate::item_check "ingress-ipv6-matched" "$rc" "$G9_IN6/ipv6 entry 10 matched the ICMPv6 on its binding (A4)"
+
   rc=0; CHECK_WAIT=60 gate::ready "G09.in4" G9-acl-applied acl_applied "$leaf" "$G9_IN4" ipv4 "$ifid" input 10,65535 || rc=$?
-  gate::item_check "ingress-ipv4-applied" "$rc" "$G9_IN4/ipv4 in TCAM on input only, per-subinterface entries listed"
+  gate::item_check "ingress-ipv4-applied" "$rc" "$G9_IN4/ipv4 bound input (keyed binding in running), entries in TCAM on input only (A1–A3)"
+  per="$(jq -c --argjson v "$(g09::per_sub "$GATE_LAST_EVIDENCE")" '.["ingress-ipv4"] = $v' <<<"$per")"
   rc=0; CHECK_WAIT=60 gate::ready "G09.in6" G9-acl-applied acl_applied "$leaf" "$G9_IN6" ipv6 "$ifid" input 10,65535 || rc=$?
-  gate::item_check "ingress-ipv6-applied" "$rc" "$G9_IN6/ipv6 in TCAM on input only, per-subinterface entries listed"
+  gate::item_check "ingress-ipv6-applied" "$rc" "$G9_IN6/ipv6 bound input (keyed binding in running), entries in TCAM on input only (A1–A3)"
+  per="$(jq -c --argjson v "$(g09::per_sub "$GATE_LAST_EVIDENCE")" '.["ingress-ipv6"] = $v' <<<"$per")"
 
   # 3. egress — a qualification property
   local erc=0 msg
@@ -81,10 +118,14 @@ g09::run() {
     msg="the device refused an output binding on $ifid (see the G09.egress evidence record)"
   else
     CHECK_WAIT=60 gate::ready "G09.out4" G9-acl-applied acl_applied "$leaf" "$G9_OUT4" ipv4 "$ifid" output 10,65535 || erc=$?
-    msg="$G9_OUT4/ipv4 bound output: TCAM on output only, per-subinterface entries listed"
+    msg="$G9_OUT4/ipv4 bound output (keyed binding in running): TCAM on output only"
+    per="$(jq -c --argjson v "$(g09::per_sub "$GATE_LAST_EVIDENCE")" '.["egress-ipv4"] = $v' <<<"$per")"
   fi
   gate::item_check "property:egress-acl" "$erc" "$msg"
   gate::item_observe egress_qualified "$( [[ $erc -eq 0 ]] && echo true || echo false )"
+  # RECORDED, not asserted (AD-79): is each entry listed under the subinterface's binding in state?
+  # (observed on 25.7.1: not for the shared ingress filters; yes for the subinterface-specific egress one)
+  gate::item_observe per_subinterface_entry_list "$per"
 
   # 4. removal, read back
   rc=0; gate::dev "G09.remove" "$leaf" set --delete "/acl/interface[interface-id=${ifid}]" \

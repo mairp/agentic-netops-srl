@@ -290,10 +290,12 @@ chk_evpn_route() {
 chk_route_active() {
   local node="$1" ni="$2" afi="$3" rt="$4"; shift 4
   local tbl rep p missing
+  local -a prefixes=("$@")   # _judge is called with no arguments: its "$@" would be empty
+  [[ ${#prefixes[@]} -gt 0 ]] || { verdict FAIL route-active "$node $ni: no prefix to check"; return 1; }
   _judge() {
     tbl="$(_read "$node" STATE "/network-instance[name=${ni}]/route-table/${afi}-unicast" | jq -c "$JQLIB"' unwrap("'"$afi"'-unicast")')"
     missing=()
-    for p in "$@"; do
+    for p in "${prefixes[@]}"; do
       rep="$(jq -r --arg p "$p" --arg rt "$rt" --arg k "${afi}-prefix" "$JQLIB"'
         [(.route // [])[] | select(.[$k] == $p and ((.["route-type"] | idname) | test($rt)))]
         | if length == 0 then "absent" else map("\(.["route-type"] | idname) active=\(.active)") | join(",") end' <<<"$tbl")"
@@ -306,26 +308,47 @@ chk_route_active() {
   verdict FAIL route-active "$node $ni: not active ($rt): ${missing[*]}"; return 1
 }
 
-# reflector <spine> — inter-as-vpn and route-reflector client read back true (state datastore;
-# both are configuration leaves the state datastore mirrors — a configuration-integrity check)
+# reflector <spine> — inter-as-vpn and route-reflector client read back true from the CONFIGURATION
+# datastore (--type config). A configuration-integrity check, never applied-side behaviour: SR Linux
+# 25.7.1 does not mirror either leaf into state (AD-76; G4 part B records that), so the state read
+# AD-31 first described cannot see them. The output lines keep the form "inter-as-vpn=… …".
 chk_reflector() {
   local node="$1" st iav rrc
-  st="$(_bgp_state "$node")"
+  st="$(_read "$node" CONFIG "/network-instance[name=default]/protocols/bgp" | jq -c "$JQLIB"' unwrap("bgp")')"
   iav="$(jq -r "$JQLIB"' [(.["afi-safi"] // [])[] | select(.["afi-safi-name"] | idname == "evpn") | .evpn["inter-as-vpn"]] | first // "absent"' <<<"$st")"
   rrc="$(jq -r "$JQLIB"' [(.group // [])[] | select(.["route-reflector"].client == true) | .["group-name"]] | join(",")' <<<"$st")"
-  say "inter-as-vpn=$iav route-reflector-client-groups=${rrc:-none}"
+  say "inter-as-vpn=$iav route-reflector-client-groups=${rrc:-none} (configuration datastore)"
   if [[ "$iav" == true && -n "$rrc" ]]; then
-    verdict PASS reflector "$node: inter-as-vpn true, route-reflector client true on $rrc (configuration-integrity)"; return 0
+    verdict PASS reflector "$node: inter-as-vpn true, route-reflector client true on $rrc (configuration-integrity, read from config)"; return 0
   fi
-  verdict FAIL reflector "$node: inter-as-vpn=$iav, route-reflector client groups=${rrc:-none}"; return 1
+  verdict FAIL reflector "$node: inter-as-vpn=$iav, route-reflector client groups=${rrc:-none} (read from config)"; return 1
+}
+
+# evpn_route_withdrawn <node> <type 2|3|5> <originator-loopback> <via-ip,ip> [<prefix>] — the
+# inverse of evpn_route: NO such route is held from a reflecting spine. Polled with CHECK_WAIT, so
+# it is the bounded wait for a withdrawal after a reflection-stopping change (G8, AD-77) — a record,
+# never the negative control itself (that is evpn_route, run to FAIL, after this has passed).
+chk_evpn_route_withdrawn() {
+  local out
+  local -a args=("$@")   # _judge is called with no arguments: its "$@" would be empty
+  _judge() {
+    # a subshell: chk_evpn_route defines its own _judge, which must not replace this one
+    out="$(CHECK_WAIT=0 chk_evpn_route "${args[@]}" 2>&1 || true)"
+    say "$out"
+    # a failed read is never taken for a withdrawal
+    grep -q -- '^--- gnmic get .*(rc=0)$' <<<"$out" || return 1
+    ! grep -q '^CHECK evpn-route: PASS' <<<"$out"
+  }
+  if _poll _judge; then verdict PASS evpn-route-withdrawn "$1: no type-$2 from $3${5:+ ($5)} held through $4"; return 0; fi
+  verdict FAIL evpn-route-withdrawn "$1: type-$2 from $3${5:+ ($5)} still held through $4 at the end of the window"; return 1
 }
 
 # no_tenant <spine> — no mac-vrf / ip-vrf and no vxlan-interface on the node
 chk_no_tenant() {
   local node="$1" nis tun
-  nis="$(_read "$node" CONFIG /network-instance | jq -r "$JQLIB"' aslist | map(if has("network-instance") then .["network-instance"][] else . end) | .[]? | select((.type // "" | idname) | IN("mac-vrf","ip-vrf")) | .name' 2>/dev/null || true)"
+  nis="$(_read "$node" CONFIG /network-instance | jq -r "$JQLIB"' aslist | map(if has("network-instance") then .["network-instance"][] else . end) | .[]? | select((.type // "" | idname) | IN("mac-vrf","ip-vrf")) | select((.["vxlan-interface"] // []) | length > 0) | .name' 2>/dev/null || true)"
   tun="$(_read "$node" CONFIG /tunnel-interface | jq -r "$JQLIB"' aslist | map(if has("tunnel-interface") then .["tunnel-interface"][] else . end) | .[]? | select((.["vxlan-interface"] // []) | length > 0) | .name' 2>/dev/null || true)"
-  if [[ -z "$nis" && -z "$tun" ]]; then verdict PASS no-tenant "$node terminates no tenant VXLAN (no mac-vrf/ip-vrf, no vxlan-interface)"; return 0; fi
+  if [[ -z "$nis" && -z "$tun" ]]; then verdict PASS no-tenant "$node terminates no tenant VXLAN (no mac-vrf/ip-vrf bound to a vxlan-interface, no vxlan-interface)"; return 0; fi
   verdict FAIL no-tenant "$node carries tenant objects: ${nis//$'\n'/,} ${tun//$'\n'/,}"; return 1
 }
 
@@ -345,17 +368,33 @@ chk_vtep_source() {
 
 # ============================================================================ clients (G6, G8)
 
-# ping <client> <4|6> <dst> <payload|-> ok|fail — from the client's scratch VLAN interface
+# ping <client> <4|6> <dst> <payload|-> ok|fail — from the client's scratch VLAN interface.
+# A sized probe needs Don't-Fragment (-M do). The endpoints' busybox ping has no -M, so a sized
+# probe runs iputils ping (CHECK_PING, default the host's) INSIDE the client's network namespace
+# (nsenter -n on the container's pid): same interfaces, addresses and MTU as the client, but a
+# ping that can set DF. A tool error (unknown option, usage, no such binary) is never a verdict in
+# either direction — it FAILs, so a probe that did not run cannot pass as "fail" (negative control).
 chk_ping() {
-  local client="$1" fam="$2" dst="$3" size="$4" want="$5" out rc=0
-  local -a cmd=(ping -c 3 -i 0.3 -W 2)
+  local client="$1" fam="$2" dst="$3" size="$4" want="$5" out rc=0 pid
+  local -a cmd=(ping -c 3 -i 0.3 -W 2) run
   [[ "$fam" == 6 ]] && cmd=(ping -6 -c 3 -i 0.3 -W 2)
-  [[ "$size" != - ]] && cmd+=(-M "do" -s "$size")
+  if [[ "$size" != - ]]; then
+    cmd=("${CHECK_PING:-ping}" "${cmd[@]:1}" -M "do" -s "$size")
+    pid="$(lab::docker inspect -f '{{.State.Pid}}' "$(lab::container "$client")" 2>/dev/null)" || pid=""
+    if [[ -z "$pid" || "$pid" == 0 ]]; then verdict FAIL ping "$client: no running container to enter"; return 1; fi
+    say "sized probe: $("${CHECK_PING:-ping}" -V 2>&1 | head -1) in the network namespace of $client (pid $pid)"
+    run=(nsenter -t "$pid" -n --)
+  else
+    run=(lab::docker exec "$(lab::container "$client")")
+  fi
   cmd+=("$dst")
   _judge() {
     rc=0
-    out="$(lab::docker exec "$(lab::container "$client")" "${cmd[@]}" 2>&1)" || rc=$?
+    out="$("${run[@]}" "${cmd[@]}" 2>&1)" || rc=$?
     say "\$ ${cmd[*]}  (rc=$rc)"; say "$out"
+    if grep -qiE 'unrecognized option|invalid option|usage:|not found|no such file' <<<"$out"; then
+      say "tool error — the probe did not run"; return 1
+    fi
     if [[ "$want" == ok ]]; then [[ "$rc" -eq 0 ]]; else [[ "$rc" -ne 0 ]]; fi
   }
   if _poll _judge; then verdict PASS ping "$client ${cmd[*]} → $want"; return 0; fi
@@ -365,16 +404,28 @@ chk_ping() {
 # ============================================================================ ACL (G9)
 
 # acl_applied <node> <filter> <ipv4|ipv6> <interface-id> <input|output> <seq,seq,…> — keyed
-# read-back of THIS filter, type, entry and direction: the binding is in running (config), the
-# entry occupies TCAM on the bound direction and none on the other, the device's per-subinterface
-# view lists the entry, and ACL programming is complete.
+# read-back of THIS filter, type, entry and direction: the keyed binding — this filter's name and
+# type under this subinterface's input or output — is in the running (configuration) datastore;
+# each entry occupies TCAM on the bound direction and none on the other (A1–A3, keyed by filter
+# name, type and sequence-id); and ACL programming is complete. The applied side of the binding
+# itself (A4) is acl_matched below: SR Linux 25.7.1 mirrors no part of /acl/interface into state
+# (neither the binding nor interface-ref — observed live 2026-09-21, AD-82 decision
+# 2026-09-21-acl-binding-state, which corrects AD-79's premise), so the keyed binding in state and
+# the per-subinterface entry list under it are printed as OBSERVATION lines, never judged.
 chk_acl_applied() {
   local node="$1" f="$2" t="$3" ifid="$4" dir="$5" seqs="$6" rep="" s bad=0
   _judge() {
     bad=0; rep=""
-    local bind prog
+    local bind sbind prog
     bind="$(_read "$node" CONFIG "/acl/interface[interface-id=${ifid}]/${dir}/acl-filter[name=${f}][type=${t}]")"
     [[ "$bind" != null ]] || { rep+="binding ${ifid} ${dir} ${f}/${t} absent from running; "; bad=1; }
+    # observation only: the keyed binding in state (not mirrored on 25.7.1; A4 is acl_matched)
+    sbind="$(_read "$node" STATE "/acl/interface[interface-id=${ifid}]/${dir}/acl-filter[name=${f}][type=${t}]" | jq -r --arg n "$f" --arg t "$t" "$JQLIB"'
+      unwrap("acl-filter") | aslist | map(select(. != null and . != {})) | .[0]
+      | if . == null then "absent"
+        elif type == "object" and ((has("name") and .name != $n) or (has("type") and (.type | idname) != $t)) then "absent"
+        else "present" end' 2>/dev/null || echo absent)"
+    say "OBSERVATION state-binding ${ifid} ${dir} ${f}/${t} ${sbind}"
     for s in ${seqs//,/ }; do
       local tc per
       tc="$(_read "$node" STATE "/acl/acl-filter[name=${f}][type=${t}]/entry[sequence-id=${s}]/tcam-entries" | jq -c "$JQLIB"'
@@ -386,8 +437,10 @@ chk_acl_applied() {
       else
         jq -e '.o > 0 and .i == 0' <<<"$tc" >/dev/null || bad=1
       fi
+      # observation only (AD-79): the per-subinterface entry list under this binding
       per="$(_read "$node" STATE "/acl/interface[interface-id=${ifid}]/${dir}/acl-filter[name=${f}][type=${t}]/entry[sequence-id=${s}]")"
-      [[ "$per" != null ]] || { rep+="per-subinterface entry ${s} absent; "; bad=1; }
+      if [[ "$per" == null || "$per" == "{}" ]]; then say "OBSERVATION per-subinterface-entry ${ifid} ${dir} ${f}/${t} ${s} absent"
+      else say "OBSERVATION per-subinterface-entry ${ifid} ${dir} ${f}/${t} ${s} present"; fi
     done
     prog="$(_read "$node" STATE "/acl/datapath-programming" | jq -r "$JQLIB"' unwrap("datapath-programming") | [(.["forwarding-complex"] // [])[] | .["programming-complete"]] | if length == 0 then "unknown" else (all(. == true) | tostring) end')"
     rep+="programming-complete=${prog}"
@@ -395,8 +448,33 @@ chk_acl_applied() {
     say "$rep"
     [[ "$bad" -eq 0 ]]
   }
-  if _poll _judge; then verdict PASS acl-applied "$node ${f}/${t} bound ${dir} on ${ifid}, entries ${seqs} in TCAM on ${dir} only"; return 0; fi
+  if _poll _judge; then verdict PASS acl-applied "$node ${f}/${t} bound ${dir} on ${ifid} (keyed binding in running), entries ${seqs} in TCAM on ${dir} only"; return 0; fi
   verdict FAIL acl-applied "$node ${f}/${t} ${dir} ${ifid}: $rep"; return 1
+}
+
+# acl_counter <node> <filter> <ipv4|ipv6> <seq> — prints this filter entry's matched-packets
+# (keyed by filter name, type and sequence-id), or "null" when the device reports none.
+chk_acl_counter() {
+  local node="$1" f="$2" t="$3" s="$4"
+  _read "$node" STATE "/acl/acl-filter[name=${f}][type=${t}]/entry[sequence-id=${s}]/statistics/matched-packets" 2>/dev/null \
+    | jq -r 'if . == null then "null" else (tostring | tonumber? // "null") end' 2>/dev/null || echo null
+}
+
+# acl_matched <node> <filter> <ipv4|ipv6> <seq> <baseline> — A4, the applied side of a binding
+# (AD-82 decision 2026-09-21-acl-binding-state): after traffic that can only have met this filter on
+# its one binding, this filter entry's own matched-packets counter (keyed by filter name, type and
+# sequence-id) is above the baseline read before the traffic. A filter that is not programmed, not
+# bound where the traffic flows, or absent reads no counter or no increase and fails.
+chk_acl_matched() {
+  local node="$1" f="$2" t="$3" s="$4" base="$5" now=null
+  _judge() {
+    now="$(_read "$node" STATE "/acl/acl-filter[name=${f}][type=${t}]/entry[sequence-id=${s}]/statistics/matched-packets" \
+      | jq -r 'if . == null then "null" else (tostring | tonumber? // "null") end' 2>/dev/null || echo null)"
+    say "matched-packets ${f}/${t} entry ${s}: baseline ${base}, now ${now}"
+    [[ "$now" =~ ^[0-9]+$ && "$base" =~ ^[0-9]+$ ]] && (( now > base ))
+  }
+  if _poll _judge; then verdict PASS acl-matched "$node ${f}/${t} entry ${s} matched traffic on its binding (${base} → ${now})"; return 0; fi
+  verdict FAIL acl-matched "$node ${f}/${t} entry ${s}: matched-packets ${base} → ${now} (no traffic met this entry)"; return 1
 }
 
 # ============================================================================ SDC schema (G10)
@@ -430,12 +508,21 @@ chk_subscribe_sample() {
   for p in "$@"; do paths+=(--path "$p"); done
   [[ $# -le 36 ]] || { verdict FAIL subscribe-sample "more than 36 paths requested"; return 1; }
   lab::gnmic_argv "$node"
+  local err; err="$(mktemp)"
+  # gnmic prints "received signal 'terminated'. terminating..." on STDOUT when timeout stops it (observed
+  # live, gnmic 0.47.0); left in, it made the whole stream unparseable and the count 0. Its stderr is kept
+  # apart, and that one line is shown but dropped from the parse.
   out="$(timeout "$secs" "${LAB_ARGV[@]}" --format event subscribe --mode stream --stream-mode sample \
-    --sample-interval 5s "${paths[@]}" 2>&1)" || true
-  printf '%s\n' "$out"
-  n="$(jq -s '[.[] | if type == "array" then .[] else . end | select(.values != null)] | length' <<<"$out" 2>/dev/null || echo 0)"
-  if [[ "$n" -ge 2 ]]; then verdict PASS subscribe-sample "$node: $n sample updates in ${secs}s for $# path(s)"; return 0; fi
-  verdict FAIL subscribe-sample "$node: $n sample update(s) in ${secs}s"; return 1
+    --sample-interval 5s "${paths[@]}" 2>"$err")" || true
+  printf '%s\n' "$out"; cat "$err"; rm -f "$err"
+  out="$(grep -v "^received signal " <<<"$out" || true)"
+  # "repeated": the most updates any ONE leaf instance (path + keys) received — several neighbours in a
+  # single sample round are not a repeat
+  n="$(jq -s '[.[] | if type == "array" then .[] else . end | select(.values != null)
+             | (.tags | del(.["subscription-name"]) | tostring) as $k | .values | keys[] | "\($k) \(.)"]
+             | group_by(.) | map(length) | max // 0' <<<"$out" 2>/dev/null || echo 0)"
+  if [[ "$n" -ge 2 ]]; then verdict PASS subscribe-sample "$node: one leaf sampled $n times in ${secs}s for $# path(s)"; return 0; fi
+  verdict FAIL subscribe-sample "$node: no leaf sampled more than ${n:-0} time(s) in ${secs}s"; return 1
 }
 
 # subscribe_onchange <node> <path> <set-path> <value> <restore-value|DELETE|DELETE:path> — an on-change stream
@@ -488,26 +575,35 @@ chk_startup_lacks() {
 
 # ============================================================================ G6 tenant MTU
 
-# tenant_mtu_refused <leaf> <irb-subif-path> <over> <ok> — one byte above the tenant IP MTU is
-# refused by the device: either the commit is rejected, or the IRB is held operationally down
-# (the device's documented response when the IRB ip-mtu exceeds the mac-vrf MTU − 14). Which one
-# is printed; the tenant MTU is written back either way.
-chk_tenant_mtu_refused() {
-  local leaf="$1" sub="$2" over="$3" ok="$4" out rc=0 st
+# mtu_commit_probe <leaf> <irb-subif-path> <over> <ok> — an OBSERVATION, not a readiness check
+# (AD-78): the device's response at commit to an IRB ip-mtu one byte above the tenant IP MTU. The
+# tenant boundary itself is asserted on the data plane (G6's 9320/9300 payload probes); SR Linux
+# 25.7.1 was observed to accept 9349 and keep the IRB up. Prints one line
+#   OBSERVATION {"value":…,"accepted_at_commit":…,"irb_oper_state":…,"restored":…}
+# and writes the tenant MTU back either way. Exit 0 once the observation is made and nothing is left
+# changed; 1 only when the tenant MTU could not be written back (a leftover, never an answer).
+chk_mtu_commit_probe() {
+  local leaf="$1" sub="$2" over="$3" ok="$4" out rc=0 st='{}' accepted=false restored=true back
   lab::gnmic_argv "$leaf"
   out="$("${LAB_ARGV[@]}" set --delimiter "$LAB_SET_DELIM" --update "$(lab::upd "$sub/ip-mtu" "$over")" 2>&1)" || rc=$?
   printf '%s\n' "$out"
-  if [[ "$rc" -ne 0 ]]; then
-    verdict PASS tenant-mtu "$leaf rejected ip-mtu $over on ${sub}: $(grep -oE 'desc = .*' <<<"$out" | head -1)"; return 0
+  if [[ "$rc" -eq 0 ]]; then
+    accepted=true
+    sleep 3
+    st="$(_read "$leaf" STATE "$sub" | jq -c "$JQLIB"' {oper: .["oper-state"], reason: .["oper-down-reason"], mtu: .["ip-mtu"]}')"
+    say "accepted at commit; IRB state now: $st"
+    _restore "$sub/ip-mtu" "$ok"
+    back="$(_read "$leaf" CONFIG "$sub/ip-mtu" | jq -r "$JQLIB"' unwrap("ip-mtu") | if type == "object" then .["ip-mtu"] else . end')"
+    [[ "$back" == "$ok" ]] || restored=false
+  else
+    say "rejected at commit: $(grep -oE 'desc = .*' <<<"$out" | head -1)"
   fi
-  sleep 3
-  st="$(_read "$leaf" STATE "$sub" | jq -c "$JQLIB"' {oper: .["oper-state"], reason: .["oper-down-reason"], mtu: .["ip-mtu"]}')"
-  say "accepted; IRB state now: $st"
-  _restore "$sub/ip-mtu" "$ok"
-  if jq -e '.oper != "up"' <<<"$st" >/dev/null; then
-    verdict PASS tenant-mtu "$leaf accepted ip-mtu $over but held the IRB oper-down ($st); restored $ok"; return 0
+  say "OBSERVATION $(jq -cn --argjson v "$over" --argjson a "$accepted" --argjson st "$st" --argjson r "$restored" \
+    '{value: $v, accepted_at_commit: $a, irb_oper_state: ($st.oper // null), irb_oper_down_reason: ($st.reason // null), restored: $r}')"
+  if [[ "$restored" == true ]]; then
+    verdict PASS mtu-commit-probe "$leaf ip-mtu $over on ${sub}: accepted_at_commit=$accepted (observation); tenant MTU $ok in place"; return 0
   fi
-  verdict FAIL tenant-mtu "$leaf accepted ip-mtu $over and kept the IRB up ($st); restored $ok"; return 1
+  verdict FAIL mtu-commit-probe "$leaf: ip-mtu $over was accepted and could NOT be written back to $ok on $sub"; return 1
 }
 
 # ============================================================================ G7 collector
@@ -517,12 +613,14 @@ chk_tenant_mtu_refused() {
 chk_otel_series() {
   local ns="$1" pod="$2" port="$3"; shift 3
   local out names re missing=()
+  local -a regexes=("$@")   # _judge is called with no arguments: its "$@" would be empty
+  [[ ${#regexes[@]} -gt 0 ]] || { verdict FAIL otel-series "no series to check"; return 1; }
   _judge() {
     out="$(lab::kubectl get --raw "/api/v1/namespaces/${ns}/pods/${pod}:${port}/proxy/metrics" 2>&1)" || out=""
     names="$(grep -vE '^#' <<<"$out" | sed -nE 's/^([a-zA-Z_:][a-zA-Z0-9_:]*).*/\1/p' | sort -u)"
     say "series names exposed: $(wc -l <<<"$names")"; say "$names"
     missing=()
-    for re in "$@"; do grep -qE "$re" <<<"$names" || missing+=("$re"); done
+    for re in "${regexes[@]}"; do grep -qE "$re" <<<"$names" || missing+=("$re"); done
     [[ ${#missing[@]} -eq 0 ]]
   }
   if _poll _judge; then verdict PASS otel-series "every required series is exposed: $*"; return 0; fi

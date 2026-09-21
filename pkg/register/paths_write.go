@@ -43,6 +43,9 @@ func WriteEntries() []WriteEntry {
 		w("/interface[name=*]/subinterface[index=*]/ip-mtu", fabAndSv, fabric, gateway),
 		w("/interface[name=*]/subinterface[index=*]/ipv4/admin-state", fabAndSv, fabric, overlay),
 		w("/interface[name=*]/subinterface[index=*]/ipv4/address[ip-prefix=*]", fabAndSv, fabric, []string{"ip-vrf"}),
+		// the model default stated: the validator evaluates the address's unnumbered must
+		// against the absent node (internal/render/srl/interfaces.go addressFamilies)
+		w("/interface[name=*]/subinterface[index=*]/ipv4/unnumbered/admin-state", fabOnly, fabric),
 		w("/interface[name=*]/subinterface[index=*]/ipv6/admin-state", fabAndSv, fabric, overlay),
 		w("/interface[name=*]/subinterface[index=*]/ipv6/address[ip-prefix=*]", fabAndSv, fabric, []string{"ip-vrf"}),
 		// --- irb0 anycast gateway ---
@@ -89,6 +92,7 @@ func WriteEntries() []WriteEntry {
 		w("/network-instance[name=*]/protocols/bgp/group[group-name=*]/local-as/as-number", fabOnly, fabric),
 		w("/network-instance[name=*]/protocols/bgp/group[group-name=*]/afi-safi[afi-safi-name=*]/admin-state", fabOnly, fabric),
 		w("/network-instance[name=*]/protocols/bgp/group[group-name=*]/route-reflector/client", fabOnly, fabric),
+		w("/network-instance[name=*]/protocols/bgp/group[group-name=*]/as-path-options/allow-own-as", fabOnly, fabric),
 		w("/network-instance[name=*]/protocols/bgp/neighbor[peer-address=*]/peer-group", fabOnly, fabric),
 		w("/network-instance[name=*]/protocols/bgp/neighbor[peer-address=*]/peer-as", fabOnly, fabric),
 		w("/network-instance[name=*]/protocols/bgp/neighbor[peer-address=*]/transport/local-address", fabOnly, fabric),

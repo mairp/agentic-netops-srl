@@ -1,0 +1,20 @@
+# Build context of the images whose context is the repository root (srl-provider, intent-translator;
+# versions.lock.yaml firstPartyImages). scripts/lib/image_build.sh honours this file when it computes
+# an image's contentHash, and docker when it builds.
+#
+# The kustomizations a build WRITES its content-hash tag into are outputs of the build, never its
+# inputs: were they hashed, writing the tag would change the tree's hash, so a re-run would rebuild
+# under a new tag every time and no running workload would ever carry the tree's hash
+# (make verify-compat). The provider and the first-party allocation authority run the same tag.
+deploy/agentic-netops/kustomization.yaml
+deploy/allocation/kustomization.yaml
+
+# Not build inputs of any repository-root image (docker/Dockerfile.srl-provider copies go.mod, go.sum,
+# api/, cmd/, controllers/, internal/, pkg/ and versions.lock.yaml only). tests/ in particular holds
+# tests/gate/observed/*.json, which the capability gate REWRITES at GateReady — after AppsReady built
+# the image — so hashing it made every gate run change the tree's hash: a re-run rebuilt and rolled
+# the provider, and make verify-compat failed on a freshly provisioned lab (AD-82 decision
+# 2026-09-21-build-context, docs/decisions/live-findings.md). docs/ and specs/ are text only.
+tests/
+docs/
+specs/

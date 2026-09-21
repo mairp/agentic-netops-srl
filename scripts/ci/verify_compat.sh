@@ -6,14 +6,18 @@
 #
 #   compat     the compatibility set the provider publishes equals versions.lock.yaml parts
 #              1–9 (`.compatibilitySet`):
-#                * ConfigMap agentic-netops-system/srl-provider-compat — the set the provider
-#                  validates against and stamps — key `compatibility-set.json` equals the lock's
-#                  parts 1–9 (canonical JSON: sorted keys, compact), and key `id` equals
-#                  sha256:<hex of that canonical JSON>; a differing part is named
-#                  ("part 5 (deviceConfiguration)");
+#                * ConfigMap agentic-netops-system/srl-provider-compatibility-set — written
+#                  by the PROVIDER itself at start (cmd/srl-provider/wiring.go
+#                  publishCompatibility) from the lock file baked into its image, never by
+#                  provisioning — key `compatibility-set.json`: every value it publishes equals
+#                  versions.lock.yaml `.compatibilitySet` at the same path (the lock projected
+#                  onto the published shape; a differing part is named, "part 5
+#                  (deviceConfiguration)"); key `identifier`: the nine-part identifier
+#                  (internal/compat Identifier), which must name the lock's device digest,
+#                  model and patch commits, data/config-server tags and srl-mapping version;
 #                * every Config the provider generated (config.sdcio.dev Configs carrying the
-#                  annotation agentic-netops.io/compatibility-set) carries exactly that id; a
-#                  Config stamped with another set is named.
+#                  annotation agentic-netops.io/compatibility-set) carries exactly that
+#                  identifier; a Config stamped with another set is named.
 #   authority  exactly one allocation authority is installed, and it is the lock file's
 #              `allocationAuthority.kind`:
 #                kuid        → the *.be.kuid.dev APIServices exist and NO IdentifierPool /
@@ -27,11 +31,14 @@
 #              image-build.<name>.<hash:0:12>[-N].json that image_build::build writes into
 #              EVIDENCE_DIR (the newest such record, when the build ran more than once);
 #              a workload running anything else fails naming it. The provider
-#              (agentic-netops-system/srl-provider) must be among them.
+#              (agentic-netops-system/srl-provider) must be among them, and under first-party
+#              so must the allocation authority (agentic-netops-allocation/allocation-authority,
+#              which runs the provider's image with SRL_PROVIDER_ROLE=allocation-authority).
 #
 # Usage: scripts/ci/verify_compat.sh
 #   env: CLUSTER_NAME (default agentic-netops; context kind-<cluster>), KUBECTL,
-#        EVIDENCE_DIR (default: the newest run under .evidence/<cluster>_<lab>/),
+#        EVIDENCE_DIR (default: the most recently modified run under .evidence/<cluster>_<lab>/
+#        holding an image build record),
 #        LAB_NAME (default agentic-netops-fabric)
 # Exit: 0 all hold; 1 a check failed (named); 2 a prerequisite is missing.
 set -euo pipefail
@@ -49,8 +56,10 @@ export LOG_PHASE="verify-compat"
 : "${CLUSTER_NAME:=agentic-netops}"
 : "${LAB_NAME:=agentic-netops-fabric}"
 PROVIDER_NS="agentic-netops-system"
-COMPAT_CM="srl-provider-compat"
+COMPAT_CM="srl-provider-compatibility-set"   # written by the provider (cmd/srl-provider/wiring.go)
 ANNOTATION="agentic-netops.io/compatibility-set"
+FP_NS="agentic-netops-allocation"
+FP_DEPLOYMENT="allocation-authority"
 FP_CRDS=(identifierpools.fabric.agentic-netops.io identifierclaims.fabric.agentic-netops.io)
 KUID_APISERVICES=(v1alpha1.vlan.be.kuid.dev v1alpha1.genid.be.kuid.dev v1alpha1.ipam.be.kuid.dev v1alpha1.as.be.kuid.dev)
 
@@ -66,7 +75,6 @@ good() { log::info "PASS $*"; }
 
 # ------------------------------------------------------------------ compat
 lock_compat="$(yq -o=json '.compatibilitySet' "$LOCK" | jq -S -c .)"
-lock_id="sha256:$(printf '%s' "$lock_compat" | sha256sum | awk '{print $1}')"
 
 check_compat() {
   local cm published pid part
@@ -75,41 +83,61 @@ check_compat() {
     return
   fi
   published="$(jq -r '.data["compatibility-set.json"] // empty' <<<"$cm")"
-  pid="$(jq -r '.data.id // empty' <<<"$cm" | tr -d '[:space:]')"
-  if [[ -z "$published" ]] || ! published="$(jq -S -c . <<<"$published" 2>/dev/null)"; then
+  pid="$(jq -r '.data.identifier // empty' <<<"$cm")"
+  if [[ -z "$published" ]] || ! published="$(jq -S -c 'del(.identifier)' <<<"$published" 2>/dev/null)"; then
     bad "compat: ${PROVIDER_NS}/${COMPAT_CM} carries no parseable compatibility-set.json"
     return
   fi
-  if [[ "$published" == "$lock_compat" ]]; then
-    good "compat: the published compatibility set equals versions.lock.yaml parts 1–9"
+  # the lock projected onto the published shape; "", [], {} and null are one "unset"
+  local proj
+  proj="$(jq -S -c --argjson p "$published" '
+    def unset: walk(if . == "" or . == [] or . == {} then null else . end);
+    def shape($p):
+      if ($p | type) == "object" then . as $l
+        | reduce ($p | keys[]) as $k ({}; .[$k] = ($l | (if type == "object" then .[$k] else null end) | shape($p[$k])))
+      elif ($p | type) == "array" then . as $l
+        | [range(0; ([($l | if type == "array" then length else 0 end), ($p | length)] | max)) as $i
+           | ($l | if type == "array" then .[$i] else null end) | shape($p[$i])]
+      else . end;
+    shape($p) | unset' <<<"$lock_compat")"
+  local pubn; pubn="$(jq -S -c 'walk(if . == "" or . == [] or . == {} then null else . end)' <<<"$published")"
+  if [[ "$(jq -r 'keys | length' <<<"$published")" -eq 0 ]]; then
+    bad "compat: ${PROVIDER_NS}/${COMPAT_CM} publishes no part"
+  elif [[ "$proj" == "$pubn" ]]; then
+    good "compat: every part the provider publishes ($(jq -r 'keys | join(", ")' <<<"$published")) equals versions.lock.yaml"
   else
-    local named=""
-    for part in $(jq -r 'keys[]' <<<"$lock_compat") $(jq -r 'keys[]' <<<"$published"); do
-      [[ " $named " == *" $part "* ]] && continue
-      if [[ "$(jq -S -c --arg p "$part" '.[$p]' <<<"$lock_compat")" != "$(jq -S -c --arg p "$part" '.[$p]' <<<"$published")" ]]; then
-        named+=" $part"
+    for part in $(jq -r 'keys[]' <<<"$published"); do
+      if [[ "$(jq -S -c --arg p "$part" '.[$p]' <<<"$proj")" != "$(jq -S -c --arg p "$part" '.[$p]' <<<"$pubn")" ]]; then
         bad "compat: part $(jq -r --arg p "$part" '.[$p].part // "?"' <<<"$lock_compat") (${part}) published by the provider differs from versions.lock.yaml"
       fi
     done
   fi
-  if [[ "$pid" == "$lock_id" ]]; then
-    good "compat: published id ${pid} is the lock file's"
+  if [[ -z "$pid" ]]; then
+    bad "compat: ${PROVIDER_NS}/${COMPAT_CM} publishes no identifier"
   else
-    bad "compat: published id '${pid:-<absent>}' is not the lock file's ${lock_id}"
+    local v missing=""
+    for v in $(jq -r '[.deviceImage.digest, .yangModels.commit, .deviationPatch.commit,
+                       ("config-server@" + .deviceConfiguration.configServer.tag),
+                       ("data-server@" + .deviceConfiguration.dataServer.tag),
+                       ("srl-mapping@" + .srlMapping.version)] | .[] | select(. != null)' <<<"$lock_compat"); do
+      [[ "$pid" == *"$v"* ]] || missing+=" $v"
+    done
+    if [[ -n "$missing" ]]; then bad "compat: the published identifier '${pid}' does not name the lock's${missing}"
+    else good "compat: the published identifier names the lock's parts: ${pid}"; fi
   fi
   local configs stale
   if ! configs="$(k get configs.config.sdcio.dev -A -o json 2>&1)"; then
     bad "compat: Configs (config.sdcio.dev) cannot be listed: ${configs}"
     return
   fi
-  stale="$(jq -r --arg a "$ANNOTATION" --arg id "$lock_id" '
+  stale="$(jq -r --arg a "$ANNOTATION" --arg id "$pid" '
     .items[] | select(.metadata.annotations[$a] != null) | select(.metadata.annotations[$a] != $id)
     | "\(.metadata.namespace)/\(.metadata.name) stamped \(.metadata.annotations[$a])"' <<<"$configs")"
   local n; n="$(jq -r --arg a "$ANNOTATION" '[.items[] | select(.metadata.annotations[$a] != null)] | length' <<<"$configs")"
   if [[ -n "$stale" ]]; then
-    while IFS= read -r line; do bad "compat: Config ${line}, not the lock file's ${lock_id}"; done <<<"$stale"
+    while IFS= read -r line; do bad "compat: Config ${line}, not the provider's published identifier"; done <<<"$stale"
   else
-    good "compat: all ${n} provider-generated Config(s) carry the lock file's compatibility set"
+    good "compat: all ${n} provider-generated Config(s) carry the published compatibility identifier"
   fi
 }
 
@@ -150,7 +178,13 @@ resolve_evidence_dir() {
   if [[ -n "${EVIDENCE_DIR:-}" ]]; then printf '%s' "$EVIDENCE_DIR"; return 0; fi
   local base="${EVIDENCE_ROOT:-$ROOT/.evidence}/${CLUSTER_NAME}_${LAB_NAME}"
   [[ -d "$base" ]] || return 1
-  find "$base" -mindepth 1 -maxdepth 1 -type d | sort | tail -n1
+  # the most recently modified run that holds an image build record (a name sort would pick a
+  # gate-debug-* directory over a timestamped provisioning run)
+  local d
+  while IFS= read -r d; do
+    compgen -G "$d/image-build.*.json" >/dev/null && { printf '%s' "$d"; return 0; }
+  done < <(ls -1dt "$base"/*/ 2>/dev/null | sed 's:/$::')
+  return 1
 }
 
 # recorded_image_id <name> <hash> — the image ID image_build::build recorded in EVIDENCE_DIR
@@ -172,7 +206,7 @@ recorded_image_id() {
 }
 
 check_images() {
-  local names pods evdir hash want_id rows provider_seen=false
+  local names pods evdir hash want_id rows provider_seen=false authority_seen=false
   if ! declare -F image_build::content_hash >/dev/null; then
     bad "images: scripts/lib/image_build.sh (image_build::content_hash) is required"
     return
@@ -201,6 +235,7 @@ check_images() {
   declare -A HASH=() RID=()
   while IFS=$'\t' read -r ns pod ctr repo img iid; do
     [[ "$ns" == "$PROVIDER_NS" && "$repo" == srl-provider ]] && provider_seen=true
+    [[ "$ns" == "$FP_NS" && "$repo" == srl-provider && "$pod" == "${FP_DEPLOYMENT}-"* ]] && authority_seen=true
     if [[ -z "${HASH[$repo]+x}" ]]; then
       HASH[$repo]="$(image_build::content_hash "$repo" 2>/dev/null || true)"
       RID[$repo]="$(recorded_image_id "$repo" "${HASH[$repo]}")"
@@ -222,6 +257,9 @@ check_images() {
     good "images: ${who} runs ${repo}:${hash} (${want_id})"
   done <<<"$rows"
   [[ "$provider_seen" == true ]] || bad "images: the provider ${PROVIDER_NS}/srl-provider is not running"
+  if [[ "$(yq -r '.allocationAuthority.kind // ""' "$LOCK")" == first-party && "$authority_seen" != true ]]; then
+    bad "images: first-party is selected, but the allocation authority ${FP_NS}/${FP_DEPLOYMENT}, which runs the srl-provider image, is not running"
+  fi
 }
 
 check_compat

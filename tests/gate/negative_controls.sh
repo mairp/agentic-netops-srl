@@ -17,11 +17,16 @@
 #                    G10's against a valid Config (the rejection check must fail on it)
 #   mid-item controls  that need the gate's own scratch to exist, called by the item at the point
 #                    the control is meaningful:
-#                      negctl::G8_no_inter_as_vpn — G8 with inter-as-vpn REMOVED from the
-#                        reflectors: sessions up, instances on both leaves, and no Type 2/3/5
-#                        received through the spines (the "established with zero EVPN routes"
-#                        signature, research Open item 4)
-#                      negctl::G6_mid — the refusal checks fed the VALID value (accepted ⇒ fail)
+#                      negctl::G8_reflector_clients_false — SC-004's control (AD-77): the
+#                        reflectors' overlay group with route-reflector client FALSE (the declared
+#                        Fabric.spec.overlay.reflectorClients: false): sessions up, instances on
+#                        both leaves, the withdrawal waited for, and no Type 2/3/5 received
+#                        through the spines (the "established with zero EVPN routes" signature,
+#                        research Open item 4). Admitted only if observed: g08::negative fails G8
+#                        otherwise. inter-as-vpn removal is NO LONGER a control — it did not stop
+#                        reflection on 25.7.1; G8 records it as an observation (AD-77)
+#                      negctl::G6_mid — the port/routed refusal checks fed the VALID value
+#                        (accepted ⇒ fail); the tenant 9349 commit is an observation (AD-78)
 #                      negctl::G7_no_series — the series check before gNMIc runs
 #
 # Usage:  negative_controls.sh stock [G1 G2 …]     (default: every item)
@@ -51,8 +56,11 @@ negctl::G3() {
 negctl::G4() {
   gate::negative G4-readback value_equals "$(negctl::_leaf)" CONFIG "/interface[name=${G4_PORT:-ethernet-1/58}]/description" '"vt-scratch-g4"'
   gate::negative G4-durable startup_contains "$(negctl::_leaf)" vt-scratch-g4
-  gate::negative G4-inter-as-vpn-state value_equals "$(negctl::_spine)" STATE \
+  # part B (AD-76): the same CONFIG paths on a stock spine, which carries no BGP — must fail
+  gate::negative G4-inter-as-vpn-config value_equals "$(negctl::_spine)" CONFIG \
     "/network-instance[name=default]/protocols/bgp/afi-safi[afi-safi-name=srl_nokia-common:evpn]/evpn/inter-as-vpn" true
+  gate::negative G4-rr-client-config value_equals "$(negctl::_spine)" CONFIG \
+    "/network-instance[name=default]/protocols/bgp/group[group-name=${SCRATCH_GROUP_OVERLAY}]/route-reflector/client" true
 }
 negctl::G5() {
   gate::negative G5-cc-pending value_equals "$(negctl::_leaf)" CONFIG "/interface[name=${G5_PORT:-ethernet-1/57}]/description" '"vt-scratch-g5-cc"'
@@ -67,9 +75,9 @@ negctl::G6() {
 }
 # the refusal checks, fed the valid value on the scratch fabric: accepted ⇒ the check fails
 negctl::G6_mid() {
-  local leaf="$1" port="$2" irb="$3"
+  local leaf="$1" port="$2"
   gate::negative G6-reject set_rejected "$leaf" "/interface[name=${port}]/mtu" 9412 9412
-  gate::negative G6-tenant-refused tenant_mtu_refused "$leaf" "$irb" 9348 9348
+  gate::negative G6-reject set_rejected "$leaf" "/interface[name=${port}]/subinterface[index=0]/ip-mtu" 9398 9398
 }
 negctl::G7() {
   local leaf cl
@@ -102,21 +110,26 @@ negctl::G8() {
   gate::negative G8-type5-v6 evpn_route "$l2" 5 "$(scratch::loopback "$l1")" "$spines" 2001:db8:ffff::1
   gate::negative G8-t5-installed route_active "$l2" "$SCRATCH_IPVRF" ipv4 'bgp-evpn' 198.18.0.1/32
 }
-# G8 with inter-as-vpn removed: on the gate's own fabric, sessions up, instances on both leaves,
-# the reflectors NOT carrying inter-as-vpn — nothing may arrive through the spines
-negctl::G8_no_inter_as_vpn() {
-  local a b s spines
+# SC-004's negative control on the gate's own fabric (AD-77): the reflectors' overlay group carries
+# route-reflector client FALSE (what Fabric.spec.overlay.reflectorClients: false renders), sessions
+# established, instances on both leaves, the withdrawal already waited for by g08::negative —
+# nothing may arrive on <b> from <a> through the spines, and the configuration-integrity check
+# must see the lost setting. Returns non-zero when ANY control did not fail as it must (the caller,
+# g08::negative, then fails G8: the declarative control was not observed).
+negctl::G8_reflector_clients_false() {
+  local a="$1" b="$2" s spines ia rc=0
   spines="$(scratch::spine_loopbacks_csv)"
-  a="$(negctl::_leaf 1)"; b="$(negctl::_leaf 2)"
+  ia="$(scratch::leaf_index "$a")"
   for s in $(lab::spines); do
-    gate::negative G8-reflector reflector "$s"
+    gate::negative G8-reflector reflector "$s" || rc=1
   done
-  CHECK_WAIT="$GATE_WAIT_NEG" gate::negative G8-type3 evpn_route "$b" 3 "$(scratch::loopback "$a")" "$spines"
-  CHECK_WAIT=0 gate::negative G8-type2 evpn_route "$b" 2 "$(scratch::loopback "$a")" "$spines"
-  CHECK_WAIT=0 gate::negative G8-type5-v4 evpn_route "$b" 5 "$(scratch::loopback "$a")" "$spines" 198.18.0.1
-  CHECK_WAIT=0 gate::negative G8-type5-v6 evpn_route "$b" 5 "$(scratch::loopback "$a")" "$spines" 2001:db8:ffff::1
-  CHECK_WAIT=0 gate::negative G8-t5-installed route_active "$b" "$SCRATCH_IPVRF" ipv4 'bgp-evpn' 198.18.0.1/32
-  CHECK_WAIT=0 gate::negative G8-received-nonzero evpn_received "$b" nonzero "$spines"
+  CHECK_WAIT="$GATE_WAIT_NEG" gate::negative G8-type3 evpn_route "$b" 3 "$(scratch::loopback "$a")" "$spines" || rc=1
+  CHECK_WAIT=0 gate::negative G8-type2 evpn_route "$b" 2 "$(scratch::loopback "$a")" "$spines" || rc=1
+  CHECK_WAIT=0 gate::negative G8-type5-v4 evpn_route "$b" 5 "$(scratch::loopback "$a")" "$spines" "198.18.0.${ia}" || rc=1
+  CHECK_WAIT=0 gate::negative G8-type5-v6 evpn_route "$b" 5 "$(scratch::loopback "$a")" "$spines" "2001:db8:ffff::${ia}" || rc=1
+  CHECK_WAIT=0 gate::negative G8-t5-installed route_active "$b" "$SCRATCH_IPVRF" ipv4 'bgp-evpn' "198.18.0.${ia}/32" || rc=1
+  CHECK_WAIT=0 gate::negative G8-received-nonzero evpn_received "$b" nonzero "$spines" || rc=1
+  return "$rc"
 }
 negctl::G9() {
   local leaf ifid out stock n t s
@@ -135,8 +148,11 @@ negctl::G9() {
     gate::negative G9-acl-applied acl_applied "$leaf" "$n" "$t" "$ifid" input "$s"
     gate::negative G9-acl-applied acl_applied "$leaf" "$n" "$t" "mgmt0.0" input "$s"
   done <<<"$stock"
-  # the gate's own filter on the stock node (a service that does not exist)
+  # the gate's own filter on the stock node (a service that does not exist): no binding in running,
+  # no TCAM entry
   gate::negative G9-acl-applied acl_applied "$leaf" vt-scratch-g9-in4 ipv4 "$ifid" input 10,65535
+  # A4 on the stock node: the gate's filter does not exist, so no counter can rise
+  gate::negative G9-acl-matched acl_matched "$leaf" vt-scratch-g9-in4 ipv4 10 0
   gate::negative G9-bare-binding value_equals "$leaf" CONFIG "/acl/interface[interface-id=${ifid}]/interface-ref/interface" "\"${SCRATCH_ACCESS_PORT}\""
 }
 negctl::G10() {

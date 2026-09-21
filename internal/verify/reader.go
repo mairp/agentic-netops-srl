@@ -10,8 +10,9 @@
 // interface below, whose implementations are clients of the device-
 // configuration layer, never of a device.
 //
-// What the pinned layer serves (config-server v0.0.58 / data-server v0.0.66,
-// read from the checked-out sources, never assumed):
+// What the pinned layer serves (config-server v0.0.58 / data-server v0.0.72 —
+// and v0.0.66 before it, AD-80 — read from the checked-out sources, never
+// assumed):
 //
 //   - the RUNNING datastore: yes. The config-server's aggregated API serves
 //     config.sdcio.dev/v1alpha1 RunningConfig (one per Target, same name and
@@ -20,7 +21,7 @@
 //     (config-server/pkg/registry/runningconfig/strategy_resource.go).
 //     LayerReader.Running reads it.
 //   - the STATE datastore: NO. The data-server's gRPC service DataServer at
-//     v0.0.66 has no GetData RPC (data-server/pkg/server: ListDataStore,
+//     v0.0.72 (as at v0.0.66) has no GetData RPC (data-server/pkg/server: ListDataStore,
 //     GetDataStore, Create/DeleteDataStore, TransactionSet/Confirm/Cancel,
 //     ListIntent, GetIntent, WatchDeviations, BlameConfig, plus the schema
 //     service) — sdcpb.GetDataRequest with its DataType STATE exists only as
@@ -77,7 +78,7 @@ type StateReader interface {
 // served by the layer it reads through. It makes the read-back a pass that
 // could not run.
 var ErrStateNotServed = errors.New("the state datastore is not served by the pinned device-configuration layer " +
-	"(data-server v0.0.66 exposes no GetData RPC; its sync reads CONFIG only)")
+	"(data-server v0.0.72 exposes no GetData RPC; its sync reads CONFIG only)")
 
 // CouldNotRunError is a read-back that could not run: a required target was
 // unreachable, the layer did not answer, or the read timed out (FR-107,

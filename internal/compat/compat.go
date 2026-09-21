@@ -37,6 +37,29 @@ type Repository struct {
 	RepoURL string `json:"repoURL"`
 	Kind    string `json:"kind"`
 	Ref     string `json:"ref"`
+	// Mirror is where the Schema loads this repository from when it is not
+	// loaded from RepoURL itself: the in-cluster mirror that serves the pinned
+	// commit under a tag named after it (AD-75, deploy/sdc/schema-mirror).
+	Mirror *Repository `json:"mirror,omitempty"`
+}
+
+// modelsLoadedFrom is the URL the Schema loads the part-2 models from.
+func (s *Set) modelsLoadedFrom() string {
+	for _, r := range s.Schema.Repositories {
+		if trimURL(r.RepoURL) == trimURL(s.YANGModels.Repository) {
+			return r.LoadedFrom().RepoURL
+		}
+	}
+	return s.YANGModels.Repository
+}
+
+// LoadedFrom is the repository reference the Schema CR states: the mirror
+// when there is one, else the repository itself.
+func (r Repository) LoadedFrom() Repository {
+	if r.Mirror != nil {
+		return *r.Mirror
+	}
+	return r
 }
 
 // Set is the nine-part compatibility set.
@@ -87,11 +110,32 @@ type Set struct {
 	SRLMapping struct {
 		Version string `json:"version"`
 	} `json:"srlMapping"`
+
+	// authorityKind is versions.lock.yaml's top-level allocationAuthority.kind — which
+	// authority part 6 names (data-model.md §23). Not a field of the published document:
+	// Identifier() carries it.
+	authorityKind string `json:"-"`
 }
 
+// Allocation-authority kinds (data-model.md §23).
+const (
+	AuthorityKuid       = "kuid"
+	AuthorityFirstParty = "first-party"
+	// FirstPartyAuthority is part 6 under the substitute: its API group/version, which
+	// is built from this repository and carries no release of its own.
+	FirstPartyAuthority = "first-party@fabric.agentic-netops.io/v1alpha1"
+)
+
 type lockFile struct {
-	CompatibilitySet *Set `json:"compatibilitySet"`
+	CompatibilitySet    *Set `json:"compatibilitySet"`
+	AllocationAuthority *struct {
+		Kind string `json:"kind"`
+	} `json:"allocationAuthority"`
 }
+
+// AuthorityKind is the lock file's allocationAuthority.kind: kuid or first-party. It is
+// the one input that selects the allocation authority (pkg/kuid.New).
+func (s *Set) AuthorityKind() string { return s.authorityKind }
 
 // Load reads the compatibility set from a versions.lock.yaml file.
 func Load(path string) (*Set, error) {
@@ -131,19 +175,33 @@ func Parse(b []byte) (*Set, error) {
 	if len(s.Schema.Repositories) == 0 {
 		return nil, fmt.Errorf("compatibilitySet.schema.repositories is empty")
 	}
+	if lf.AllocationAuthority == nil {
+		return nil, fmt.Errorf("no allocationAuthority block: allocationAuthority.kind is %s or %s", AuthorityKuid, AuthorityFirstParty)
+	}
+	switch k := lf.AllocationAuthority.Kind; k {
+	case AuthorityKuid, AuthorityFirstParty:
+		s.authorityKind = k
+	default:
+		return nil, fmt.Errorf("allocationAuthority.kind %q is not %s or %s", k, AuthorityKuid, AuthorityFirstParty)
+	}
 	return s, nil
 }
 
 // Identifier is the nine-part set as one line, stamped on every generated
-// Config (contracts/crd-api.md: "the nine-part compatibility set").
+// Config (contracts/crd-api.md: "the nine-part compatibility set"). Part 6 is
+// the authority the lock selects: kuid-server@<tag>, or FirstPartyAuthority.
 func (s *Set) Identifier() string {
+	part6 := "6=kuid-server@" + s.AllocationAuthorityRelease.KuidServer.Tag
+	if s.authorityKind == AuthorityFirstParty {
+		part6 = "6=" + FirstPartyAuthority
+	}
 	parts := []string{
 		"1=" + s.DeviceImage.Repository + ":" + s.DeviceImage.Tag + "@" + s.DeviceImage.Digest,
 		"2=" + trimURL(s.YANGModels.Repository) + "@" + s.YANGModels.Tag + "/" + s.YANGModels.Commit,
 		"3=" + trimURL(s.DeviationPatch.Repository) + "@" + s.DeviationPatch.Commit,
 		"4=" + s.Schema.Provider + "/" + s.Schema.Version,
 		"5=config-server@" + s.DeviceConfiguration.ConfigServer.Tag + ",data-server@" + s.DeviceConfiguration.DataServer.Tag,
-		"6=kuid-server@" + s.AllocationAuthorityRelease.KuidServer.Tag,
+		part6,
 		"7=containerlab@" + s.Containerlab.Version,
 		"8=gnmic@" + s.Gnmic.Version,
 		"9=srl-mapping@" + s.SRLMapping.Version,
@@ -176,23 +234,37 @@ func (s *Set) ValidateSchema(sc *invv1alpha1.Schema) []string {
 			continue
 		}
 		have[trimURL(r.RepoURL)] = r
-		models = append(models, r.Schema.Models...)
-		includes = append(includes, r.Schema.Includes...)
-		excludes = append(excludes, r.Schema.Excludes...)
 	}
+	// Part 4's models/includes/excludes are the native models repository's
+	// (part 2); the deviation patch repository (part 3) carries its own
+	// deviation models, which part 4 does not list.
+	if r, ok := have[trimURL(s.modelsLoadedFrom())]; ok {
+		models, includes, excludes = r.Schema.Models, r.Schema.Includes, r.Schema.Excludes
+	}
+	// loadedFrom maps a source repository (parts 2 and 3) to the URL the
+	// Schema loads it from — its mirror when the lock names one (AD-75).
+	loadedFrom := map[string]string{}
 	for _, want := range s.Schema.Repositories {
-		r, ok := have[trimURL(want.RepoURL)]
+		lf := want.LoadedFrom()
+		loadedFrom[trimURL(want.RepoURL)] = trimURL(lf.RepoURL)
+		r, ok := have[trimURL(lf.RepoURL)]
 		switch {
 		case !ok:
-			out = append(out, fmt.Sprintf("part 4: Schema %s has no repository %s", sc.Name, want.RepoURL))
-		case string(r.Kind) != want.Kind || r.Ref != want.Ref:
-			out = append(out, fmt.Sprintf("part 4: Schema %s repository %s is %s %q, lock %s %q", sc.Name, want.RepoURL, r.Kind, r.Ref, want.Kind, want.Ref))
+			out = append(out, fmt.Sprintf("part 4: Schema %s has no repository %s", sc.Name, lf.RepoURL))
+		case string(r.Kind) != lf.Kind || r.Ref != lf.Ref:
+			out = append(out, fmt.Sprintf("part 4: Schema %s repository %s is %s %q, lock %s %q", sc.Name, lf.RepoURL, r.Kind, r.Ref, lf.Kind, lf.Ref))
 		}
 	}
-	if r, ok := have[trimURL(s.YANGModels.Repository)]; ok && r.Ref != s.YANGModels.Tag && r.Ref != s.YANGModels.Commit {
+	from := func(src string) string {
+		if u, ok := loadedFrom[trimURL(src)]; ok {
+			return u
+		}
+		return trimURL(src)
+	}
+	if r, ok := have[from(s.YANGModels.Repository)]; ok && r.Ref != s.YANGModels.Tag && r.Ref != s.YANGModels.Commit {
 		out = append(out, fmt.Sprintf("part 2: Schema %s loads %s at %q, lock %s = %s", sc.Name, s.YANGModels.Repository, r.Ref, s.YANGModels.Tag, s.YANGModels.Commit))
 	}
-	if r, ok := have[trimURL(s.DeviationPatch.Repository)]; ok && r.Ref != s.DeviationPatch.Commit {
+	if r, ok := have[from(s.DeviationPatch.Repository)]; ok && r.Ref != s.DeviationPatch.Commit {
 		out = append(out, fmt.Sprintf("part 3: Schema %s loads %s at %q, lock commit %s", sc.Name, s.DeviationPatch.Repository, r.Ref, s.DeviationPatch.Commit))
 	}
 	for _, c := range []struct {

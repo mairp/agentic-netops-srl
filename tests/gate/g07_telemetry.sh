@@ -31,7 +31,9 @@ G7_SUB_PATHS=(
   "/network-instance[name=*]/protocols/bgp-evpn/bgp-instance[id=*]/oper-state"
 )
 # the series the guard needs, as regexes over the exported names
-G7_REQUIRED_SERIES=("session_state$" "afi_safi_received_routes$" "bgp_evpn_bgp_instance_evi$")
+# (gnmic keeps each YANG module qualifier, so a name reads e.g. …protocols_bgp_evpn_srl_nokia_bgp_evpn:bgp_instance_evi —
+# the patterns anchor on the leaf and allow either separator; observed live, Pass 36)
+G7_REQUIRED_SERIES=("[_:]neighbor_session_state$" "[_:]neighbor_afi_safi_received_routes$" "[_:]bgp_instance_evi$")
 
 # the naming-relevant settings (T129 ships these unchanged; T134 re-checks them live)
 g07::otlp_output() {
@@ -44,7 +46,7 @@ g07::otlp_output() {
     strip-leading-underscore: true
     strings-as-attributes: false
     counter-patterns: []
-    event-processors: [vt-scratch-session-state-to-int, vt-scratch-oper-state-to-int]
+    event-processors: [vt-scratch-session-state-to-int, vt-scratch-oper-state-to-int, vt-scratch-state-as-int]
 YAML
 }
 g07::processors() {
@@ -65,6 +67,12 @@ g07::processors() {
       transforms:
         - replace: {apply-on: value, old: "^up$", new: "1"}
         - replace: {apply-on: value, old: "^down$", new: "0"}
+  # gnmic's otlp output skips every string value, a digit string included (pkg/outputs/otlp_output,
+  # v0.47.0), so the two mapped state leaves are converted to integers or they are never exported
+  vt-scratch-state-as-int:
+    event-convert:
+      value-names: [".*session-state$", ".*oper-state$"]
+      type: int
 YAML
 }
 g07::prom_exporter() {
@@ -196,11 +204,11 @@ g07::names() {
   python3 - "$1" <<'PY'
 import json, re, sys
 want = {
-  "evpn_session_state": r"_neighbor_session_state$",
-  "evpn_received_routes": r"_neighbor_afi_safi_received_routes$",
-  "evpn_family_oper_state": r"_neighbor_afi_safi_oper_state$",
-  "bgp_evpn_instance_evi": r"_bgp_evpn_bgp_instance_evi$",
-  "bgp_evpn_instance_oper_state": r"_bgp_evpn_bgp_instance_oper_state$",
+  "evpn_session_state": r"[_:]neighbor_session_state$",
+  "evpn_received_routes": r"[_:]neighbor_afi_safi_received_routes$",
+  "evpn_family_oper_state": r"[_:]neighbor_afi_safi_oper_state$",
+  "bgp_evpn_instance_evi": r"bgp_evpn[a-z_]*:bgp_instance_evi$|_bgp_evpn_bgp_instance_evi$",
+  "bgp_evpn_instance_oper_state": r"bgp_evpn[a-z_]*:bgp_instance_oper_state$|_bgp_evpn_bgp_instance_oper_state$",
 }
 series = {}
 line_re = re.compile(r'^([a-zA-Z_:][a-zA-Z0-9_:]*)(\{(.*)\})?\s')
@@ -223,7 +231,7 @@ for key, rx in want.items():
     out[key] = [{"name": n, "labels": sorted(series[n]["labels"]),
                  **({"afi_safi_values": sorted(series[n]["afi"])} if series[n]["afi"] else {})} for n in names]
 print(json.dumps({"series": out,
-                  "all_series": sorted(n for n in series if n.startswith("network_instance_"))}))
+                  "all_series": sorted(n for n in series if "network_instance" in n)}))
 PY
 }
 

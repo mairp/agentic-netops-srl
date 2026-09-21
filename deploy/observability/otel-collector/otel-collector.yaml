@@ -1,0 +1,78 @@
+# The OpenTelemetry Collector of the device metric pipeline: OTLP in (from gNMIc), Prometheus out.
+# metric_expiration bounds a sample's age: a series not refreshed within 45 s (4.5 sample intervals)
+# is dropped, so the Fabric read-back never reads a device value older than that as current.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: device-metrics-otel
+  namespace: monitoring
+  labels: {app.kubernetes.io/name: device-metrics-otel, app.kubernetes.io/part-of: agentic-netops}
+data:
+  config.yaml: |
+    receivers:
+      otlp:
+        protocols:
+          grpc: {endpoint: 0.0.0.0:4317}
+    exporters:
+      prometheus:
+        endpoint: 0.0.0.0:8889
+        translation_strategy: UnderscoreEscapingWithoutSuffixes
+        metric_expiration: 45s
+    extensions:
+      health_check: {endpoint: 0.0.0.0:13133}
+    service:
+      extensions: [health_check]
+      pipelines:
+        metrics: {receivers: [otlp], exporters: [prometheus]}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: device-metrics
+  namespace: monitoring
+  labels: {app.kubernetes.io/name: device-metrics-otel, app.kubernetes.io/part-of: agentic-netops}
+spec:
+  selector: {app.kubernetes.io/name: device-metrics-otel}
+  ports:
+  - {name: otlp-grpc, port: 4317, targetPort: otlp-grpc}
+  - {name: prometheus, port: 8889, targetPort: prometheus}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: device-metrics-otel
+  namespace: monitoring
+  labels: {app.kubernetes.io/name: device-metrics-otel, app.kubernetes.io/part-of: agentic-netops}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app.kubernetes.io/name: device-metrics-otel}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: device-metrics-otel, app.kubernetes.io/part-of: agentic-netops}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+      - name: otelcol
+        image: docker.io/otel/opentelemetry-collector-contrib
+        imagePullPolicy: IfNotPresent
+        args: ["--config=/etc/otelcol/config.yaml"]
+        ports:
+        - {name: otlp-grpc, containerPort: 4317}
+        - {name: prometheus, containerPort: 8889}
+        - {name: health, containerPort: 13133}
+        readinessProbe: {httpGet: {path: /, port: health}, periodSeconds: 5}
+        livenessProbe: {httpGet: {path: /, port: health}, periodSeconds: 20}
+        resources:
+          requests: {cpu: 20m, memory: 64Mi}
+          limits: {cpu: 500m, memory: 256Mi}
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities: {drop: [ALL]}
+        volumeMounts: [{name: cfg, mountPath: /etc/otelcol}]
+      volumes: [{name: cfg, configMap: {name: device-metrics-otel}}]

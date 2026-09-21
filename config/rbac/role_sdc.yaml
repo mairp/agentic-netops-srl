@@ -1,10 +1,14 @@
-# sdc-system: read the device-configuration layer's Targets and Schemas, and the running
-# configuration it serves per Target (the read-back's written side). Nothing mutating.
+# agentic-netops-system: read the device-configuration layer's Targets and Schemas, and the
+# running configuration it serves per Target (the read-back's written side). Nothing mutating.
+# Targets and everything they use live in agentic-netops-system because config-server v0.0.58
+# lists them in the Target's namespace (AD-82 decision 2026-09-21-target-namespace); the layer's
+# own workloads in sdc-system need no grant from the provider. Kept as a Role separate from
+# role_system.yaml's so the read-only surface over the layer's objects stays one reviewable unit.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: srl-provider-read
-  namespace: sdc-system
+  namespace: agentic-netops-system
   labels:
     app.kubernetes.io/name: srl-provider
 rules:
@@ -22,7 +26,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: srl-provider-read
-  namespace: sdc-system
+  namespace: agentic-netops-system
   labels:
     app.kubernetes.io/name: srl-provider
 roleRef:

@@ -18,8 +18,9 @@
 # whole run with nothing deleted) → optional evidence capture → audit-record export, whenever the
 # analytics store exists, requested or not, before anything deletes it (a failed export stops here
 # with the store intact unless --discard-audit-record) → containerlab lab → generated Secrets →
-# Kind cluster → owned Docker management network. No --remove-services is needed or asked for: the
-# cluster goes, and every Network with it (AD-35).
+# the first-party allocation authority's namespace agentic-netops-allocation (when present; its
+# ownership label checked in the plan) → Kind cluster → owned Docker management network. No
+# --remove-services is needed or asked for: the cluster goes, and every Network with it (AD-35).
 #
 # Idempotent: every step treats an absent owned resource as success, so a second run is a success
 # no-op. Never deleted, by construction: container images (pinned or built — no image removal
@@ -86,7 +87,8 @@ AUDIT_STORE_NS="${AUDIT_STORE_NAMESPACE:-agentic-netops-agents}"
 AUDIT_STORE_STS="${AUDIT_STORE_STATEFULSET:-clickhouse}"
 
 # ------------------------------------------------------------------ plan (read-only)
-HAVE_LAB=false HAVE_CLUSTER=false HAVE_NET=false
+HAVE_LAB=false HAVE_CLUSTER=false HAVE_NET=false HAVE_ALLOC_NS=false
+ALLOC_NS="agentic-netops-allocation"
 off::plan() {
   log::phase TeardownPlan
   local rc=0 c
@@ -99,6 +101,11 @@ off::plan() {
   if kind::cluster_exists "$CLUSTER_NAME"; then
     HAVE_CLUSTER=true
     kind::_require_owned "$CLUSTER_NAME" || rc=1
+    # the first-party allocation authority's namespace (FR-104, data-model.md §23)
+    if "${KUBECTL:-kubectl}" --context "kind-${CLUSTER_NAME}" get namespace "$ALLOC_NS" -o name >/dev/null 2>&1; then
+      HAVE_ALLOC_NS=true
+      KUBE_CONTEXT="kind-${CLUSTER_NAME}" ownership::require_k8s namespace "$ALLOC_NS" || rc=1
+    fi
   fi
   if docker_net::exists "$MGMT_NET"; then
     HAVE_NET=true
@@ -212,6 +219,16 @@ main() {
     lab_secrets::remove || { log::error "off.sh: removing the generated Secrets failed"; exit 1; }
   else
     log::info "no cluster: no generated Secrets to remove"
+  fi
+
+  log::phase TeardownAllocation
+  if [[ "$HAVE_ALLOC_NS" == true ]]; then
+    # owned (checked in the plan); --wait=false: the cluster that holds it goes next
+    "${KUBECTL:-kubectl}" --context "kind-${CLUSTER_NAME}" delete namespace "$ALLOC_NS" --ignore-not-found --wait=false >/dev/null \
+      || { log::error "off.sh: removing namespace ${ALLOC_NS} (the first-party allocation authority) failed"; exit 1; }
+    log::info "removed namespace ${ALLOC_NS} (the first-party allocation authority)"
+  else
+    log::info "no namespace ${ALLOC_NS}: no first-party allocation authority to remove"
   fi
 
   log::phase TeardownCluster

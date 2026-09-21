@@ -17,10 +17,14 @@
 #                  object, and every TargetSyncProfile sync entry is a Get (`get`/`once`) — a
 #                  Subscribe mode (onChange/sample) would hold a Subscribe session on the
 #                  device's gNMI server, whose sessions are sized for the metric collector.
+#   branch-ref     no Schema repository is loaded by a branch reference (NFR-003, AD-75): every
+#                  `spec.repositories[].kind` is `tag` (the CRD default when absent) or `hash`. The
+#                  deviation patch is loaded from the in-cluster mirror by the tag named after the
+#                  locked commit (deploy/sdc/schema-mirror, scripts/lib/schema_mirror.sh).
 #
 # Then, unless --check-only: the inv.sdcio.dev CRDs must be Established (bounded wait) and the
-# credentials Secret sdc-system/srl-credentials must exist (scripts/lib/lab_secrets.sh creates
-# it; the onboarding never carries a credential), and the directory is applied with
+# credentials Secret agentic-netops-system/srl-credentials must exist (scripts/lib/lab_secrets.sh
+# creates it; the onboarding never carries a credential), and the directory is applied with
 #   kubectl apply --server-side -k <dir>
 # When MGMT_CIDR differs from the default 172.25.25.0/24, the DiscoveryRule is rendered for it
 # (scripts/lib/onboarding.sh) into a temporary copy of the directory, which is checked and
@@ -43,7 +47,11 @@ source "$SDC_ONBOARD_LIB/k8s_wait.sh"
 # shellcheck source=onboarding.sh
 source "$SDC_ONBOARD_LIB/onboarding.sh"
 
-SDC_ONBOARD_NAMESPACE="sdc-system"
+# The onboarding objects and the credentials Secret are in the Targets' namespace, not the layer's
+# (sdc-system): Targets and everything they use live in agentic-netops-system because
+# config-server v0.0.58 lists them in the Target's namespace (AD-82 decision
+# 2026-09-21-target-namespace).
+SDC_ONBOARD_NAMESPACE="agentic-netops-system"
 SDC_ONBOARD_SECRET="srl-credentials"
 SDC_ONBOARD_CRDS=(schemas.inv.sdcio.dev targetconnectionprofiles.inv.sdcio.dev
   targetsyncprofiles.inv.sdcio.dev discoveryrules.inv.sdcio.dev)
@@ -106,6 +114,14 @@ for p in sorted(paths):
         walk(doc, "", p)
         kind = get(doc, "kind")
         kind = kind.value if isinstance(kind, yaml.ScalarNode) else ""
+        if kind == "Schema":
+            repos = get(doc, "spec", "repositories")
+            for i, r in enumerate(repos.value if isinstance(repos, yaml.SequenceNode) else []):
+                rk = get(r, "kind")
+                if isinstance(rk, yaml.ScalarNode) and rk.value == "branch":
+                    url = get(r, "repoURL")
+                    fails.append((p, rk.start_mark.line + 1, "branch-ref",
+                                  f"spec.repositories[{i}] ({url.value if isinstance(url, yaml.ScalarNode) else '?'}) kind branch"))
         if kind == "Subscription":
             fails.append((p, doc.start_mark.line + 1, "metric-subscription", "a Subscription object"))
         if kind == "TargetSyncProfile":
@@ -123,14 +139,48 @@ for p, line, check, what in fails:
               "Schema, TargetConnectionProfile, TargetSyncProfile and DiscoveryRule have no such field at "
               "config-server v0.0.58; the policy has one home, the provider's DRIFT_POLICY on the `revertive` "
               "field of every generated Config (FR-015, AD-13, AD-34)")
+    elif check == "branch-ref":
+        print(f"FAIL [branch-ref] {rel(p)}:{line}: Schema repository loaded by a branch reference ({what}) — "
+              "a branch moves; load the pinned commit by tag (the deviation patch from the in-cluster mirror, "
+              "deploy/sdc/schema-mirror) (NFR-003, AD-75)")
     else:
         print(f"FAIL [metric-subscription] {rel(p)}:{line}: subscription-based metric ingestion ({what}) — "
               "the device-configuration layer must not subscribe for metrics; the device metric collector "
               "is the only subscriber (FR-086)")
 if fails:
     sys.exit(1)
-print(f"sdc-onboard: negatives hold — no drift-policy statement, no metric subscription in {len(paths)} manifest(s) under {rel(d)}")
+print(f"sdc-onboard: negatives hold — no drift-policy statement, no metric subscription, no branch reference in {len(paths)} manifest(s) under {rel(d)}")
 PY
+}
+
+# sdc_onboard::recycle_failed_schema <dir> — delete (and wait out) every Schema of <dir> that exists
+# and reports Ready=False, so the apply that follows is loaded afresh. config-server v0.0.58 loads a
+# Schema only when its directory is absent from the schema store (pkg/reconcilers/schema
+# reconciler.go: `if !dirExists`), and a failed download leaves that directory PARTIAL: the Schema
+# then stays Ready=False for good, even after its spec is corrected, until it is deleted (its
+# finalizer removes the directory). Observed live, pass 37. A Ready Schema is never touched.
+sdc_onboard::recycle_failed_schema() {
+  local dir="$1" timeout="${2:-300}" name ns st
+  while read -r ns name; do
+    [[ -n "$name" ]] || continue
+    st="$(k8s_wait::_kubectl get schemas.inv.sdcio.dev "$name" -n "$ns" \
+          -o 'jsonpath={.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null)" || continue
+    [[ "$st" == "False" ]] || continue
+    log::warn "Schema ${ns}/${name} reports Ready=False: deleting it so the apply reloads it (config-server never retries a failed load)"
+    k8s_wait::_kubectl delete schemas.inv.sdcio.dev "$name" -n "$ns" --wait=true --timeout="${timeout}s" || {
+      log::error "sdc_onboard: Schema ${ns}/${name} could not be deleted for a reload"; return 1; }
+  done < <(python3 - "$dir" "$SDC_ONBOARD_NAMESPACE" <<'PY'
+import os, sys, yaml
+for base, _, names in os.walk(sys.argv[1]):
+    for n in sorted(names):
+        if not n.endswith((".yaml", ".yml")):
+            continue
+        for doc in yaml.safe_load_all(open(os.path.join(base, n))):
+            if isinstance(doc, dict) and doc.get("kind") == "Schema":
+                md = doc.get("metadata") or {}
+                print(md.get("namespace", sys.argv[2]), md.get("name", ""))
+PY
+)
 }
 
 # sdc_onboard::prepare_dir <dir> <mgmt_cidr> <tmp> — prints the directory to apply.
@@ -176,6 +226,7 @@ sdc_onboard::main() {
     log::error "  next: create it with scripts/lib/lab_secrets.sh (lab_secrets::ensure), then re-run make sdc-onboard"
     return 1
   fi
+  sdc_onboard::recycle_failed_schema "$apply_dir" "$timeout" || return 1
   log::info "applying ${apply_dir}"
   k8s_wait::_kubectl apply --server-side -k "$apply_dir"
 }

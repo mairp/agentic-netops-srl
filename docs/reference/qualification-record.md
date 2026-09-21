@@ -105,3 +105,38 @@ item records (`g08_evpn.sh`, `g09_acl.sh`); every other check of an item is requ
 A failed item is never skipped or weakened: it is recorded, the constructs and properties it gates
 are published `unqualified`, and they are refused by name at interpretation until a later gate run
 qualifies them.
+
+## G11 per allocation authority
+
+G11 — the allocation claim round-trip and the six observations of
+`contracts/kuid-claim-profiles.md` §6 — qualifies the **allocation authority**, not the device, so
+its result is recorded per authority. Which authority a lab runs is `versions.lock.yaml`
+`allocationAuthority.kind`; `platform.allocation-claims` and the `G11` item of a published record
+are that run's result against that authority, and `g11-observations.json` names it in
+`authority.kind` (see [the allocation authority](../operations/allocation-authority.md)).
+
+| Authority | G11 result | Evidence |
+|---|---|---|
+| `kuid` — kuid-server v0.0.13 (`*.be.kuid.dev`, `kuid-system`) | **failed**, 2026-09-21 (`utc_time` 2026-09-21T04:31:38Z): the scratch indices of the round trip could not be created, so no claim could be bound; provisioning stopped naming G11 with nothing above the authority installed | run evidence `.evidence/agentic-netops_agentic-netops-fabric/20260921T042659Z/g11-observations.json`; the byte-identical copy the lock cites, `docs/decisions/allocator-substitution/g11-observations.json` (SHA-256 `42050ed2b8638f6ccae418cbb24e6bd2d1660e71b881c389291df2729f5dbc45`) |
+| `first-party` — the recorded substitute (`IdentifierPool`/`IdentifierClaim`, `fabric.agentic-netops.io`, `agentic-netops-allocation`) | **passed**, 2026-09-21 (`utc_time` 2026-09-21T10:46:09Z), at `AppsReady` of T052's clean bring-up and carried into that run's gate record: the round trip, the stated-value pair (a) bound exactly and (b) refused naming the holder, (c) lowest free value (`1000, 1001, 1002` on a fresh index), (d) no value below the index minimum, (e) `metadata.labels` selectable with `-l` (negative control: the label held elsewhere is not selected), (f) a deleted claim's value bound again by an immediate second claim; scratch removed and read back | run evidence `.evidence/agentic-netops_agentic-netops-fabric/20260921T104117Z/g11-observations.json` (`authority.kind: first-party`, SHA-256 `7eb13f103aa45df02b96aa2cb5ff3c2668553174d989f2a3076d782781808d67`); every later bring-up of T052 repeats it (see that task's evidence) |
+
+A failing G11 on the substitute stops provisioning exactly as it did on kuid: there is no third
+authority, and nothing is published for a run that stopped at G11.
+
+## Data-server re-pin (T185, AD-80)
+
+`data-server v0.0.66` stopped reporting deviations until restarted and never reverted drift under
+`revertive: true` (docs/decisions/live-findings.md, finding 6). AD-80 re-pins to the newest release
+that fixes both **and** qualifies live with `config-server v0.0.58` unchanged: the lab reaches
+`TargetsReady`, and G10 and G13 pass, each through `evidence_run`. Releases were tried newest first,
+starting at `v0.0.72`; the first that qualified is the one pinned, so no older one was tried.
+
+| Release | Digest | TargetsReady | G10 | G13 | Result |
+|---|---|---|---|---|---|
+| `v0.0.72` (commit `de8a8dd7777e13909c1b2c4b2891e764001420d4`) | `sha256:f294c2b3810da2d92c4cba0affede839743e75d9343e4ccc80b38e39bd95dca0` (resolved by `scripts/lib/resolve_pins.sh`) | yes, 2026-09-21T10:00:56Z — all four Targets Ready | **pass** — valid Config accepted by the dry-run, r1–r8 and the liveness case refused, nothing persisted (`.evidence/agentic-netops_agentic-netops-fabric/20260921T100102Z/gate/items/G10.json`, SHA-256 `a7c7bd20ffbccf209490aeedd06ac115c51fb962f42b64f3d18ec4a912318a83`) | **pass** — drift on a gate-owned path restored after 5 s, no `NOT_APPLIED` deviation visible before the restore (`.evidence/agentic-netops_agentic-netops-fabric/20260921T100127Z/gate/items/G13.json`, SHA-256 `200d82e7d6daa979d1dbff33e7541b0ae23e035e0cfa79f48a058befe9022ea2`) | **pinned** in `versions.lock.yaml` part 5 |
+| `v0.0.66` (the previous pin) | `sha256:fe138dcfcfeb5bee2a615bd4e9616bafc9d27b57ae55cee9360d4fd0d2cecbf7` | yes | pass | deviation visible, **no restoration in 180 s**; deviation manager could block for good (pass 37) | replaced |
+
+G13 records what it saw and does not fail on either answer (AD-34): on `v0.0.72` the observable
+outcome is the **restoration**, not a visible deviation, and `tests/gate/observed/deviation.json`
+says so (`answer: restored-without-visible-deviation`). What T064's managed-drift suite may assert
+is bounded by that file.

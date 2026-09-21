@@ -4,11 +4,13 @@
 # certificate is not verified (skipVerify) because the lab CA is regenerated on every lab
 # deployment; this is the documented lab trust boundary (evidence/05 §9.2). Plaintext
 # (insecure, port 57401) is never used. Field names: config-server v0.0.58.
+# Targets and everything they use live in agentic-netops-system because config-server v0.0.58
+# lists them in the Target's namespace (AD-82 decision 2026-09-21-target-namespace).
 apiVersion: inv.sdcio.dev/v1alpha1
 kind: TargetConnectionProfile
 metadata:
   name: gnmi-tls-skipverify
-  namespace: sdc-system
+  namespace: agentic-netops-system
 spec:
   protocol: gnmi
   port: 57400

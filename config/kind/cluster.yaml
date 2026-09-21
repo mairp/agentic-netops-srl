@@ -17,6 +17,13 @@
 # `kubectl port-forward … 9090:9090` or with other local services; scripts/lib/preflight.sh
 # checks both are free before the cluster is created. The Services that bind the NodePorts are the
 # intent tier's (US7); with no tier installed the mappings are inert.
+#
+# kube-controller-manager runs with the client-go WatchList gate off. The pinned config-server's
+# aggregated config.sdcio.dev API never ends a WatchList stream with the initial-events bookmark, and
+# the 1.32 controller manager lists through WatchList — so its namespace deleter waited out one
+# request timeout per config.sdcio.dev resource and a namespace took tens of minutes to go (observed
+# live on this cluster, Pass 36; the gate's scratch namespaces are removed and read back through it).
+# Upstream SDC sets the same gate off in its own workloads (deploy/sdc/upstream/).
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
 name: agentic-netops
@@ -39,3 +46,9 @@ nodes:
         hostPort: 19090
         listenAddress: 127.0.0.1
         protocol: TCP
+kubeadmConfigPatches:
+  - |
+    kind: ClusterConfiguration
+    controllerManager:
+      extraArgs:
+        feature-gates: WatchListClient=false

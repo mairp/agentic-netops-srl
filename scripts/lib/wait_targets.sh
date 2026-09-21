@@ -15,7 +15,9 @@
 # Usage: wait_targets.sh [--timeout <s>] [--interval <s>]
 #   env: WAIT_TARGETS_TIMEOUT (s, default 600), WAIT_TARGETS_INTERVAL (s, default 10),
 #        WAIT_TARGETS_NAMES (default "spine01 spine02 leaf01 leaf02"),
-#        WAIT_TARGETS_NAMESPACE (default sdc-system), KUBECTL, KUBE_CONTEXT
+#        WAIT_TARGETS_NAMESPACE (default agentic-netops-system), KUBECTL, KUBE_CONTEXT
+# Targets and everything they use live in agentic-netops-system because config-server v0.0.58
+# lists them in the Target's namespace (AD-82 decision 2026-09-21-target-namespace).
 # Exit: 0 all Ready; 1 timed out (named); 2 usage.
 
 # shellcheck source-path=SCRIPTDIR
@@ -31,7 +33,7 @@ source "$WAIT_TARGETS_LIB/k8s_wait.sh"
 WAIT_TARGETS_RESOURCE="targets.config.sdcio.dev"
 
 wait_targets::probe() {
-  local ns="${WAIT_TARGETS_NAMESPACE:-sdc-system}" names="${WAIT_TARGETS_NAMES:-spine01 spine02 leaf01 leaf02}" json
+  local ns="${WAIT_TARGETS_NAMESPACE:-agentic-netops-system}" names="${WAIT_TARGETS_NAMES:-spine01 spine02 leaf01 leaf02}" json
   json="$(k8s_wait::_kubectl get "$WAIT_TARGETS_RESOURCE" -n "$ns" -o json 2>&1)" \
     || { printf 'cannot list %s in %s: %s\n' "$WAIT_TARGETS_RESOURCE" "$ns" "$json"; return 1; }
   python3 -c '
@@ -74,7 +76,7 @@ wait_targets::main() {
     esac
   done
   log::phase TargetsReady
-  local ns="${WAIT_TARGETS_NAMESPACE:-sdc-system}" names="${WAIT_TARGETS_NAMES:-spine01 spine02 leaf01 leaf02}" out
+  local ns="${WAIT_TARGETS_NAMESPACE:-agentic-netops-system}" names="${WAIT_TARGETS_NAMES:-spine01 spine02 leaf01 leaf02}" out
   if k8s_wait::until "$timeout" "$interval" "Ready Targets ${names} (${WAIT_TARGETS_RESOURCE}) in ${ns}" -- wait_targets::probe; then
     out="$(wait_targets::probe)"
     printf '%s\n' "$out"

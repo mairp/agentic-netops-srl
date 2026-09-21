@@ -15,6 +15,13 @@
 #   an sdcio CRD vendored under deploy/kuid/ (wrong project)            fails naming it
 #   a first-party Go package declaring +groupName=config.sdcio.dev      fails naming it
 #   a kustomization image that is not a versions.lock.yaml pin          fails naming it
+#   substitute-shape (the first-party allocation authority, FR-098/FR-104):
+#     a clean substitute (IdentifierPool/IdentifierClaim CRDs, pools, Role on
+#       fabric.agentic-netops.io)                                        passes
+#     an object in vlan.be.kuid.dev under deploy/allocation/            fails naming it
+#     a first-party object named like a kuid kind (VLANIndex) in its own group fails naming it
+#     a conditional CRD whose names.kind is IPClaim                      fails naming it
+#     a first-party claim Role granting on ipam.be.kuid.dev              fails naming it
 # Finally the checker passes on this repository itself. Offline; python3 + PyYAML.
 set -uo pipefail
 
@@ -129,6 +136,39 @@ expect "$c" 1 "first-party Go package declaring +groupName=config.sdcio.dev fail
 c="$TMP/image-pin"; clean "$c"; sed -i 's/newTag: "v0.0.58@/newTag: "v0.0.57@/' "$c/deploy/sdc/kustomization.yaml"
 expect "$c" 1 "kustomization image that is not a lock pin fails naming the file" \
   "FAIL [image-pin] deploy/sdc/kustomization.yaml: image 'ghcr.io/sdcio/config-server-api-server:v0.0.57@sha256:"
+
+# substitute-shape — the first-party allocation authority never is, nor imitates, kuid.
+substitute() {  # substitute <root> — a clean first-party authority tree
+  local r="$1"
+  mkdir -p "$r/deploy/allocation/pools" "$r/config/crd/conditional" "$r/config/rbac/claims/first-party"
+  crd identifierpools.fabric.agentic-netops.io fabric.agentic-netops.io | sed 's/kind: X, plural: xs/kind: IdentifierPool, plural: identifierpools/' >"$r/config/crd/conditional/pools.yaml"
+  printf 'apiVersion: fabric.agentic-netops.io/v1alpha1\nkind: IdentifierPool\nmetadata: {name: fabric01-vlan, namespace: agentic-netops-allocation}\nspec: {type: vlan, range: {start: 1000, end: 4000}}\n' >"$r/deploy/allocation/pools/vlan.yaml"
+  printf 'apiVersion: rbac.authorization.k8s.io/v1\nkind: Role\nmetadata: {name: srl-provider-claims, namespace: agentic-netops-allocation}\nrules:\n- apiGroups: [fabric.agentic-netops.io]\n  resources: [identifierclaims]\n  verbs: [get, list, watch, create, delete]\n' >"$r/config/rbac/claims/first-party/role.yaml"
+}
+c="$TMP/sub-clean"; clean "$c"; substitute "$c"
+expect "$c" 0 "substitute-shape: a clean first-party authority (own group, own kinds) passes" "verify-upstream-artefacts: PASS"
+
+c="$TMP/sub-group"; clean "$c"; substitute "$c"
+printf -- '---\napiVersion: vlan.be.kuid.dev/v1alpha1\nkind: VLANIndex\nmetadata: {name: fabric01-vlan}\nspec: {minID: 1000, maxID: 4000}\n' >>"$c/deploy/allocation/pools/vlan.yaml"
+expect "$c" 1 "substitute-shape: a kuid VLANIndex under deploy/allocation/ fails naming the file, the group and the kind" \
+  "FAIL [substitute-shape] deploy/allocation/pools/vlan.yaml:6: VLANIndex fabric01-vlan is in the kuid API group vlan.be.kuid.dev" \
+  "FAIL [substitute-shape] deploy/allocation/pools/vlan.yaml:6: VLANIndex fabric01-vlan is named like a kuid kind"
+
+c="$TMP/sub-lookalike"; clean "$c"; substitute "$c"
+printf 'apiVersion: fabric.agentic-netops.io/v1alpha1\nkind: GENIDIndex\nmetadata: {name: fabric01-vni}\n' >"$c/deploy/allocation/pools/vni.yaml"
+expect "$c" 1 "substitute-shape: a first-party object shaped like a kuid kind (GENIDIndex in its own group) fails naming it" \
+  "FAIL [substitute-shape] deploy/allocation/pools/vni.yaml:1: GENIDIndex fabric01-vni is named like a kuid kind"
+
+c="$TMP/sub-crd"; clean "$c"; substitute "$c"
+crd ipclaims.fabric.agentic-netops.io fabric.agentic-netops.io | sed 's/kind: X, plural: xs/kind: IPClaim, plural: ipclaims/' >"$c/config/crd/conditional/claims.yaml"
+expect "$c" 1 "substitute-shape: a conditional CRD whose names.kind is a kuid kind fails naming it" \
+  "FAIL [substitute-shape] config/crd/conditional/claims.yaml:1: CustomResourceDefinition ipclaims.fabric.agentic-netops.io names.kind 'IPClaim'" \
+  "FAIL [substitute-shape] config/crd/conditional/claims.yaml:1: CustomResourceDefinition ipclaims.fabric.agentic-netops.io names.plural 'ipclaims'"
+
+c="$TMP/sub-rbac"; clean "$c"; substitute "$c"
+printf -- '- apiGroups: [ipam.be.kuid.dev]\n  resources: [ipclaims]\n  verbs: [get]\n' >>"$c/config/rbac/claims/first-party/role.yaml"
+expect "$c" 1 "substitute-shape: the first-party claim Role granting on ipam.be.kuid.dev fails naming it" \
+  "FAIL [substitute-shape] config/rbac/claims/first-party/role.yaml:8: Role srl-provider-claims grants on the kuid API group ipam.be.kuid.dev"
 
 # The repository itself.
 out="$(bash "$VU" 2>&1)"; rc=$?

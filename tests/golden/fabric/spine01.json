@@ -15,7 +15,10 @@
                 "ip-prefix": "10.1.0.0/31"
               }
             ],
-            "admin-state": "enable"
+            "admin-state": "enable",
+            "unnumbered": {
+              "admin-state": "disable"
+            }
           },
           "ipv6": {
             "address": [
@@ -43,7 +46,10 @@
                 "ip-prefix": "10.1.0.4/31"
               }
             ],
-            "admin-state": "enable"
+            "admin-state": "enable",
+            "unnumbered": {
+              "admin-state": "disable"
+            }
           },
           "ipv6": {
             "address": [
@@ -69,7 +75,10 @@
                 "ip-prefix": "10.0.0.11/32"
               }
             ],
-            "admin-state": "enable"
+            "admin-state": "enable",
+            "unnumbered": {
+              "admin-state": "disable"
+            }
           },
           "ipv6": {
             "address": [
@@ -159,6 +168,9 @@
                   "afi-safi-name": "srl_nokia-common:ipv6-unicast"
                 }
               ],
+              "as-path-options": {
+                "allow-own-as": 1
+              },
               "export-policy": [
                 "system-loopbacks-policy"
               ],
@@ -182,6 +194,9 @@
                   "afi-safi-name": "srl_nokia-common:ipv6-unicast"
                 }
               ],
+              "as-path-options": {
+                "allow-own-as": 1
+              },
               "export-policy": [
                 "system-loopbacks-policy"
               ],

@@ -32,7 +32,11 @@ import (
 const (
 	// FieldManager is the dedicated field manager of every write.
 	FieldManager = "agentic-netops-srl-provider"
-	// SystemNamespace is where every generated Config lives, always (AD-69).
+	// SystemNamespace is where every generated Config lives, always (AD-69). It is also the
+	// Targets' namespace (and their Schema, profiles and credentials): Targets and everything
+	// they use live in agentic-netops-system because config-server v0.0.58 lists them in the
+	// Target's namespace (AD-82 decision 2026-09-21-target-namespace) — a Config outside its
+	// Target's namespace is never picked up. The layer's workloads stay in sdc-system.
 	SystemNamespace = "agentic-netops-system"
 
 	// PriorityFabric and PriorityService are the reserved priority band.

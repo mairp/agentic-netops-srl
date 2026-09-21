@@ -18,8 +18,11 @@
 #         <EVIDENCE_DIR>/declared-faults.json BEFORE the fault is made: the node, what is changed
 #         and the probe that finds it still in place.
 #   (iv)  leftovers::scan reads every device's running datastore for a vt-scratch- object (and
-#         every client container for a vt-scratch- link), the cluster for a gate-labelled Config
-#         and a gate-labelled namespace, and runs the probe of every fault class on every node:
+#         every client container for a vt-scratch- link), the cluster for a gate-labelled Config,
+#         a gate-labelled namespace and — where the first-party allocation authority's CRDs exist
+#         (FR-104, T181) — a vt-scratch- or gate-labelled IdentifierPool / IdentifierClaim in
+#         agentic-netops-allocation (G11's scratch pools and claims), and runs the probe of every
+#         fault class on every node:
 #           mgmt-detached     the node's container is not on the management network
 #                             (docker network inspect <MGMT_NETWORK>)
 #           link-impairment   a netem/tbf qdisc on one of the node's links (tc qdisc, read from
@@ -164,15 +167,18 @@ leftovers::_probe_netem() {
   return "$rc"
 }
 
-# leftovers::_probe_declared <fault-json> — 0 when the fault is no longer in place
+# leftovers::_probe_declared <fault-json> [<seq>] — 0 when the fault is no longer in place. <seq>
+# keeps the evidence id unique: two runs under the evidence root may declare the same fault id,
+# and one scan probes every run's declaration (evidence is never overwritten).
 leftovers::_probe_declared() {
-  local f="$1" kind node id
+  local f="$1" kind node id stem
   kind="$(jq -r '.probe.kind' <<<"$f")"; node="$(jq -r '.node' <<<"$f")"; id="$(jq -r '.id' <<<"$f")"
+  stem="declared.${2:+$2.}${id}"
   case "$kind" in
     mgmt-detached)
       local c net out
       c="$(jq -r '.probe.container' <<<"$f")"; net="$(jq -r '.probe.network // empty' <<<"$f")"
-      out="$(leftovers::_run "declared.${id}" -- lab::docker network inspect "${net:-$MGMT_NETWORK}")" || {
+      out="$(leftovers::_run "$stem" -- lab::docker network inspect "${net:-$MGMT_NETWORK}")" || {
         echo "LEFTOVER declared-fault $node $id: network ${net:-$MGMT_NETWORK} cannot be inspected"; return 1; }
       if ! jq -e --arg c "$c" '[.[0].Containers // {} | to_entries[] | .value.Name] | index($c)' <<<"$out" >/dev/null; then
         echo "LEFTOVER declared-fault $node $id still in place: $c detached from ${net:-$MGMT_NETWORK} ($(jq -r .change <<<"$f"))"
@@ -183,7 +189,7 @@ leftovers::_probe_declared() {
       c="$(jq -r '.probe.container' <<<"$f")"; ifc="$(jq -r '.probe.interface' <<<"$f")"
       pid="$(lab::docker inspect -f '{{.State.Pid}}' "$c" 2>/dev/null)" || pid=""
       [[ -n "$pid" && "$pid" != 0 ]] || { echo "LEFTOVER declared-fault $node $id: $c not running, impairment cannot be probed"; return 1; }
-      out="$(leftovers::_run "declared.${id}" -- "${NSENTER:-nsenter}" -t "$pid" -n "${TC:-tc}" qdisc show dev "$ifc")" || {
+      out="$(leftovers::_run "$stem" -- "${NSENTER:-nsenter}" -t "$pid" -n "${TC:-tc}" qdisc show dev "$ifc")" || {
         echo "LEFTOVER declared-fault $node $id: tc qdisc on $ifc unreadable"; return 1; }
       if grep -Eq 'netem|tbf' <<<"$out"; then
         echo "LEFTOVER declared-fault $node $id still in place: impairment on $c $ifc ($(jq -r .change <<<"$f"))"
@@ -193,7 +199,7 @@ leftovers::_probe_declared() {
       local path faulted out val
       path="$(jq -r '.probe.path' <<<"$f")"; faulted="$(jq -r '.probe.faulted_value | tostring' <<<"$f")"
       lab::gnmic_argv "$(jq -r '.probe.node // .node' <<<"$f")" || return 1
-      out="$(leftovers::_run "declared.${id}" -- "${LAB_ARGV[@]}" get --type config --path "$path")" || {
+      out="$(leftovers::_run "$stem" -- "${LAB_ARGV[@]}" get --type config --path "$path")" || {
         echo "LEFTOVER declared-fault $node $id: $path unreadable"; return 1; }
       val="$(jq -r "$(lab::jq_lib)"' gvalues | map(if type == "object" then (to_entries[0].value) else . end) | .[0] // empty | tostring' <<<"$out")"
       if [[ "$val" == "$faulted" ]]; then
@@ -253,6 +259,9 @@ leftovers::_kubectl_list() {
   printf '%s\n' "$out"
 }
 
+LEFTOVERS_ALLOC_NS="agentic-netops-allocation"
+LEFTOVERS_ALLOC_RES="identifierclaims.fabric.agentic-netops.io,identifierpools.fabric.agentic-netops.io"
+
 leftovers::_scan_cluster() {
   local out rc=0 l
   out="$(leftovers::_kubectl_list "configs" get configs.config.sdcio.dev -A -o json)" || {
@@ -275,6 +284,20 @@ leftovers::_scan_cluster() {
   done < <(jq -r --arg k "$LAB_GATE_LABEL_KEY" --arg v "$LAB_GATE_LABEL_VALUE" --arg p "$LAB_SCRATCH_PREFIX" \
     '.items[]? | select((.metadata.labels[$k] // "") == $v or (.metadata.name | startswith($p)))
      | "\(.metadata.name) (phase \(.status.phase // "?"))"' <<<"$out" 2>/dev/null)
+  # the first-party allocation authority's scratch pools and claims (G11); a cluster that does not
+  # serve the kinds (kuid selected) holds none
+  out="$(leftovers::_kubectl_list "allocation" get "$LEFTOVERS_ALLOC_RES" -n "$LEFTOVERS_ALLOC_NS" -o json)" || {
+    echo "LEFTOVER unscannable cluster the IdentifierPools/IdentifierClaims in ${LEFTOVERS_ALLOC_NS} could not be listed (kind-${CLUSTER_NAME})"; return 1; }
+  if [[ -n "$out" ]]; then
+    while read -r l; do
+      [[ -n "$l" ]] || continue
+      echo "LEFTOVER gate-allocation cluster ${l}"
+      rc=1
+    done < <(jq -r --arg k "$LAB_GATE_LABEL_KEY" --arg v "$LAB_GATE_LABEL_VALUE" --arg p "$LAB_SCRATCH_PREFIX" \
+      '.items[]? | select((.metadata.labels[$k] // "") == $v or (.metadata.name | startswith($p))
+                          or ((.spec.poolRef.name // "") | startswith($p)))
+       | "\(.kind) \(.metadata.namespace)/\(.metadata.name)"' <<<"$out" 2>/dev/null)
+  fi
   return "$rc"
 }
 
@@ -284,9 +307,11 @@ leftovers::_scan_faults() {
   for node in $(lab::all_nodes); do
     leftovers::_probe_netem "$node" || rc=1
   done
+  local seq=0
   while read -r f; do
     [[ -n "$f" ]] || continue
-    leftovers::_probe_declared "$f" || rc=1
+    seq=$((seq + 1))
+    leftovers::_probe_declared "$f" "$seq" || rc=1
   done < <(leftovers::_declared_faults)
   return "$rc"
 }
@@ -429,25 +454,31 @@ leftovers::remove() {
   done
   leftovers::_run "delete-configs" -- lab::kubectl delete configs.config.sdcio.dev -A -l "$LAB_GATE_SELECTOR" --ignore-not-found --wait=true || true
   leftovers::_run "delete-namespaces" -- lab::kubectl delete namespaces -l "$LAB_GATE_SELECTOR" --ignore-not-found --wait=true || true
-  local f kind
+  # G11's scratch claims before their pools (a claim's release finalizer needs its pool)
+  leftovers::_run "delete-allocation-claims" -- lab::kubectl delete identifierclaims.fabric.agentic-netops.io \
+    -n "$LEFTOVERS_ALLOC_NS" -l "$LAB_GATE_SELECTOR" --ignore-not-found --wait=true || true
+  leftovers::_run "delete-allocation-pools" -- lab::kubectl delete identifierpools.fabric.agentic-netops.io \
+    -n "$LEFTOVERS_ALLOC_NS" -l "$LAB_GATE_SELECTOR" --ignore-not-found --wait=true || true
+  local f kind seq=0 rid
   while read -r f; do
     [[ -n "$f" ]] || continue
-    leftovers::_probe_declared "$f" >/dev/null && continue
+    seq=$((seq + 1)); rid="revert.${seq}.$(jq -r .id <<<"$f")"
+    leftovers::_probe_declared "$f" "$seq" >/dev/null && continue
     kind="$(jq -r '.revert.kind // empty' <<<"$f")"
     case "$kind" in
       docker-network-connect)
         local -a ipf=()
         [[ -n "$(jq -r '.revert.ip // empty' <<<"$f")" ]] && ipf=(--ip "$(jq -r '.revert.ip' <<<"$f")")
-        leftovers::_run "revert.$(jq -r .id <<<"$f")" -- lab::docker network connect "${ipf[@]}" \
+        leftovers::_run "$rid" -- lab::docker network connect "${ipf[@]}" \
           "$(jq -r '.probe.network // env.MGMT_NETWORK' <<<"$f")" "$(jq -r '.probe.container' <<<"$f")" || true ;;
       tc-qdisc-del)
         local pid
         pid="$(lab::docker inspect -f '{{.State.Pid}}' "$(jq -r '.probe.container' <<<"$f")")"
-        leftovers::_run "revert.$(jq -r .id <<<"$f")" -- "${NSENTER:-nsenter}" -t "$pid" -n "${TC:-tc}" qdisc del dev \
+        leftovers::_run "$rid" -- "${NSENTER:-nsenter}" -t "$pid" -n "${TC:-tc}" qdisc del dev \
           "$(jq -r '.probe.interface' <<<"$f")" root || true ;;
       device-leaf-set)
         lab::gnmic_argv "$(jq -r '.probe.node // .node' <<<"$f")"
-        leftovers::_run "revert.$(jq -r .id <<<"$f")" -- "${LAB_ARGV[@]}" set --delimiter "$LAB_SET_DELIM" \
+        leftovers::_run "$rid" -- "${LAB_ARGV[@]}" set --delimiter "$LAB_SET_DELIM" \
           --update "$(lab::upd "$(jq -r '.probe.path' <<<"$f")" "$(jq -c '.revert.value' <<<"$f")")" || true ;;
       *) echo "leftovers: declared fault $(jq -r .id <<<"$f") has no revert action; revert it by hand: $(jq -r .change <<<"$f")" >&2 ;;
     esac

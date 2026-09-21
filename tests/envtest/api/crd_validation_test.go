@@ -726,6 +726,12 @@ func TestFabricCreateRejected(t *testing.T) {
 		{"overlay.interASVPN false accepted (AD-43)", fabricYAML, func(t *testing.T, u *unstructured.Unstructured) {
 			set(t, u, "spec.overlay.interASVPN", "false")
 		}, nil},
+		{"overlay.reflectorClients false accepted (AD-77)", fabricYAML, func(t *testing.T, u *unstructured.Unstructured) {
+			set(t, u, "spec.overlay.reflectorClients", "false")
+		}, nil},
+		{"overlay.reflectorClients not a boolean", fabricYAML, func(t *testing.T, u *unstructured.Unstructured) {
+			set(t, u, "spec.overlay.reflectorClients", `"no"`)
+		}, []string{"spec.overlay.reflectorClients"}},
 		{"unknown field", fabricYAML, func(t *testing.T, u *unstructured.Unstructured) {
 			set(t, u, "spec.overlay.routeDistinguisher", `"65000:1"`)
 		}, []string{`unknown field "spec.overlay.routeDistinguisher"`}},

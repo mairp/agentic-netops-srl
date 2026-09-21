@@ -1,0 +1,18 @@
+# schema-mirror — the in-cluster, read-only git mirror of the deviation patch repository
+# (T184; AD-75, NFR-003, FR-098). config-server v0.0.58 fetches every non-branch Schema ref as a
+# TAG, and sdcio/srlinux-yang-patch has no tags, so the locked commit is served here under a tag
+# named after the commit. The image carries no repository content: scripts/lib/schema_mirror.sh
+# clones the upstream repository on the host, asserts the locked commit, and hands the one-ref
+# bare repository to the pod through the ConfigMap schema-mirror-repo; entrypoint.sh asserts it
+# again and refuses to serve anything else.
+# Every FROM is pinned by the digest versions.lock.yaml firstPartyImages[schema-mirror] records;
+# the image is tagged with its content hash by scripts/lib/image_build.sh (T169) and run with
+# imagePullPolicy: Never. Build context: docker/schema-mirror.
+
+FROM alpine:3.24.2@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6
+RUN apk add --no-cache git=2.54.0-r0 git-daemon=2.54.0-r0 lighttpd=1.4.85-r0
+COPY lighttpd.conf /etc/schema-mirror/lighttpd.conf
+COPY entrypoint.sh /usr/local/bin/schema-mirror
+USER 65532:65532
+EXPOSE 8080
+ENTRYPOINT ["/usr/local/bin/schema-mirror"]

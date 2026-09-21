@@ -51,19 +51,32 @@ spec:
               name: srl-provider-settings
               key: reconcile-interval
               optional: true
+        # The read-back's state datastore: the device metric collector (deploy/observability/
+        # device-metrics), the second and last client of the device management server (FR-086,
+        # FR-107). The pinned device-configuration layer serves no state (AD-82 decision
+        # 2026-09-21-state-source, docs/decisions/live-findings.md).
+        - name: DEVICE_METRICS_URL
+          value: http://device-metrics.monitoring.svc:8889/metrics
         - name: OTEL_EXPORTER_OTLP_ENDPOINT
           valueFrom:
             configMapKeyRef:
               name: srl-provider-settings
               key: otlp-endpoint
               optional: true
+        # The pinned config-server's aggregated API never ends a WatchList stream with the initial-events
+        # bookmark, so a WatchList informer on config.sdcio.dev never syncs (observed live, Pass 36);
+        # the upstream SDC workloads set the same gate off (deploy/sdc/upstream/).
+        - name: KUBE_FEATURE_WatchListClient
+          value: "false"
         # The Network watch scope is first-party configuration (R-15).
         - name: NETWORK_WATCH_SCOPE
           value: cluster
+        # Targets and everything they use live in agentic-netops-system because config-server
+        # v0.0.58 lists them in the Target's namespace (AD-82 decision 2026-09-21-target-namespace).
         - name: TARGET_NAMESPACE
-          value: sdc-system
+          value: agentic-netops-system
         - name: SCHEMA_NAMESPACE
-          value: sdc-system
+          value: agentic-netops-system
         - name: POD_NAMESPACE
           valueFrom:
             fieldRef:

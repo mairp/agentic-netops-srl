@@ -124,4 +124,25 @@ type Claims interface {
 	// ListByLabel lists the claims of kind in namespace whose metadata.labels
 	// carry every key/value of labels. It never selects on spec.labels (AD-32).
 	ListByLabel(ctx context.Context, kind Kind, namespace string, labels map[string]string) ([]Claimed, error)
+	// Index is the group and kind of the index (pool) a claim of kind k is made against
+	// under this authority: what a Fabric's pool references must name (T182). Consumers
+	// read it here and never write a literal.
+	Index(k Kind) IndexType
+	// Authority is the allocationAuthority.kind this implementation serves: AuthorityKuid
+	// or AuthorityFirstParty.
+	Authority() string
 }
+
+// IndexType is the API group and kind of an allocation index.
+type IndexType struct {
+	Group string
+	Kind  string
+}
+
+func (t IndexType) String() string { return t.Group + "/" + t.Kind }
+
+// The allocationAuthority.kind values of versions.lock.yaml (data-model.md §23).
+const (
+	AuthorityKuid       = "kuid"
+	AuthorityFirstParty = "first-party"
+)

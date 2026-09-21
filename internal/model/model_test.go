@@ -123,7 +123,7 @@ func TestBuildServiceRefusesBindingOnForeignSubinterface(t *testing.T) {
 
 func testFabric() FabricInput {
 	return FabricInput{
-		Name: "fabric01", FabricASN: 65000, InterASVPN: true,
+		Name: "fabric01", FabricASN: 65000, InterASVPN: true, ReflectorClients: true,
 		MTU: FabricMTU{PortMTU: 9412, UnderlayIPMTU: 9398, BridgedL2MTU: 9412, TenantIPMTU: 9348},
 		Nodes: []FabricNodeInput{
 			{Name: "spine01", Role: RoleSpine, SystemIPv4: "10.0.0.11/32", ASN: 65100, RouteReflector: true},
@@ -151,11 +151,11 @@ func TestBuildFabric(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := m.Node("spine01")
-	if s.BGP.InterASVPN == nil || !*s.BGP.InterASVPN || !s.BGP.RouteReflectorClient || s.IRBEnabled {
+	if s.BGP.InterASVPN == nil || !*s.BGP.InterASVPN || s.BGP.RouteReflectorClient == nil || !*s.BGP.RouteReflectorClient || s.IRBEnabled {
 		t.Errorf("spine01: %+v", s.BGP)
 	}
 	l := m.Node("leaf01")
-	if l.BGP.InterASVPN != nil || !l.IRBEnabled || l.BGP.OverlayAS != 65000 || l.BGP.AutonomousSystem != 65101 {
+	if l.BGP.InterASVPN != nil || l.BGP.RouteReflectorClient != nil || !l.IRBEnabled || l.BGP.OverlayAS != 65000 || l.BGP.AutonomousSystem != 65101 {
 		t.Errorf("leaf01: %+v", l)
 	}
 	if l.AccessPorts[0].Name != "ethernet-1/1" || !l.AccessPorts[0].VLANTagging || l.AccessPorts[1].VLANTagging {
@@ -173,6 +173,21 @@ func TestBuildFabric(t *testing.T) {
 	}
 	if !slices.Contains(m2.Node("spine02").WritePaths(), "/network-instance[name=default]/protocols/bgp/afi-safi[afi-safi-name=evpn]/evpn/inter-as-vpn") {
 		t.Error("inter-as-vpn path missing when false")
+	}
+	// reflectorClients=false is rendered as false, never dropped (AD-77).
+	in = testFabric()
+	in.ReflectorClients = false
+	m3, _ := BuildFabric(in)
+	for _, sp := range []string{"spine01", "spine02"} {
+		if v := m3.Node(sp).BGP.RouteReflectorClient; v == nil || *v {
+			t.Errorf("%s: reflectorClients false must be stated: %v", sp, v)
+		}
+		if !slices.Contains(m3.Node(sp).WritePaths(), "/network-instance[name=default]/protocols/bgp/group[group-name=overlay]/route-reflector/client") {
+			t.Errorf("%s: route-reflector client path missing when false", sp)
+		}
+	}
+	if v := m3.Node("leaf01").BGP.RouteReflectorClient; v != nil {
+		t.Errorf("leaf01 is not a reflector: %v", *v)
 	}
 }
 

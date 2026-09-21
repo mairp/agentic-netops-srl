@@ -56,16 +56,26 @@ compatibilitySet:
       - repoURL: https://github.com/sdcio/srlinux-yang-patch
         kind: hash
         ref: 7410316d34f1d393b82889c0caa1b5acef80fb60
+        # AD-75: config-server v0.0.58 fetches every non-branch ref as a TAG and this repository
+        # has no tags, so the Schema loads part 3's commit from the in-cluster mirror
+        # (deploy/sdc/schema-mirror), which scripts/lib/schema_mirror.sh populates from repoURL
+        # above after asserting the commit, and which serves ONLY refs/tags/<commit>.
+        mirror:
+          repoURL: http://schema-mirror.sdc-system.svc.cluster.local/git/srlinux-yang-patch.git
+          kind: tag
+          ref: 7410316d34f1d393b82889c0caa1b5acef80fb60
   deviceConfiguration: # part 5
     part: 5
     configServer:
       repository: https://github.com/sdcio/config-server
       tag: v0.0.58
       commit: "bcc56b045a689032c5123a9f50bcf56ed8c630dc"
-    dataServer:
+    dataServer: # AD-80, T185: re-pinned from v0.0.66 (no revert-after-sync; deviation manager could
+      # block for good) to the newest release qualified live with config-server v0.0.58 —
+      # TargetsReady, G10 and G13 (docs/reference/qualification-record.md §data-server re-pin)
       repository: https://github.com/sdcio/data-server
-      tag: v0.0.66
-      commit: "f3cbbe5d17bebd74360bf91e9568dd109714016c"
+      tag: v0.0.72
+      commit: "de8a8dd7777e13909c1b2c4b2891e764001420d4"
     images:
       apiServer:
         repository: ghcr.io/sdcio/config-server-api-server
@@ -79,9 +89,9 @@ compatibilitySet:
         pinned: "ghcr.io/sdcio/config-server-controller:v0.0.58@sha256:01c69c589137579db784c769019bc92591899666714f153b5b4b97a761ffea13"
       dataServer:
         repository: ghcr.io/sdcio/data-server
-        tag: v0.0.66
-        digest: sha256:fe138dcfcfeb5bee2a615bd4e9616bafc9d27b57ae55cee9360d4fd0d2cecbf7
-        pinned: "ghcr.io/sdcio/data-server:v0.0.66@sha256:fe138dcfcfeb5bee2a615bd4e9616bafc9d27b57ae55cee9360d4fd0d2cecbf7"
+        tag: v0.0.72
+        digest: "sha256:f294c2b3810da2d92c4cba0affede839743e75d9343e4ccc80b38e39bd95dca0"
+        pinned: "ghcr.io/sdcio/data-server:v0.0.72@sha256:f294c2b3810da2d92c4cba0affede839743e75d9343e4ccc80b38e39bd95dca0"
   allocationAuthorityRelease: # part 6 — which authority is installed is allocationAuthority below
     part: 6
     kuid:
@@ -243,6 +253,12 @@ firstPartyImages:
       - {ref: alpine, tag: 3.24.2, digest: "sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6"}
     dependencyLocks:
       - {path: go.sum, sha256: "8231910c9b07e6b8e637a32d735a8d37c9918b4e3dffd291a3f5bda93e6b42f2"}
+  - name: schema-mirror # T184, AD-75: git smart HTTP, read-only; packages pinned in the Dockerfile
+    dockerfile: docker/Dockerfile.schema-mirror
+    context: docker/schema-mirror
+    from:
+      - {ref: alpine, tag: 3.24.2, digest: "sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6"}
+    dependencyLocks: []
   - name: supervisor
     dockerfile: docker/Dockerfile.supervisor
     context: agents

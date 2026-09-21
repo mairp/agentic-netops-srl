@@ -1,0 +1,34 @@
+# agentic-netops-allocation, the substitute's allocation namespace (contracts/kuid-claim-profiles.md
+# §7). The same verbs as the kuid claim Role — get, list, watch, create, delete — and deliberately
+# NO update and NO patch on a claim: a claim is never moved (its spec is also immutable by CEL).
+# The pools are read, never written: the authority alone writes a pool's status ledger.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: srl-provider-claims
+  namespace: agentic-netops-allocation
+  labels:
+    app.kubernetes.io/name: srl-provider
+rules:
+- apiGroups: [fabric.agentic-netops.io]
+  resources: [identifierclaims]
+  verbs: [get, list, watch, create, delete]
+- apiGroups: [fabric.agentic-netops.io]
+  resources: [identifierpools]
+  verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: srl-provider-claims
+  namespace: agentic-netops-allocation
+  labels:
+    app.kubernetes.io/name: srl-provider
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: srl-provider-claims
+subjects:
+- kind: ServiceAccount
+  name: srl-provider
+  namespace: agentic-netops-system

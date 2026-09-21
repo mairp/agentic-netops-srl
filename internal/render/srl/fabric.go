@@ -8,8 +8,9 @@
 // decided. interfaces.go, bgp.go, policy.go and vxlan.go build the subtrees.
 //
 // The golden files the output is compared against (tests/golden/fabric/) are
-// PROVISIONAL until gate item G12 observes the identityref form a real device
-// returns (T047, R-36, AD-31).
+// frozen (T047) in the module-qualified identityref form gate item G12
+// observed from a real device Get (tests/gate/observed/serialization.json;
+// R-36, AD-31, AD-81).
 package srl
 
 import (
@@ -136,10 +137,11 @@ const (
 // form `<module-name>:<identity>` when the identity is defined in another
 // module than the leaf (afi-safi-name: leaf in srl_nokia-bgp, identities in
 // srl_nokia-common) and permits it otherwise; the qualified form is used
-// throughout (evidence/02-evpn-constructs.md §2.5). Whether the device
-// returns this form on a Get is UNVERIFIED until gate item G12
-// (tests/gate/observed/serialization.json); T047 switches it here if G12
-// observes otherwise, and freezes the golden files.
+// throughout (evidence/02-evpn-constructs.md §2.5). Gate item G12 observed
+// the device return exactly this form on a Get (identityref values module-
+// qualified, e.g. afi-safi-name "srl_nokia-common:evpn";
+// tests/gate/observed/serialization.json), and T047 froze the golden files in
+// it (AD-81).
 const qualifyIdentityrefs = true
 
 func identityref(module, identity string) string {

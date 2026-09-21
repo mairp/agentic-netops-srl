@@ -4,11 +4,13 @@
 # It is a configuration sync, not metric ingestion: no Subscribe (onChange/sample) mode is used
 # and no Subscription object exists — the device metric collector is the only subscriber
 # (FR-086, FR-089), and deploy/sdc disables config-server's Subscription reconciler.
+# Targets and everything they use live in agentic-netops-system because config-server v0.0.58
+# lists them in the Target's namespace (AD-82 decision 2026-09-21-target-namespace).
 apiVersion: inv.sdcio.dev/v1alpha1
 kind: TargetSyncProfile
 metadata:
   name: gnmi-get-config
-  namespace: sdc-system
+  namespace: agentic-netops-system
 spec:
   validate: true
   buffer: 0

@@ -14,6 +14,9 @@
 #   * a first-party workload whose image ID is not the one the build recorded    → the workload
 #   * no image ID recorded in this run's evidence                                → the workload
 #   * the provider not running                                                   → the provider
+#   * first-party selected: the allocation authority (agentic-netops-allocation/allocation-authority,
+#     the provider's image) is held to the same content-hash rule, and not running → named
+# The suite runs on a fixture lock that selects kuid unless a case selects first-party.
 # Offline: no cluster, no docker.
 # shellcheck disable=SC2015  # `cond && pass … || fail …` is safe: pass always returns 0
 set -uo pipefail
@@ -39,6 +42,7 @@ make_tree() {
   cp -r "$ROOT/scripts/lib" "$t/scripts/lib"
   cp "$ROOT/scripts/ci/verify_compat.sh" "$t/scripts/ci/"
   cp "$ROOT/versions.lock.yaml" "$t/versions.lock.yaml"
+  yq -i '.allocationAuthority = {"kind": "kuid"}' "$t/versions.lock.yaml"
   cat >"$t/scripts/lib/image_build.sh" <<EOF
 image_build::content_hash() { echo "$HASH"; }
 EOF
@@ -57,11 +61,14 @@ f="$K/${what}${name:+-$name}.$fmt"
 echo "Error from server (NotFound): $what \"$name\" not found" >&2; exit 1
 EOF
   chmod +x "$t/bin/kubectl"
+  # what the provider publishes (cmd/srl-provider/wiring.go publishCompatibility): the parts it
+  # read from the lock baked into its image, and the nine-part identifier (internal/compat)
   local lock_compat id
   lock_compat="$(yq -o=json '.compatibilitySet' "$t/versions.lock.yaml" | jq -S -c .)"
-  id="sha256:$(printf '%s' "$lock_compat" | sha256sum | awk '{print $1}')"
-  jq -n --arg c "$lock_compat" --arg id "$id" '{kind: "ConfigMap", data: {"compatibility-set.json": $c, id: $id}}' \
-    >"$t/kube/configmap-srl-provider-compat.json"
+  id="$(jq -r '"1=\(.deviceImage.repository):\(.deviceImage.tag)@\(.deviceImage.digest);2=\(.yangModels.repository)@\(.yangModels.tag)/\(.yangModels.commit);3=\(.deviationPatch.repository)@\(.deviationPatch.commit);4=\(.schema.provider)/\(.schema.version);5=config-server@\(.deviceConfiguration.configServer.tag),data-server@\(.deviceConfiguration.dataServer.tag);6=kuid-server@\(.allocationAuthorityRelease.kuidServer.tag);7=containerlab@\(.containerlab.version);8=gnmic@\(.gnmic.version);9=srl-mapping@\(.srlMapping.version)"' <<<"$lock_compat")"
+  jq -n --arg c "$(jq -c --arg id "$id" '. + {identifier: $id}' <<<"$lock_compat")" --arg id "$id" \
+    '{kind: "ConfigMap", data: {"compatibility-set.json": $c, identifier: $id}}' \
+    >"$t/kube/configmap-srl-provider-compatibility-set.json"
   jq -n --arg id "$id" '{items: [
      {metadata: {namespace: "agentic-netops-system", name: "fabric01.leaf01", annotations: {"agentic-netops.io/compatibility-set": $id}}},
      {metadata: {namespace: "sdc-system", name: "someone-elses", annotations: {}}}]}' >"$t/kube/configs.config.sdcio.dev.json"
@@ -120,20 +127,29 @@ grep -q 'config-server-0' "$t/out" && fail "an upstream (pinned) workload was tr
 # ------------------------------------------------------------------ compat
 t="$TMP/part5"; make_tree "$t"
 jq '.data["compatibility-set.json"] |= (fromjson | .deviceConfiguration.configServer.tag = "v0.0.57" | tojson)' \
-  "$t/kube/configmap-srl-provider-compat.json" >"$t/x" && mv "$t/x" "$t/kube/configmap-srl-provider-compat.json"
+  "$t/kube/configmap-srl-provider-compatibility-set.json" >"$t/x" && mv "$t/x" "$t/kube/configmap-srl-provider-compatibility-set.json"
 expect_fail "published set with part 5 changed" "$t" 'part 5 \(deviceConfiguration\)'
 
 t="$TMP/id"; make_tree "$t"
-jq '.data.id = "sha256:deadbeef"' "$t/kube/configmap-srl-provider-compat.json" >"$t/x" && mv "$t/x" "$t/kube/configmap-srl-provider-compat.json"
-expect_fail "published id differs" "$t" "published id 'sha256:deadbeef'"
+jq '.data.identifier |= sub("data-server@[^,;]*"; "data-server@v0.0.66")' "$t/kube/configmap-srl-provider-compatibility-set.json" >"$t/x" && mv "$t/x" "$t/kube/configmap-srl-provider-compatibility-set.json"
+expect_fail "published identifier names another data-server" "$t" "does not name the lock's data-server@"
 
-t="$TMP/nocm"; make_tree "$t"; rm "$t/kube/configmap-srl-provider-compat.json"
-expect_fail "no published compatibility set" "$t" 'srl-provider-compat .*cannot be read'
+t="$TMP/noid"; make_tree "$t"
+jq 'del(.data.identifier)' "$t/kube/configmap-srl-provider-compatibility-set.json" >"$t/x" && mv "$t/x" "$t/kube/configmap-srl-provider-compatibility-set.json"
+expect_fail "no published identifier" "$t" 'publishes no identifier'
+
+t="$TMP/extra"; make_tree "$t"
+jq '.data["compatibility-set.json"] |= (fromjson | .srlMapping.version = "v0.2.0" | tojson)' \
+  "$t/kube/configmap-srl-provider-compatibility-set.json" >"$t/x" && mv "$t/x" "$t/kube/configmap-srl-provider-compatibility-set.json"
+expect_fail "published set with part 9 changed" "$t" 'part 9 \(srlMapping\)'
+
+t="$TMP/nocm"; make_tree "$t"; rm "$t/kube/configmap-srl-provider-compatibility-set.json"
+expect_fail "no compatibility set published by the provider" "$t" 'srl-provider-compatibility-set .*cannot be read'
 
 t="$TMP/config"; make_tree "$t"
 jq '.items[0].metadata.annotations["agentic-netops.io/compatibility-set"] = "sha256:old"' "$t/kube/configs.config.sdcio.dev.json" >"$t/x" \
   && mv "$t/x" "$t/kube/configs.config.sdcio.dev.json"
-expect_fail "a provider Config stamped with another set" "$t" 'Config agentic-netops-system/fabric01.leaf01 stamped sha256:old'
+expect_fail "a provider Config stamped with another set" "$t" 'Config agentic-netops-system/fabric01.leaf01 stamped sha256:old, not the provider'"'"'s published identifier'
 
 # ------------------------------------------------------------------ authority
 t="$TMP/two-kuid"; make_tree "$t"
@@ -148,12 +164,43 @@ yq -i '.allocationAuthority = {"kind": "first-party", "decisionRecord": "docs/de
 for c in identifierpools identifierclaims; do echo "crd/$c" >"$t/kube/crd-$c.fabric.agentic-netops.io.name"; done
 expect_fail "first-party selected with a *.be.kuid.dev APIService present" "$t" 'two allocation authorities — first-party is selected and .*be.kuid.dev'
 rm "$t/kube/apiservice.name"
+jq --arg img "srl-provider:$HASH" --arg iid "docker.io/library/srl-provider@$IMGID" '.items += [
+  {metadata: {namespace: "agentic-netops-allocation", name: "allocation-authority-5c8b-xyz12"},
+   spec: {containers: [{name: "allocation-authority", image: $img}]},
+   status: {phase: "Running", containerStatuses: [{name: "allocation-authority", imageID: $iid}]}}]' \
+  "$t/kube/pods.json" >"$t/x" && mv "$t/x" "$t/kube/pods.json"
 rc=0; run "$t" || rc=$?
 if [[ "$rc" -eq 0 ]] && grep -q 'exactly one allocation authority — first-party' "$t/out"; then
   pass "first-party selected, no kuid APIService → one authority holds"
 else
   fail "first-party alone should pass (rc=$rc)" "$(cat "$t/out")"
 fi
+
+# ------------------------------------------------------------------ first-party: the authority's workload
+fp_tree() {  # fp_tree <dir> <authority image> <authority imageID> — first-party selected, CRDs, no kuid
+  make_tree "$1"
+  yq -i '.allocationAuthority = {"kind": "first-party", "decisionRecord": "docs/decisions/allocator-substitution.md", "failedGateEvidence": {"path": "x", "sha256": "y"}}' "$1/versions.lock.yaml"
+  for c in identifierpools identifierclaims; do echo "crd/$c" >"$1/kube/crd-$c.fabric.agentic-netops.io.name"; done
+  rm -f "$1"/kube/apiservice*.name
+  [[ -n "$2" ]] && jq --arg img "$2" --arg iid "$3" '.items += [
+    {metadata: {namespace: "agentic-netops-allocation", name: "allocation-authority-5c8b-xyz12"},
+     spec: {containers: [{name: "allocation-authority", image: $img}]},
+     status: {phase: "Running", containerStatuses: [{name: "allocation-authority", imageID: $iid}]}}]' \
+    "$1/kube/pods.json" >"$1/x" && mv "$1/x" "$1/kube/pods.json"
+  return 0
+}
+t="$TMP/fp-ok"; fp_tree "$t" "srl-provider:$HASH" "docker.io/library/srl-provider@$IMGID"
+rc=0; run "$t" || rc=$?
+if [[ "$rc" -eq 0 ]] && grep -q 'PASS images: workload agentic-netops-allocation/allocation-authority-5c8b-xyz12 container allocation-authority runs srl-provider:0123456789ab' "$t/out"; then
+  pass "first-party: the allocation authority runs the tree's srl-provider content hash and the recorded image ID"
+else
+  fail "first-party healthy lab should pass with the authority's workload checked (rc=$rc)" "$(cat "$t/out")"
+fi
+t="$TMP/fp-tag"; fp_tree "$t" "srl-provider:dev" "docker.io/library/srl-provider@$IMGID"
+expect_fail "first-party: the allocation authority running a tag other than the content hash" "$t" \
+  'workload agentic-netops-allocation/allocation-authority-5c8b-xyz12 container allocation-authority runs srl-provider:dev'
+t="$TMP/fp-missing"; fp_tree "$t" "" ""
+expect_fail "first-party: the allocation authority not running" "$t" 'allocation authority agentic-netops-allocation/allocation-authority, which runs the srl-provider image, is not running'
 
 # ------------------------------------------------------------------ images
 t="$TMP/tag"; make_tree "$t"; pods "$t" "srl-provider:dev" "docker.io/library/srl-provider@$IMGID" Running

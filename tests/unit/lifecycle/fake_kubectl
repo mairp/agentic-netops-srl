@@ -8,7 +8,13 @@
 #   installed-sdc         present once deploy/sdc was applied
 #   bound-kuid.json       what `get <kuid claim kinds> -A -o json` returns (default: none)
 #   bound-fp.json         what `get identifierclaims… -A -o json` returns (default: none)
-#   objects/<res>/<ns>/<name>.json   indices and claims created through the fake authority
+#   objects/<res>/<ns>/<name>.json   indices/pools and claims created through the fake authority
+#
+# The fake authority is kuid's (VLANIndex/GENIDIndex + VLANClaim/GENIDClaim, spec.index/spec.id,
+# status.id, a refusal at create) or the first-party substitute's (IdentifierPool +
+# IdentifierClaim, spec.poolRef.name/spec.requested, status.value; a refusal is a created claim
+# with Ready=False and reason Conflict — naming <namespace>/<holder> — or OutOfRange), chosen by
+# the kind of the object created.
 #
 # FAKE_AUTHORITY selects how the fake allocation authority behaves:
 #   healthy      stated claims bind exactly their value, a held value is refused naming the
@@ -36,14 +42,15 @@ set -- "${args[@]}"
 plural() {
   local r="${1%%.*}"; r="$(tr '[:upper:]' '[:lower:]' <<<"$r")"
   case "$r" in
-    *indices|*claims) echo "$r" ;;
+    *indices|*claims|*pools) echo "$r" ;;
     *index) echo "${r%index}indices" ;;
-    *claim) echo "${r}s" ;;
+    *claim|*pool) echo "${r}s" ;;
     *) echo "$r" ;;
   esac
 }
 group_of() {
   case "$1" in
+    identifier*) echo fabric.agentic-netops.io ;;
     vlan*) echo vlan.be.kuid.dev ;; genid*) echo genid.be.kuid.dev ;;
     ip*) echo ipam.be.kuid.dev ;; as*) echo as.be.kuid.dev ;; *) echo unknown ;;
   esac
@@ -123,6 +130,41 @@ case "$verb" in
     nm="$(jq -r .metadata.name <<<"$o")"; ns="$(jq -r '.metadata.namespace // "default"' <<<"$o")"
     p="$(store_path "$r" "$ns" "$nm")"
     [[ -f "$p" ]] && { echo "Error from server (AlreadyExists): $r.$(group_of "$r") \"$nm\" already exists" >&2; exit 1; }
+    if [[ "$kind" == IdentifierClaim ]]; then
+      pool="$(jq -r .spec.poolRef.name <<<"$o")"; stated="$(jq -r '.spec.requested // empty' <<<"$o")"
+      pp="$(store_path identifierpools "$ns" "$pool")"
+      mkdir -p "$S/objects/$r/$ns"
+      settle() {  # settle <status-json> — store the claim with that status and print it
+        jq -c --argjson st "$1" '.metadata.finalizers = ["fabric.agentic-netops.io/identifier-release"] | .status = $st' <<<"$o" | tee "$p"
+        exit 0
+      }
+      cond() { jq -n -c --arg s "$1" --arg r "$2" --arg m "$3" '[{type: "Ready", status: $s, reason: $r, message: $m}]'; }
+      [[ -f "$pp" ]] || settle "{\"conditions\": $(cond Unknown PoolNotFound "pool $pool not found")}"
+      min="$(jq -r '.spec.range.start // 0' "$pp")"; max="$(jq -r '.spec.range.end // 0' "$pp")"
+      fp_held() {  # fp_held <value> — prints the holder's name
+        local f
+        for f in "$S/objects/$r/$ns"/*.json; do
+          [[ -f "$f" ]] || continue
+          jq -e --arg p "$pool" --arg v "$1" '.spec.poolRef.name == $p and .status.value == $v' "$f" >/dev/null 2>&1 \
+            && { jq -r .metadata.name "$f"; return 0; }
+        done
+        return 1
+      }
+      bound() { settle "{\"value\": \"$1\", \"conditions\": $(cond True Bound "value $1 of pool $pool")}"; }
+      if [[ -n "$stated" ]]; then
+        [[ "$MODE" == wrong-value ]] && bound "$((stated + 1))"
+        if [[ "$stated" -lt "$min" || "$stated" -gt "$max" ]]; then
+          settle "{\"conditions\": $(cond False OutOfRange "value $stated is outside pool $pool ($min-$max)")}"
+        fi
+        if h="$(fp_held "$stated")"; then
+          settle "{\"conditions\": $(cond False Conflict "value $stated is held by claim $ns/$h")}"
+        fi
+        bound "$stated"
+      fi
+      [[ "$MODE" == no-value ]] && settle '{}'
+      for ((v = min; v <= max; v++)); do fp_held "$v" >/dev/null || bound "$v"; done
+      settle "{\"conditions\": $(cond False Exhausted "pool $pool has no free value")}"
+    fi
     index="$(jq -r .spec.index <<<"$o")"; stated="$(jq -r '.spec.id // empty' <<<"$o")"
     ir="${r%claims}indices"
     ip="$(store_path "$ir" "$ns" "$index")"
@@ -194,15 +236,28 @@ case "$verb" in
             identifier*.fabric.agentic-netops.io) [[ -f "$S/installed-fp" ]] || notfound customresourcedefinitions.apiextensions.k8s.io "$n" ;;
             *) notfound customresourcedefinitions.apiextensions.k8s.io "$n" ;;
           esac
-          echo "customresourcedefinition.apiextensions.k8s.io/$n"
         done
+        if [[ "$OUT" == json ]]; then
+          printf '%s\n' "${names[@]}" | jq -R '{metadata: {name: .}, status: {conditions: [{type: "Established", status: "True"}]}}' \
+            | jq -s '{kind: "List", items: .}'
+        else
+          for n in "${names[@]}"; do echo "customresourcedefinition.apiextensions.k8s.io/$n"; done
+        fi
+        exit 0 ;;
+      deployment|deployments|deploy)
+        [[ "${names[0]:-}" == allocation-authority && "$NS" == agentic-netops-allocation && -f "$S/installed-fp" ]] \
+          || notfound deployments.apps "${names[0]:-}"
+        jq -n --arg n "${names[0]}" '{metadata: {name: $n}, status: {conditions: [{type: "Available", status: "True"}]}}'
         exit 0 ;;
       namespace|namespaces|ns)
         [[ "${names[0]:-}" == kube-system ]] && { echo "fake-kube-system-uid"; exit 0; }
         notfound namespaces "${names[0]:-}" ;;
-      identifierclaims.fabric.agentic-netops.io)
-        if [[ -f "$S/bound-fp.json" ]]; then cat "$S/bound-fp.json"; else echo '{"items": []}'; fi
-        exit 0 ;;
+      identifierclaims.fabric.agentic-netops.io|identifierpools.fabric.agentic-netops.io)
+        [[ -f "$S/installed-fp" ]] || { echo "error: the server doesn't have a resource type \"${res%%.*}\"" >&2; exit 1; }
+        if [[ "$ALLNS" == true && "$res" == identifierclaims.* ]]; then
+          if [[ -f "$S/bound-fp.json" ]]; then cat "$S/bound-fp.json"; else echo '{"items": []}'; fi
+          exit 0
+        fi ;;
     esac
     if [[ "$res" == *,* ]]; then
       if [[ "$ALLNS" == true ]]; then

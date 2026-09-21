@@ -14,7 +14,7 @@ func TestOtherSettings(t *testing.T) {
 	}
 	f := s.Fabric
 	if f.ReconcileInterval != 15*time.Second || f.BackoffBase != 250*time.Millisecond || f.BackoffCap != 10*time.Second ||
-		f.MaxAttempts != 6 || f.TargetNamespace != "sdc-system" || s.NetworkWatchScope != "cluster" || !s.LeaderElect {
+		f.MaxAttempts != 6 || f.TargetNamespace != "agentic-netops-system" || f.SchemaNamespace != "agentic-netops-system" || s.NetworkWatchScope != "cluster" || !s.LeaderElect {
 		t.Errorf("defaults: %+v %+v", f, s)
 	}
 	s, err = loadSettings(env(withDrift(map[string]string{EnvReconcileInterval: "20s", EnvMaxAttempts: "3",

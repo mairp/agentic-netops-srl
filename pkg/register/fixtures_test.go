@@ -4,12 +4,12 @@ import "github.com/mairp/agentic-netops-srl/internal/model"
 
 // fabricFixtures are representative Fabric designs: every fabric construct —
 // fabric links with MTUs, system0, access ports tagged and untagged, irb0 on
-// leaves, route-reflecting spines with inter-as-vpn true and false, a
-// maintenance entry.
+// leaves, route-reflecting spines with inter-as-vpn true and false and with
+// route-reflector client true and false, a maintenance entry.
 func fabricFixtures() map[string]model.FabricInput {
-	base := func(interAS bool) model.FabricInput {
+	base := func(interAS, clients bool) model.FabricInput {
 		return model.FabricInput{
-			Name: "default", FabricASN: 65000, InterASVPN: interAS,
+			Name: "default", FabricASN: 65000, InterASVPN: interAS, ReflectorClients: clients,
 			MTU: model.FabricMTU{PortMTU: 9412, UnderlayIPMTU: 9398, BridgedL2MTU: 9412, TenantIPMTU: 9348},
 			Nodes: []model.FabricNodeInput{
 				{Name: "spine01", Role: model.RoleSpine, SystemIPv4: "10.0.0.11/32", ASN: 65100, RouteReflector: true},
@@ -30,7 +30,8 @@ func fabricFixtures() map[string]model.FabricInput {
 			Maintenance: []model.MaintenanceEntry{{Node: "leaf02", Interface: "ethernet-1/50", AdminState: "disable"}},
 		}
 	}
-	return map[string]model.FabricInput{"interASVPN-true": base(true), "interASVPN-false": base(false)}
+	return map[string]model.FabricInput{"interASVPN-true": base(true, true), "interASVPN-false": base(false, true),
+		"reflectorClients-false": base(true, false)}
 }
 
 // serviceFixtures are representative services covering every construct and

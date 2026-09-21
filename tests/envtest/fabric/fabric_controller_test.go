@@ -65,9 +65,12 @@ import (
 
 const (
 	nsSystem   = "agentic-netops-system"
-	nsSDC      = "sdc-system"
 	nsServices = "agentic-netops-services"
 	nsKuid     = "kuid-system"
+	// nsTargets holds the layer's Targets and Schemas: Targets and everything they use live in
+	// agentic-netops-system because config-server v0.0.58 lists them in the Target's namespace
+	// (AD-82 decision 2026-09-21-target-namespace).
+	nsTargets = nsSystem
 )
 
 var (
@@ -117,7 +120,7 @@ func TestMain(m *testing.M) {
 			return 1
 		}
 		ctx := context.Background()
-		for _, ns := range []string{nsSystem, nsSDC, nsServices, nsKuid} {
+		for _, ns := range []string{nsSystem, nsServices, nsKuid} {
 			if err := k8s.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: ns}}); err != nil {
 				fmt.Fprintln(os.Stderr, err)
 				return 1
@@ -177,9 +180,12 @@ func cond(typ condv1alpha1.ConditionType, st metav1.ConditionStatus, reason stri
 }
 
 func createLayerObjects(ctx context.Context) error {
-	sc := &invv1alpha1.Schema{ObjectMeta: metav1.ObjectMeta{Name: "srl.nokia.sdcio.dev-25.7.1", Namespace: nsSDC}}
+	sc := &invv1alpha1.Schema{ObjectMeta: metav1.ObjectMeta{Name: "srl.nokia.sdcio.dev-25.7.1", Namespace: nsTargets}}
 	sc.Spec.Provider, sc.Spec.Version = lockSet.Schema.Provider, lockSet.Schema.Version
 	for i, r := range lockSet.Schema.Repositories {
+		// the Schema states where it loads the repository from: its mirror when
+		// the lock names one (AD-75)
+		r := r.LoadedFrom()
 		rep := &invv1alpha1.SchemaSpecRepository{}
 		rep.RepoURL, rep.Kind, rep.Ref = r.RepoURL, invv1alpha1.BranchTagKind(r.Kind), r.Ref
 		if i == 0 {
@@ -191,7 +197,7 @@ func createLayerObjects(ctx context.Context) error {
 		return err
 	}
 	for _, n := range nodes {
-		tg := &configv1alpha1.Target{ObjectMeta: metav1.ObjectMeta{Name: n, Namespace: nsSDC}}
+		tg := &configv1alpha1.Target{ObjectMeta: metav1.ObjectMeta{Name: n, Namespace: nsTargets}}
 		tg.Spec.Provider = lockSet.Schema.Provider
 		tg.Spec.Address = "172.25.25.1:57400"
 		tg.Spec.ConnectionProfile = "gnmi-tls"
@@ -206,7 +212,7 @@ func createLayerObjects(ctx context.Context) error {
 func setSchemaReady(t *testing.T, ready bool) {
 	t.Helper()
 	sc := &invv1alpha1.Schema{}
-	must(t, k8s.Get(context.Background(), client.ObjectKey{Namespace: nsSDC, Name: "srl.nokia.sdcio.dev-25.7.1"}, sc))
+	must(t, k8s.Get(context.Background(), client.ObjectKey{Namespace: nsTargets, Name: "srl.nokia.sdcio.dev-25.7.1"}, sc))
 	st := metav1.ConditionFalse
 	if ready {
 		st = metav1.ConditionTrue
@@ -218,7 +224,7 @@ func setSchemaReady(t *testing.T, ready bool) {
 func setTarget(t *testing.T, node string, ready bool) {
 	t.Helper()
 	tg := &configv1alpha1.Target{}
-	must(t, k8s.Get(context.Background(), client.ObjectKey{Namespace: nsSDC, Name: node}, tg))
+	must(t, k8s.Get(context.Background(), client.ObjectKey{Namespace: nsTargets, Name: node}, tg))
 	st, reason := metav1.ConditionTrue, "Ready"
 	if !ready {
 		st, reason = metav1.ConditionFalse, "Failed"
@@ -340,6 +346,18 @@ func (f *fakeClaims) ListByLabel(ctx context.Context, kind kuid.Kind, ns string,
 	return nil, nil
 }
 
+// Index and Authority are the kuid implementation's: the fixtures' pool references
+// (defaultFabric) name the kuid index kinds, and the reconciler reads them from here.
+func (f *fakeClaims) Index(k kuid.Kind) kuid.IndexType { return kuid.NewUpstream(nil).Index(k) }
+
+func (f *fakeClaims) Authority() string { return kuid.AuthorityKuid }
+
+func (f *fakeClaims) count() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.claims)
+}
+
 func (f *fakeClaims) bindAll() {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -428,12 +446,60 @@ func (fakeRenderer) RenderFabric(m *model.FabricModel) (map[string]fabric.Render
 		if n.BGP.InterASVPN != nil {
 			doc["x-inter-as-vpn"] = *n.BGP.InterASVPN
 		}
+		if n.BGP.RouteReflectorClient != nil {
+			// a reflecting spine's configuration-integrity leaves, at the paths
+			// the read-back reads from the configuration datastore (AD-76)
+			bgp := map[string]any{"group": []any{map[string]any{"group-name": model.OverlayGroup,
+				"route-reflector": map[string]any{"client": *n.BGP.RouteReflectorClient}}}}
+			if n.BGP.InterASVPN != nil {
+				bgp["afi-safi"] = []any{map[string]any{"afi-safi-name": verify.EVPNAFISAFIName,
+					"evpn": map[string]any{"inter-as-vpn": *n.BGP.InterASVPN}}}
+			}
+			doc["srl_nokia-network-instance:network-instance"] = []any{map[string]any{"name": model.DefaultNetworkInstance,
+				"protocols": map[string]any{"srl_nokia-bgp:bgp": bgp}}}
+		}
 		b, err := json.Marshal(doc)
 		if err != nil {
 			return nil, err
 		}
 		sum := sha256.Sum256(b)
 		out[n.Name] = fabric.Rendered{Node: n.Name, JSON: b, Hash: hex.EncodeToString(sum[:])}
+	}
+	return out, nil
+}
+
+// configReader is a verify.StateReader standing in for a device that holds
+// exactly what the layer applied: its running configuration is the node's
+// priority-10 Config value, and every applied-side state leaf reads healthy.
+// With it the reconciler runs the REAL read-back (verify.Fabric).
+type configReader struct{ fabric string }
+
+func (r configReader) Running(ctx context.Context, t verify.Target) ([]byte, error) {
+	name, err := sdc.ConfigName(r.fabric, t.Name)
+	if err != nil {
+		return nil, err
+	}
+	cfg := &configv1alpha1.Config{}
+	if err := k8s.Get(ctx, client.ObjectKey{Namespace: sdc.SystemNamespace, Name: name}, cfg); err != nil {
+		return nil, err
+	}
+	if len(cfg.Spec.Config) == 0 {
+		return []byte(`{}`), nil
+	}
+	return cfg.Spec.Config[0].Value.Raw, nil
+}
+
+func (configReader) State(_ context.Context, _ verify.Target, paths []string) (map[string][]string, error) {
+	out := map[string][]string{}
+	for _, p := range paths {
+		switch {
+		case strings.HasSuffix(p, "/oper-state"):
+			out[p] = []string{verify.OperStateUp}
+		case strings.HasSuffix(p, "/session-state"):
+			out[p] = []string{verify.SessionEstablished}
+		case strings.HasSuffix(p, "/active"):
+			out[p] = []string{verify.LeafTrue}
+		}
 	}
 	return out, nil
 }
@@ -783,8 +849,12 @@ func TestOneConfigPerNodeWithTheContract(t *testing.T) {
 		if c.Spec.Lifecycle == nil || c.Spec.Lifecycle.DeletionPolicy != configv1alpha1.DeletionDelete {
 			t.Errorf("%s deletionPolicy %+v", c.Name, c.Spec.Lifecycle)
 		}
-		if c.Labels[sdc.LabelTargetNamespace] != nsSDC {
+		if c.Labels[sdc.LabelTargetNamespace] != nsTargets {
 			t.Errorf("%s target labels %v", c.Name, c.Labels)
+		}
+		// config-server v0.0.58 lists a Target's Configs in the Target's own namespace only.
+		if c.Namespace != c.Labels[sdc.LabelTargetNamespace] {
+			t.Errorf("%s in namespace %q, its Target in %q: the layer would never apply it", c.Name, c.Namespace, c.Labels[sdc.LabelTargetNamespace])
 		}
 		if len(c.OwnerReferences) != 1 {
 			t.Fatalf("%s owner references %+v", c.Name, c.OwnerReferences)
@@ -1118,6 +1188,72 @@ func TestForceReleaseFindingAndNodeLeavingTheFabric(t *testing.T) {
 	h.wantCond("Degraded", metav1.ConditionTrue, "StaleConfigurationPossible", "leaf02")
 }
 
+// SC-004's declarative negative control (AD-77): overlay.reflectorClients
+// defaults to true; declared false it is rendered as route-reflector client
+// false on both reflecting spines' Configs and the real read-back reports
+// Ready=False/NotConverged naming each spine and the setting, as a
+// configuration-integrity check read from the configuration datastore (AD-76);
+// declared true again, the Fabric is Ready. overlay.interASVPN false is a
+// configuration-integrity case only: it converges.
+func TestReflectorClientsFalseIsNotConverged(t *testing.T) {
+	h := newHarness(t, "fab-rrclients")
+	h.r.Verifier = &verify.Fabric{Reader: configReader{fabric: h.name}, Configs: sdc.New(k8s)}
+	h.converge()
+	if v := h.fabric().Spec.Overlay.ReflectorClients; v == nil || !*v {
+		t.Fatalf("spec.overlay.reflectorClients defaults to true, got %v", v)
+	}
+
+	rr := func(node string) any {
+		t.Helper()
+		name, _ := sdc.ConfigName(h.name, node)
+		cfg := &configv1alpha1.Config{}
+		must(t, k8s.Get(context.Background(), client.ObjectKey{Namespace: sdc.SystemNamespace, Name: name}, cfg))
+		var doc map[string]any
+		must(t, json.Unmarshal(cfg.Spec.Config[0].Value.Raw, &doc))
+		v := verify.ConfigValues(doc, verify.RouteReflectorClientPath(model.OverlayGroup))
+		if len(v) != 1 {
+			return nil
+		}
+		return v[0]
+	}
+	redeclare := func(v bool) {
+		t.Helper()
+		h.update(func(f *fabricv1.Fabric) { f.Spec.Overlay.ReflectorClients = ptr(v) })
+		h.reconcile()
+		confirmConfigs(t, h.name)
+		h.clock.Step(15 * time.Second)
+		h.reconcile()
+	}
+
+	redeclare(false)
+	c := h.wantCond("Ready", metav1.ConditionFalse, "NotConverged", "spine01", "spine02", "route-reflector client",
+		"spec.overlay.reflectorClients", "configuration-integrity check (read from the configuration datastore)")
+	if strings.Contains(c.Message, "leaf01") || strings.Contains(c.Message, "leaf02") || strings.Contains(c.Message, "inter-as-vpn") {
+		t.Errorf("only the reflecting spines and route-reflector client are named: %s", c.Message)
+	}
+	for _, sp := range []string{"spine01", "spine02"} {
+		if got := rr(sp); got != "false" {
+			t.Errorf("%s: route-reflector client rendered %v, want false stated (never dropped)", sp, got)
+		}
+	}
+
+	redeclare(true)
+	h.wantCond("Ready", metav1.ConditionTrue, "")
+	for _, sp := range []string{"spine01", "spine02"} {
+		if got := rr(sp); got != "true" {
+			t.Errorf("%s: route-reflector client rendered %v, want true", sp, got)
+		}
+	}
+
+	// interASVPN false: a configuration-integrity case only, it converges
+	h.update(func(f *fabricv1.Fabric) { f.Spec.Overlay.InterASVPN = ptr(false) })
+	h.reconcile()
+	confirmConfigs(t, h.name)
+	h.clock.Step(15 * time.Second)
+	h.reconcile()
+	h.wantCond("Ready", metav1.ConditionTrue, "")
+}
+
 // A declaration that changes the tagging mode of an access port a Network still
 // attaches to: Accepted=False/InvalidIntent naming the port and the services,
 // zero Config writes (AD-68).
@@ -1166,13 +1302,41 @@ func TestUntaggedFlipRefusedWithZeroConfigWrites(t *testing.T) {
 	}
 }
 
+// T182: pool references naming an index the installed authority does not serve are
+// Accepted=False/InvalidIntent naming the field, the stated group/kind and the served
+// one — before any claim, and with zero Config writes.
+func TestPoolRefsNotServedByTheAuthorityAreInvalidIntent(t *testing.T) {
+	h := newHarness(t, "fab-poolrefs")
+	layerReady(t)
+	h.create(func(f *fabricv1.Fabric) {
+		f.Spec.Underlay.LoopbackPoolRef.Group, f.Spec.Underlay.LoopbackPoolRef.Kind = "fabric.agentic-netops.io", "IdentifierPool"
+		f.Spec.Underlay.ASNPoolRef.Kind = "VLANIndex"
+	})
+	if res := h.reconcile(); res.RequeueAfter != 0 {
+		t.Errorf("a terminal InvalidIntent is not requeued, got %s", res.RequeueAfter)
+	}
+	h.wantCond("Accepted", metav1.ConditionFalse, "InvalidIntent",
+		"spec.underlay.loopbackPoolRef names fabric.agentic-netops.io/IdentifierPool",
+		"serves IP claims from ipam.be.kuid.dev/IPIndex",
+		"spec.underlay.asnPoolRef names as.be.kuid.dev/VLANIndex", "serves ASN claims from as.be.kuid.dev/ASIndex")
+	if c := h.cond("Accepted"); strings.Contains(c.Message, "linkPoolRef") {
+		t.Errorf("a matching reference named: %s", c.Message)
+	}
+	if n := len(listConfigs(t, h.name)); n != 0 {
+		t.Fatalf("%d Configs written for refused pool references", n)
+	}
+	if n := h.claims.count(); n != 0 {
+		t.Fatalf("%d claims made for refused pool references", n)
+	}
+}
+
 // The compatibility set is asserted before rendering: a Schema that differs
 // from versions.lock.yaml is Rendered=False/SchemaMismatch with no Config.
 func TestSchemaMismatchWritesNoConfig(t *testing.T) {
 	h := newHarness(t, "fab-mismatch")
 	layerReady(t)
 	sc := &invv1alpha1.Schema{}
-	must(t, k8s.Get(context.Background(), client.ObjectKey{Namespace: nsSDC, Name: "srl.nokia.sdcio.dev-25.7.1"}, sc))
+	must(t, k8s.Get(context.Background(), client.ObjectKey{Namespace: nsTargets, Name: "srl.nokia.sdcio.dev-25.7.1"}, sc))
 	orig := sc.Spec.Repositories[1].Ref
 	sc.Spec.Repositories[1].Ref = "0123456789abcdef0123456789abcdef01234567"
 	must(t, k8s.Update(context.Background(), sc))

@@ -9,8 +9,9 @@
 #                                 (a2) every other node's allocated system0.0 loopback active in
 #                                      each node's route table (keyed to the Fabric's allocations)
 #                                 (c)  inter-as-vpn and route-reflector client read back true from
-#                                      every reflecting spine — a CONFIGURATION-INTEGRITY check
-#                                      (both are configuration leaves the state datastore mirrors)
+#                                      every reflecting spine — a CONFIGURATION-INTEGRITY check,
+#                                      read from the configuration datastore (SR Linux 25.7.1 does
+#                                      not mirror either leaf into state, AD-76)
 #                                 (b)  the per-neighbour EVPN received-route counters — REPORTED,
 #                                      NOT ASSERTED: with no service on the fabric zero is correct;
 #                                      T064's verify_services.sh asserts them per service
@@ -26,6 +27,8 @@
 #                                      Fabric.status: it proves reflection on the provider-rendered
 #                                      fabric rather than on the gate's scratch configuration.
 #   show-bgp / show-evpn / show-allocations / show-rendered-config   operator read-outs
+#                                      (show-allocations reads whichever allocation authority is
+#                                      installed: first-party pools/claims, else kuid's claims)
 #
 # Every device call runs through evidence_run with the lab operator's credentials (SRL_USER /
 # SRL_PASS through gnmic's environment only). Every readiness check has its negative control
@@ -216,6 +219,12 @@ fv::probe() {
     if leftovers::scan >/dev/null; then fv::ok "(d) probe removed, read back on every node"
     else fv::fail "(d) scratch left behind after the probe"; fi
   fi
+  # The snapshots the restore read from are run artefacts too: one record hashes them, so make
+  # verify-evidence finds nothing unreferenced (NFR-013), as run_gate::seal does for the gate's.
+  local -a att=()
+  local f
+  while IFS= read -r f; do att+=(--attach "${f#"$EVIDENCE_DIR"/}"); done < <(find "$SCRATCH_SNAPSHOT_DIR" -type f 2>/dev/null | sort)
+  [[ ${#att[@]} -eq 0 ]] || evidence_run "$(gate::id "FV.d.snapshots")" "${att[@]}" -- true || true
   SCRATCH_DESC="$prev_desc"
   log::info "(d) reflection probe: ${seen} Type-3 route(s) observed through the reflectors — reported, never an input to Fabric.status"
 }
@@ -261,8 +270,23 @@ fv::show_allocations() {
   gate::init
   gate::run "FV.show-allocations.fabric" -- lab::kubectl -n "$FABRIC_NAMESPACE" get "$FV_FABRIC_RES" "$FABRIC_NAME" \
     -o jsonpath='{range .status.allocations[*]}{.purpose}{"\t"}{.node}{"\t"}{.value}{"\t"}{.indexKind}{"\t"}{.namespace}/{.name}{"\t"}bound={.bound}{"\n"}{end}' || true
-  gate::run "FV.show-allocations.claims" -- lab::kubectl get \
-    ipclaims.ipam.be.kuid.dev,asclaims.as.be.kuid.dev,vlanclaims.vlan.be.kuid.dev,genidclaims.genid.be.kuid.dev -A || true
+  # whichever allocation authority is installed (FR-104, data-model.md §23): the first-party
+  # substitute's CRDs, else kuid-server's aggregated claim APIs
+  if gate::run "FV.show-allocations.authority-first-party" -- \
+       lab::kubectl get crd identifierclaims.fabric.agentic-netops.io -o name >/dev/null 2>&1; then
+    log::info "allocation authority: first-party (IdentifierPool/IdentifierClaim in agentic-netops-allocation)"
+    gate::run "FV.show-allocations.pools" -- lab::kubectl -n agentic-netops-allocation get identifierpools.fabric.agentic-netops.io \
+      -o custom-columns='POOL:.metadata.name,TYPE:.spec.type,START:.spec.range.start,END:.spec.range.end,PREFIX:.spec.prefix,ALLOCATED:.status.allocated' || true
+    gate::run "FV.show-allocations.claims" -- lab::kubectl -n agentic-netops-allocation get identifierclaims.fabric.agentic-netops.io \
+      -o custom-columns='CLAIM:.metadata.name,POOL:.spec.poolRef.name,REQUESTED:.spec.requested,VALUE:.status.value,READY:.status.conditions[?(@.type=="Ready")].status,REASON:.status.conditions[?(@.type=="Ready")].reason' || true
+  elif gate::run "FV.show-allocations.authority-kuid" -- \
+       lab::kubectl get apiservice v1alpha1.vlan.be.kuid.dev -o name >/dev/null 2>&1; then
+    log::info "allocation authority: kuid-server (*.be.kuid.dev claims in kuid-system)"
+    gate::run "FV.show-allocations.claims" -- lab::kubectl get \
+      ipclaims.ipam.be.kuid.dev,asclaims.as.be.kuid.dev,vlanclaims.vlan.be.kuid.dev,genidclaims.genid.be.kuid.dev -A || true
+  else
+    log::warn "no allocation authority is installed (neither the IdentifierClaim CRD nor v1alpha1.vlan.be.kuid.dev)"
+  fi
 }
 
 fv::show_rendered_config() {

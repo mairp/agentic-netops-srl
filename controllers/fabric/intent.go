@@ -7,6 +7,7 @@ import (
 
 	fabricv1 "github.com/mairp/agentic-netops-srl/api/fabric/v1alpha1"
 	"github.com/mairp/agentic-netops-srl/internal/model"
+	"github.com/mairp/agentic-netops-srl/pkg/kuid"
 )
 
 // intent is the Fabric spec resolved into what the reconciler claims and
@@ -128,6 +129,38 @@ func analyse(f *fabricv1.Fabric) (*intent, error) {
 		spineASN = a
 	}
 	return in, nil
+}
+
+// checkPoolRefs refuses a pool reference whose group and kind are not the index the
+// installed allocation authority serves for that claim kind (T182). What it serves is
+// read from the adapter (Claims.Index) — never a literal here — so the same Fabric names
+// IPIndex/ASIndex under kuid and IdentifierPool under first-party. Its error is
+// InvalidIntent, before any claim or Config write.
+func checkPoolRefs(f *fabricv1.Fabric, claims kuid.Claims) error {
+	u := f.Spec.Underlay
+	var bad []string
+	for _, ref := range []struct {
+		field string
+		ref   *fabricv1.PoolRef
+		kind  kuid.Kind
+	}{
+		{"spec.underlay.loopbackPoolRef", u.LoopbackPoolRef, kuid.KindIP},
+		{"spec.underlay.linkPoolRef", u.LinkPoolRef, kuid.KindIP},
+		{"spec.underlay.asnPoolRef", u.ASNPoolRef, kuid.KindASN},
+	} {
+		if ref.ref == nil {
+			continue
+		}
+		want := claims.Index(ref.kind)
+		if ref.ref.Group != want.Group || ref.ref.Kind != want.Kind {
+			bad = append(bad, fmt.Sprintf("%s names %s/%s, but the installed allocation authority (%s) serves %s claims from %s",
+				ref.field, ref.ref.Group, ref.ref.Kind, claims.Authority(), ref.kind, want))
+		}
+	}
+	if len(bad) > 0 {
+		return fmt.Errorf("%s", strings.Join(bad, "; "))
+	}
+	return nil
 }
 
 // deriveLinks pairs the fabric ports into leaf–spine links. The rule is the

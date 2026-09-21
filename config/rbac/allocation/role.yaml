@@ -1,0 +1,53 @@
+# agentic-netops-allocation: the pools and their ledger, the claims and their status and release
+# finalizer, leader election, Events. No verb anywhere else, and no create or delete on a claim
+# or a pool: claims are made and released by their clients, pools are seeded by provisioning.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: allocation-authority
+  namespace: agentic-netops-allocation
+  labels:
+    app.kubernetes.io/name: allocation-authority
+rules:
+- apiGroups: [fabric.agentic-netops.io]
+  resources: [identifierpools]
+  verbs: [get, list, watch]
+- apiGroups: [fabric.agentic-netops.io]
+  resources: [identifierpools/status]
+  verbs: [get, update, patch]
+# update/patch on the claim itself only to add and remove the release finalizer (the spec is
+# immutable by CEL, so no write can move a claim).
+- apiGroups: [fabric.agentic-netops.io]
+  resources: [identifierclaims]
+  verbs: [get, list, watch, update, patch]
+- apiGroups: [fabric.agentic-netops.io]
+  resources: [identifierclaims/status]
+  verbs: [get, update, patch]
+- apiGroups: [fabric.agentic-netops.io]
+  resources: [identifierclaims/finalizers]
+  verbs: [update]
+- apiGroups: [coordination.k8s.io]
+  resources: [leases]
+  verbs: [get, list, watch, create, update, patch, delete]
+- apiGroups: [""]
+  resources: [events]
+  verbs: [create, patch]
+- apiGroups: [events.k8s.io]
+  resources: [events]
+  verbs: [create, patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: allocation-authority
+  namespace: agentic-netops-allocation
+  labels:
+    app.kubernetes.io/name: allocation-authority
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: allocation-authority
+subjects:
+- kind: ServiceAccount
+  name: allocation-authority
+  namespace: agentic-netops-allocation

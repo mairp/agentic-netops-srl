@@ -16,9 +16,11 @@
 #   2. G11 — its captured result from the AppsReady early run (g11-observations.json in this
 #      EVIDENCE_DIR), or, when absent, tests/gate/g11_allocation_claim.sh is run now
 #   3. G1 G2 G3 G10 G4(part A) G5 G13 — on the stock nodes
-#   4. G8 FIRST of the fabric items: its scratch fabric (setup → pre → tenant → the inter-as-vpn
-#      negative control → reflectors [+ G4 part B] → post), then, ON that fabric, G6 G7 G9 G12,
-#      then G8's teardown with the removal read back against the pre-gate snapshots
+#   4. G8 FIRST of the fabric items: its scratch fabric (setup → pre → tenant → reflectors [+ G4
+#      part B] → SC-004's negative control, the declared route-reflector client false, observed to
+#      stop reflection (AD-77), with inter-as-vpn removal recorded as an observation → post), then,
+#      ON that fabric, G6 G7 G9 G12, then G8's teardown with the removal read back against the
+#      pre-gate snapshots
 #   5. the three P0 qualifications (T166): slim_tls_keys.sh, otlp_shape.sh, vap_served.sh
 #   6. the removal read back once more: leftovers::scan (no vt-scratch- object on any node, no
 #      gate-labelled Config — G13's — or namespace in the cluster, no declared fault in place)
@@ -47,6 +49,8 @@ for __f in "$GATE_HERE"/g0[1-9]_*.sh "$GATE_HERE"/g1[023]_*.sh; do
 done
 # shellcheck source=negative_controls.sh
 source "$GATE_HERE/negative_controls.sh"
+# shellcheck source=lib/tree_hash.sh
+source "$GATE_HERE/lib/tree_hash.sh"
 
 ALL_ITEMS=(G1 G2 G3 G4 G5 G6 G7 G8 G9 G10 G11 G12 G13)
 ALL_QUALS=(SLIM OTLP VAP)
@@ -110,12 +114,13 @@ run_gate::record() {
   jq -n -S --arg schema "agentic-netops.gate-record/v1" --arg result "$result" --arg reason "$reason" \
     --arg started "$GATE_STARTED" --arg finished "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     --arg cluster "$CLUSTER_NAME" --arg lab "$LAB_NAME" --arg digest "$(evidence::device_image_digest 2>/dev/null || true)" \
-    --arg dir "$EVIDENCE_DIR" --argjson sel "$(printf '%s\n' "${SEL[@]}" | jq -R -s -c 'split("\n") | map(select(length > 0))')" \
+    --arg dir "$EVIDENCE_DIR" --arg tree "$(gate::tree_hash "$GATE_REPO_ROOT")" --argjson sel "$(printf '%s\n' "${SEL[@]}" | jq -R -s -c 'split("\n") | map(select(length > 0))')" \
     --argjson items "$items_json" --argjson quals "$quals" --argjson negs "$negs" \
     --argjson scans "$(jq -c . "$EVIDENCE_DIR/gate/scans.json" 2>/dev/null || echo '{}')" \
     '{schema: $schema, result: $result, reason: (if $reason == "" then null else $reason end),
       started_utc: $started, finished_utc: $finished,
       cluster: $cluster, lab: $lab, device_image_digest: $digest, evidence_dir: $dir,
+      gate_tree_sha256: $tree,
       items_selected: $sel,
       failed_items: ([$items[] | select(.status != "pass") | .item] | sort_by(ltrimstr("G") | tonumber? // 99)),
       items: $items, qualifications: $quals,
@@ -257,8 +262,8 @@ if selected G8; then
   if g08::setup; then
     g08::pre || true
     g08::tenant || true
-    g08::negative || true
     g08::reflectors || true
+    g08::negative || true
     g08::post || true
     GATE_ITEM=G8
     selected G6  && { g06::run || true; }
@@ -270,7 +275,7 @@ if selected G8; then
       selected "$i" && run_gate::prereq_failed "$i" "$i (runs on G8's scratch fabric)" "not run: G8's scratch fabric was refused — a device is not a stock node (see G8)"
     done
     if selected G4; then
-      gate::item_resume G4; gate::item_check "inter-as-vpn-state" 1 "not run: G8's scratch reflectors were refused (see G8)" ""; gate::item_end || true
+      gate::item_resume G4; gate::item_check "config-only-leaves-config" 1 "not run: G8's scratch reflectors were refused (see G8)" ""; gate::item_end || true
     fi
   fi
   g08::teardown || true
@@ -301,8 +306,8 @@ fi
 # ---------------------------------------------------------------- 7. the record
 
 result=pass; reason=""
-failed="$(for f in "$EVIDENCE_DIR"/gate/items/G*.json; do [[ -f "$f" ]] && jq -r 'select(.status != "pass") | .item' "$f"; done | sort -V | paste -sd' ' -)"
-qfailed="$(for f in "$EVIDENCE_DIR"/gate/qualifications/*.json; do [[ -f "$f" ]] && jq -r --arg n "$(basename "$f" .json)" 'select(.status != "pass") | $n' "$f"; done | paste -sd' ' -)"
+failed="$(for f in "$EVIDENCE_DIR"/gate/items/G*.json; do [[ -f "$f" ]] || continue; jq -r 'select(.status != "pass") | .item' "$f"; done | sort -V | paste -sd' ' -)"
+qfailed="$(for f in "$EVIDENCE_DIR"/gate/qualifications/*.json; do [[ -f "$f" ]] || continue; jq -r --arg n "$(basename "$f" .json)" 'select(.status != "pass") | $n' "$f"; done | paste -sd' ' -)"
 if [[ -n "$failed" || -n "$qfailed" || "$removal_ok" == 0 ]]; then
   result=fail
   reason="failed:${failed:+ items $failed}${qfailed:+ qualifications $qfailed}$([[ "$removal_ok" == 0 ]] && echo ' removal-readback')"

@@ -4,11 +4,17 @@
 # mutating verb on config.sdcio.dev (make verify-boundaries asserts it). Every grant is
 # namespaced to where its objects live, except what is cluster-wide by design: the
 # Network watch (R-15) and Events about Networks in their own namespaces.
+#
+# NOT here: the provider's claim Role. It lives in the allocation authority's namespace and
+# is selected by versions.lock.yaml allocationAuthority.kind at provisioning (FR-104,
+# data-model.md §23) — scripts/provision.sh applies exactly one of
+#   config/rbac/claims/kuid/         kuid-system: the four *.be.kuid.dev claim resources
+#   config/rbac/claims/first-party/  agentic-netops-allocation: identifierclaims
+# with the same verbs and the same deliberate absence of update and patch.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
 - service_account.yaml
 - role_system.yaml
 - role_sdc.yaml
-- role_kuid.yaml
 - clusterrole.yaml

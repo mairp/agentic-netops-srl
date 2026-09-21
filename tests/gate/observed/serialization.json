@@ -1,0 +1,623 @@
+{
+  "encoding": "JSON_IETF",
+  "reads": [
+    {
+      "datastore": "CONFIG",
+      "name": "ni-type-default",
+      "node_role": "leaf",
+      "ok": true,
+      "path_requested": "/network-instance[name=default]/type",
+      "updates": [
+        {
+          "path": "srl_nokia-network-instance:network-instance[name=default]/type",
+          "values": [
+            {
+              "json_type": "string",
+              "key": "srl_nokia-network-instance:network-instance/type",
+              "value": "srl_nokia-network-instance:default"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "datastore": "CONFIG",
+      "name": "ni-type-mac-vrf",
+      "node_role": "leaf",
+      "ok": true,
+      "path_requested": "/network-instance[name=vt-scratch-macvrf]/type",
+      "updates": [
+        {
+          "path": "srl_nokia-network-instance:network-instance[name=vt-scratch-macvrf]/type",
+          "values": [
+            {
+              "json_type": "string",
+              "key": "srl_nokia-network-instance:network-instance/type",
+              "value": "srl_nokia-network-instance:mac-vrf"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "datastore": "CONFIG",
+      "name": "ni-type-ip-vrf",
+      "node_role": "leaf",
+      "ok": true,
+      "path_requested": "/network-instance[name=vt-scratch-ipvrf]/type",
+      "updates": [
+        {
+          "path": "srl_nokia-network-instance:network-instance[name=vt-scratch-ipvrf]/type",
+          "values": [
+            {
+              "json_type": "string",
+              "key": "srl_nokia-network-instance:network-instance/type",
+              "value": "srl_nokia-network-instance:ip-vrf"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "datastore": "CONFIG",
+      "name": "subif-type-bridged",
+      "node_role": "leaf",
+      "ok": true,
+      "path_requested": "/interface[name=ethernet-1/1]/subinterface[index=3990]/type",
+      "updates": [
+        {
+          "path": "srl_nokia-interfaces:interface[name=ethernet-1/1]/subinterface[index=3990]/type",
+          "values": [
+            {
+              "json_type": "string",
+              "key": "srl_nokia-interfaces:interface/subinterface/type",
+              "value": "srl_nokia-interfaces:bridged"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "datastore": "CONFIG",
+      "name": "vxlan-if-type-bridged",
+      "node_role": "leaf",
+      "ok": true,
+      "path_requested": "/tunnel-interface[name=vxlan0]/vxlan-interface[index=13990]/type",
+      "updates": [
+        {
+          "path": "srl_nokia-tunnel-interfaces:tunnel-interface[name=vxlan0]/vxlan-interface[index=13990]/type",
+          "values": [
+            {
+              "json_type": "string",
+              "key": "srl_nokia-tunnel-interfaces:tunnel-interface/vxlan-interface/type",
+              "value": "srl_nokia-interfaces:bridged"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "datastore": "CONFIG",
+      "name": "vxlan-if-type-routed",
+      "node_role": "leaf",
+      "ok": true,
+      "path_requested": "/tunnel-interface[name=vxlan0]/vxlan-interface[index=13991]/type",
+      "updates": [
+        {
+          "path": "srl_nokia-tunnel-interfaces:tunnel-interface[name=vxlan0]/vxlan-interface[index=13991]/type",
+          "values": [
+            {
+              "json_type": "string",
+              "key": "srl_nokia-tunnel-interfaces:tunnel-interface/vxlan-interface/type",
+              "value": "srl_nokia-interfaces:routed"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "datastore": "CONFIG",
+      "name": "bgp-afi-safi-global",
+      "node_role": "leaf",
+      "ok": true,
+      "path_requested": "/network-instance[name=default]/protocols/bgp/afi-safi[afi-safi-name=*]/afi-safi-name",
+      "updates": [
+        {
+          "path": "srl_nokia-network-instance:network-instance[name=default]/protocols/srl_nokia-bgp:bgp",
+          "values": [
+            {
+              "json_type": "object",
+              "key": "srl_nokia-network-instance:network-instance/protocols/srl_nokia-bgp:bgp",
+              "value": {
+                "afi-safi": [
+                  {
+                    "afi-safi-name": "srl_nokia-common:evpn"
+                  },
+                  {
+                    "afi-safi-name": "srl_nokia-common:ipv4-unicast"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "datastore": "CONFIG",
+      "name": "bgp-afi-safi-group",
+      "node_role": "leaf",
+      "ok": true,
+      "path_requested": "/network-instance[name=default]/protocols/bgp/group[group-name=vt-scratch-overlay]/afi-safi[afi-safi-name=*]/afi-safi-name",
+      "updates": [
+        {
+          "path": "srl_nokia-network-instance:network-instance[name=default]/protocols/srl_nokia-bgp:bgp/group[group-name=vt-scratch-overlay]",
+          "values": [
+            {
+              "json_type": "object",
+              "key": "srl_nokia-network-instance:network-instance/protocols/srl_nokia-bgp:bgp/group",
+              "value": {
+                "afi-safi": [
+                  {
+                    "afi-safi-name": "srl_nokia-common:evpn"
+                  },
+                  {
+                    "afi-safi-name": "srl_nokia-common:ipv4-unicast"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "datastore": "STATE",
+      "name": "bgp-afi-safi-neighbor-state",
+      "node_role": "leaf",
+      "ok": true,
+      "path_requested": "/network-instance[name=default]/protocols/bgp/neighbor[peer-address=10.0.0.11]/afi-safi[afi-safi-name=*]/afi-safi-name",
+      "updates": []
+    },
+    {
+      "datastore": "STATE",
+      "name": "bgp-evpn-oper-state-neighbor",
+      "node_role": "leaf",
+      "ok": true,
+      "path_requested": "/network-instance[name=default]/protocols/bgp/neighbor[peer-address=10.0.0.11]/afi-safi[afi-safi-name=srl_nokia-common:evpn]/oper-state",
+      "updates": [
+        {
+          "path": "srl_nokia-network-instance:network-instance[name=default]/protocols/srl_nokia-bgp:bgp/neighbor[peer-address=10.0.0.11]/afi-safi[afi-safi-name=evpn]/oper-state",
+          "values": [
+            {
+              "json_type": "string",
+              "key": "srl_nokia-network-instance:network-instance/protocols/srl_nokia-bgp:bgp/neighbor/afi-safi/oper-state",
+              "value": "up"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "datastore": "STATE",
+      "name": "bgp-evpn-received-routes",
+      "node_role": "leaf",
+      "ok": true,
+      "path_requested": "/network-instance[name=default]/protocols/bgp/neighbor[peer-address=10.0.0.11]/afi-safi[afi-safi-name=srl_nokia-common:evpn]/received-routes",
+      "updates": [
+        {
+          "path": "srl_nokia-network-instance:network-instance[name=default]/protocols/srl_nokia-bgp:bgp/neighbor[peer-address=10.0.0.11]/afi-safi[afi-safi-name=evpn]/received-routes",
+          "values": [
+            {
+              "json_type": "number",
+              "key": "srl_nokia-network-instance:network-instance/protocols/srl_nokia-bgp:bgp/neighbor/afi-safi/received-routes",
+              "value": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "datastore": "STATE",
+      "name": "bgp-session-state",
+      "node_role": "leaf",
+      "ok": true,
+      "path_requested": "/network-instance[name=default]/protocols/bgp/neighbor[peer-address=10.0.0.11]/session-state",
+      "updates": [
+        {
+          "path": "srl_nokia-network-instance:network-instance[name=default]/protocols/srl_nokia-bgp:bgp/neighbor[peer-address=10.0.0.11]/session-state",
+          "values": [
+            {
+              "json_type": "string",
+              "key": "srl_nokia-network-instance:network-instance/protocols/srl_nokia-bgp:bgp/neighbor/session-state",
+              "value": "established"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "datastore": "STATE",
+      "name": "inter-as-vpn-state",
+      "node_role": "spine",
+      "ok": true,
+      "path_requested": "/network-instance[name=default]/protocols/bgp/afi-safi[afi-safi-name=srl_nokia-common:evpn]/evpn/inter-as-vpn",
+      "updates": []
+    },
+    {
+      "datastore": "STATE",
+      "name": "rr-client-state",
+      "node_role": "spine",
+      "ok": true,
+      "path_requested": "/network-instance[name=default]/protocols/bgp/group[group-name=vt-scratch-overlay]/route-reflector/client",
+      "updates": []
+    },
+    {
+      "datastore": "STATE",
+      "name": "route-type-default-bgp",
+      "node_role": "leaf",
+      "ok": true,
+      "path_requested": "/network-instance[name=default]/route-table/ipv4-unicast/route[ipv4-prefix=10.0.0.11/32][route-type=*][route-owner=*][id=*][origin-network-instance=*]/route-type",
+      "updates": [
+        {
+          "path": "srl_nokia-network-instance:network-instance[name=default]/route-table/srl_nokia-ip-route-tables:ipv4-unicast",
+          "values": [
+            {
+              "json_type": "object",
+              "key": "srl_nokia-network-instance:network-instance/route-table/srl_nokia-ip-route-tables:ipv4-unicast",
+              "value": {
+                "route": [
+                  {
+                    "id": 0,
+                    "ipv4-prefix": "10.0.0.11/32",
+                    "origin-network-instance": "default",
+                    "route-owner": "bgp_mgr",
+                    "route-type": "srl_nokia-common:bgp"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "datastore": "STATE",
+      "name": "route-type-ipvrf-evpn",
+      "node_role": "leaf",
+      "ok": true,
+      "path_requested": "/network-instance[name=vt-scratch-ipvrf]/route-table/ipv4-unicast/route[ipv4-prefix=198.18.0.2/32][route-type=*][route-owner=*][id=*][origin-network-instance=*]/route-type",
+      "updates": [
+        {
+          "path": "srl_nokia-network-instance:network-instance[name=vt-scratch-ipvrf]/route-table/srl_nokia-ip-route-tables:ipv4-unicast",
+          "values": [
+            {
+              "json_type": "object",
+              "key": "srl_nokia-network-instance:network-instance/route-table/srl_nokia-ip-route-tables:ipv4-unicast",
+              "value": {
+                "route": [
+                  {
+                    "id": 0,
+                    "ipv4-prefix": "198.18.0.2/32",
+                    "origin-network-instance": "vt-scratch-ipvrf",
+                    "route-owner": "bgp_evpn_mgr",
+                    "route-type": "srl_nokia-common:bgp-evpn"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "datastore": "CONFIG",
+      "name": "evpn-encapsulation",
+      "node_role": "leaf",
+      "ok": true,
+      "path_requested": "/network-instance[name=vt-scratch-macvrf]/protocols/bgp-evpn/bgp-instance[id=1]/encapsulation-type",
+      "updates": [
+        {
+          "path": "srl_nokia-network-instance:network-instance[name=vt-scratch-macvrf]/protocols/bgp-evpn/srl_nokia-bgp-evpn:bgp-instance[id=1]/encapsulation-type",
+          "values": [
+            {
+              "json_type": "string",
+              "key": "srl_nokia-network-instance:network-instance/protocols/bgp-evpn/srl_nokia-bgp-evpn:bgp-instance/encapsulation-type",
+              "value": "vxlan"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "datastore": "CONFIG",
+      "name": "evpn-evi",
+      "node_role": "leaf",
+      "ok": true,
+      "path_requested": "/network-instance[name=vt-scratch-macvrf]/protocols/bgp-evpn/bgp-instance[id=1]/evi",
+      "updates": [
+        {
+          "path": "srl_nokia-network-instance:network-instance[name=vt-scratch-macvrf]/protocols/bgp-evpn/srl_nokia-bgp-evpn:bgp-instance[id=1]/evi",
+          "values": [
+            {
+              "json_type": "number",
+              "key": "srl_nokia-network-instance:network-instance/protocols/bgp-evpn/srl_nokia-bgp-evpn:bgp-instance/evi",
+              "value": 13990
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "datastore": "CONFIG",
+      "name": "route-target-export",
+      "node_role": "leaf",
+      "ok": true,
+      "path_requested": "/network-instance[name=vt-scratch-macvrf]/protocols/bgp-vpn/bgp-instance[id=1]/route-target/export-rt",
+      "updates": [
+        {
+          "path": "srl_nokia-network-instance:network-instance[name=vt-scratch-macvrf]/protocols/srl_nokia-bgp-vpn:bgp-vpn/bgp-instance[id=1]/route-target/export-rt",
+          "values": [
+            {
+              "json_type": "string",
+              "key": "srl_nokia-network-instance:network-instance/protocols/srl_nokia-bgp-vpn:bgp-vpn/bgp-instance/route-target/export-rt",
+              "value": "target:65000:13990"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "datastore": "STATE",
+      "name": "rd-origin",
+      "node_role": "leaf",
+      "ok": true,
+      "path_requested": "/network-instance[name=vt-scratch-macvrf]/protocols/bgp-vpn/bgp-instance[id=1]/route-distinguisher/route-distinguisher-origin",
+      "updates": [
+        {
+          "path": "srl_nokia-network-instance:network-instance[name=vt-scratch-macvrf]/protocols/srl_nokia-bgp-vpn:bgp-vpn/bgp-instance[id=1]/route-distinguisher/route-distinguisher-origin",
+          "values": [
+            {
+              "json_type": "string",
+              "key": "srl_nokia-network-instance:network-instance/protocols/srl_nokia-bgp-vpn:bgp-vpn/bgp-instance/route-distinguisher/route-distinguisher-origin",
+              "value": "auto-derived-from-evi"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "datastore": "CONFIG",
+      "name": "irb-anycast-gw-v4",
+      "node_role": "leaf",
+      "ok": true,
+      "path_requested": "/interface[name=irb0]/subinterface[index=3990]/ipv4/address[ip-prefix=203.0.113.1/26]/anycast-gw",
+      "updates": [
+        {
+          "path": "srl_nokia-interfaces:interface[name=irb0]/subinterface[index=3990]/ipv4/address[ip-prefix=203.0.113.1/26]/anycast-gw",
+          "values": [
+            {
+              "json_type": "boolean",
+              "key": "srl_nokia-interfaces:interface/subinterface/ipv4/address/anycast-gw",
+              "value": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "datastore": "CONFIG",
+      "name": "irb-primary-empty-leaf",
+      "node_role": "leaf",
+      "ok": true,
+      "path_requested": "/interface[name=irb0]/subinterface[index=3990]/ipv4/address[ip-prefix=203.0.113.1/26]/primary",
+      "updates": [
+        {
+          "path": "srl_nokia-interfaces:interface[name=irb0]/subinterface[index=3990]/ipv4/address[ip-prefix=203.0.113.1/26]/primary",
+          "values": [
+            {
+              "json_type": "array",
+              "key": "srl_nokia-interfaces:interface/subinterface/ipv4/address/primary",
+              "value": [
+                null
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "datastore": "CONFIG",
+      "name": "irb-anycast-gw-v6",
+      "node_role": "leaf",
+      "ok": true,
+      "path_requested": "/interface[name=irb0]/subinterface[index=3990]/ipv6/address[ip-prefix=2001:db8:3990::1/64]/anycast-gw",
+      "updates": [
+        {
+          "path": "srl_nokia-interfaces:interface[name=irb0]/subinterface[index=3990]/ipv6/address[ip-prefix=2001:db8:3990::1/64]/anycast-gw",
+          "values": [
+            {
+              "json_type": "boolean",
+              "key": "srl_nokia-interfaces:interface/subinterface/ipv6/address/anycast-gw",
+              "value": true
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "datastore": "STATE",
+      "name": "irb-anycast-gw-mac-origin",
+      "node_role": "leaf",
+      "ok": true,
+      "path_requested": "/interface[name=irb0]/subinterface[index=3990]/anycast-gw/anycast-gw-mac-origin",
+      "updates": [
+        {
+          "path": "srl_nokia-interfaces:interface[name=irb0]/subinterface[index=3990]/anycast-gw/anycast-gw-mac-origin",
+          "values": [
+            {
+              "json_type": "string",
+              "key": "srl_nokia-interfaces:interface/subinterface/anycast-gw/anycast-gw-mac-origin",
+              "value": "vrid-auto-derived"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "datastore": "CONFIG",
+      "name": "nd-learn-unsolicited",
+      "node_role": "leaf",
+      "ok": true,
+      "path_requested": "/interface[name=irb0]/subinterface[index=3990]/ipv6/neighbor-discovery/learn-unsolicited",
+      "updates": [
+        {
+          "path": "srl_nokia-interfaces:interface[name=irb0]/subinterface[index=3990]/ipv6/srl_nokia-interfaces-nbr:neighbor-discovery/learn-unsolicited",
+          "values": [
+            {
+              "json_type": "string",
+              "key": "srl_nokia-interfaces:interface/subinterface/ipv6/srl_nokia-interfaces-nbr:neighbor-discovery/learn-unsolicited",
+              "value": "global"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "datastore": "CONFIG",
+      "name": "leaf-list-export-policy",
+      "node_role": "leaf",
+      "ok": true,
+      "path_requested": "/network-instance[name=default]/protocols/bgp/group[group-name=vt-scratch-underlay]/export-policy",
+      "updates": [
+        {
+          "path": "srl_nokia-network-instance:network-instance[name=default]/protocols/srl_nokia-bgp:bgp/group[group-name=vt-scratch-underlay]/export-policy",
+          "values": [
+            {
+              "json_type": "array",
+              "key": "srl_nokia-network-instance:network-instance/protocols/srl_nokia-bgp:bgp/group/export-policy",
+              "value": [
+                "vt-scratch-loopbacks"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "datastore": "CONFIG",
+      "name": "admin-state-enum",
+      "node_role": "leaf",
+      "ok": true,
+      "path_requested": "/interface[name=ethernet-1/1]/admin-state",
+      "updates": [
+        {
+          "path": "srl_nokia-interfaces:interface[name=ethernet-1/1]/admin-state",
+          "values": [
+            {
+              "json_type": "string",
+              "key": "srl_nokia-interfaces:interface/admin-state",
+              "value": "enable"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "datastore": "CONFIG",
+      "name": "port-mtu-uint16",
+      "node_role": "leaf",
+      "ok": true,
+      "path_requested": "/interface[name=ethernet-1/1]/mtu",
+      "updates": [
+        {
+          "path": "srl_nokia-interfaces:interface[name=ethernet-1/1]/mtu",
+          "values": [
+            {
+              "json_type": "number",
+              "key": "srl_nokia-interfaces:interface/mtu",
+              "value": 9412
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "datastore": "CONFIG",
+      "name": "vlan-id",
+      "node_role": "leaf",
+      "ok": true,
+      "path_requested": "/interface[name=ethernet-1/1]/subinterface[index=3990]/vlan/encap/single-tagged/vlan-id",
+      "updates": [
+        {
+          "path": "srl_nokia-interfaces:interface[name=ethernet-1/1]/subinterface[index=3990]/srl_nokia-interfaces-vlans:vlan/encap/single-tagged/vlan-id",
+          "values": [
+            {
+              "json_type": "number",
+              "key": "srl_nokia-interfaces:interface/subinterface/srl_nokia-interfaces-vlans:vlan/encap/single-tagged/vlan-id",
+              "value": 3990
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "datastore": "STATE",
+      "name": "counter-uint64",
+      "node_role": "leaf",
+      "ok": true,
+      "path_requested": "/interface[name=ethernet-1/1]/statistics/in-octets",
+      "updates": [
+        {
+          "path": "srl_nokia-interfaces:interface[name=ethernet-1/1]/statistics/in-octets",
+          "values": [
+            {
+              "json_type": "string",
+              "key": "srl_nokia-interfaces:interface/statistics/in-octets",
+              "value": null
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "schema": "agentic-netops.gate.serialization/v1",
+  "summary": {
+    "afi_safi_name_evpn": [
+      "srl_nokia-common:evpn"
+    ],
+    "empty_leaf_primary": [
+      null
+    ],
+    "identityref_values_module_qualified": true,
+    "network_instance_type_default": "srl_nokia-network-instance:default",
+    "network_instance_type_ip_vrf": "srl_nokia-network-instance:ip-vrf",
+    "network_instance_type_mac_vrf": "srl_nokia-network-instance:mac-vrf",
+    "route_type_bgp": {
+      "route": [
+        {
+          "id": 0,
+          "ipv4-prefix": "10.0.0.11/32",
+          "origin-network-instance": "default",
+          "route-owner": "bgp_mgr",
+          "route-type": "srl_nokia-common:bgp"
+        }
+      ]
+    },
+    "route_type_ip_vrf_evpn": {
+      "route": [
+        {
+          "id": 0,
+          "ipv4-prefix": "198.18.0.2/32",
+          "origin-network-instance": "vt-scratch-ipvrf",
+          "route-owner": "bgp_evpn_mgr",
+          "route-type": "srl_nokia-common:bgp-evpn"
+        }
+      ]
+    },
+    "subinterface_type_bridged": "srl_nokia-interfaces:bridged",
+    "uint32_counter_json_type": "number",
+    "uint64_counter_json_type": "string",
+    "vxlan_interface_type_routed": "srl_nokia-interfaces:routed"
+  }
+}

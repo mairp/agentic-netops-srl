@@ -21,7 +21,11 @@
 #   r7 anycast-gw true on an IRB address without the anycast-gw container (evidence/02 §5.2 must)
 #   r8 two IPv4 addresses on system0.0                  (patch: added must)
 # Controls: a VALID Config must be accepted (the dry-run reaches the target and validates), and a
-# YANG range violation (vlan-id 5000) must be refused (the validator is live).
+# YANG range violation (port mtu 10000, outside the model's 1450..9500) must be refused (the
+# validator is live). Observed on data-server v0.0.66 (pass 37): its dry-run enforces the range of a
+# plain integer leaf and refuses an unknown leaf, but does NOT check an enumeration value
+# (admin-state "bogus" accepted) nor the union-typed single-tagged vlan-id (5000 and "abc" both
+# accepted) — so the liveness control uses the mtu range, which the validator does check.
 GATE_HERE="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then exec bash "$GATE_HERE/run_gate.sh" --only G10 "$@"; fi
 # shellcheck source=lib/gate.sh
@@ -36,7 +40,7 @@ g10::value() {
   local IF='"srl_nokia-interfaces:'
   case "$1" in
     valid)    echo '{"interface":[{"name":"ethernet-1/54","description":"vt-scratch-g10-valid"}]}' ;;
-    liveness) echo '{"interface":[{"name":"ethernet-1/54","vlan-tagging":true,"subinterface":[{"index":10,"type":'"${IF}"'bridged","vlan":{"encap":{"single-tagged":{"vlan-id":5000}}}}]}]}' ;;
+    liveness) echo '{"interface":[{"name":"ethernet-1/54","description":"vt-scratch-g10-liveness","mtu":10000}]}' ;;
     r1) echo '{"interface":[{"name":"ethernet-1/54","description":"vt-scratch-g10-r1","subinterface":[{"index":0,"type":'"${IF}"'bridged","ipv4":{"admin-state":"enable"}}]}]}' ;;
     r2) echo '{"interface":[{"name":"ethernet-1/54","description":"vt-scratch-g10-r2","subinterface":[{"index":0,"type":'"${IF}"'bridged","ipv6":{"admin-state":"enable"}}]}]}' ;;
     r3) echo '{"interface":[{"name":"system0","description":"vt-scratch-g10-r3","subinterface":[{"index":0,"type":'"${IF}"'bridged"}]}]}' ;;
@@ -73,7 +77,7 @@ g10::run() {
   gate::item_begin G10 "The deviated schema still rejects the must-reject set"
   local rc c
   if ! g10::resolve_target; then
-    gate::item_check "target-resolved" 1 "no SDC Target found for $G10_NODE (kubectl get targets.inv.sdcio.dev -A)" ""
+    gate::item_check "target-resolved" 1 "no SDC Target found for $G10_NODE (kubectl get targets.config.sdcio.dev -n $LAB_TARGET_NS)" ""
     gate::item_end; return 1
   fi
   gate::item_observe target "$(jq -cn --arg ns "$G10_TARGET_NS" --arg n "$G10_TARGET" '{namespace: $ns, name: $n}')"

@@ -27,14 +27,25 @@ func renderDefaultNI(n *model.FabricNode) container {
 // ipv4-unicast only) and `underlay-v6` (IPv6 sessions, ipv6-unicast only),
 // both exporting and importing the loopback policy; and the iBGP EVPN overlay,
 // group `overlay` with peer-as and local-as = the fabric ASN, evpn only, to
-// both reflecting spines from a leaf, and `route-reflector client true` on a
+// both reflecting spines from a leaf, and `route-reflector client` on a
 // reflecting spine. Every group states every enabled family explicitly, so no
 // session carries a family it was not meant to.
 //
 // inter-as-vpn is rendered on a reflecting spine exactly as the Fabric states
 // it — true, or false rendered as false and never dropped — because a
 // reflecting spine that is not a VTEP rejects every EVPN route without it
-// (R-37) and the SC-004 negative control is the declared false (AD-43).
+// (R-37); it is a configuration-integrity setting, no longer SC-004's control
+// (AD-77).
+//
+// route-reflector client is rendered on every reflecting spine's overlay group
+// exactly as spec.overlay.reflectorClients states it — true by default, or
+// false rendered as false and never dropped: the declared false is SC-004's
+// negative control (AD-77).
+//
+// `as-path-options allow-own-as` is rendered on the underlay groups of a node
+// whose AS another node shares (the spines), so each learns the other's
+// loopback through a leaf — the loopback-route invariant of the read-back,
+// observed by G8 on exactly this setting.
 func renderBGP(b *model.FabricBGP) container {
 	fams := b.Families()
 	afis := newList("afi-safi-name")
@@ -57,12 +68,15 @@ func renderBGP(b *model.FabricBGP) container {
 		if g == model.OverlayGroup {
 			e["peer-as"] = b.OverlayAS
 			e["local-as"] = container{"as-number": b.OverlayAS}
-			if b.RouteReflectorClient {
-				e["route-reflector"] = container{"client": true}
+			if b.RouteReflectorClient != nil {
+				e["route-reflector"] = container{"client": *b.RouteReflectorClient}
 			}
 		} else {
 			e["export-policy"] = leafList{model.LoopbackPolicy}
 			e["import-policy"] = leafList{model.LoopbackPolicy}
+			if b.AllowOwnAS > 0 {
+				e["as-path-options"] = container{"allow-own-as": b.AllowOwnAS}
+			}
 		}
 		groups.add(e)
 	}

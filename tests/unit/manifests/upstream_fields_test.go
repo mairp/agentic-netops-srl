@@ -119,6 +119,12 @@ func TestOnboardingManifestsDecodeAsConfigServerV0058(t *testing.T) {
 					RepoURL string `json:"repoURL"`
 					Kind    string `json:"kind"`
 					Ref     string `json:"ref"`
+					// Mirror: where the Schema loads the repository from (AD-75).
+					Mirror *struct {
+						RepoURL string `json:"repoURL"`
+						Kind    string `json:"kind"`
+						Ref     string `json:"ref"`
+					} `json:"mirror"`
 				} `json:"repositories"`
 			} `json:"schema"`
 		} `json:"compatibilitySet"`
@@ -139,6 +145,9 @@ func TestOnboardingManifestsDecodeAsConfigServerV0058(t *testing.T) {
 	}
 	for i, r := range schema.Spec.Repositories {
 		w := want.Repositories[i]
+		if m := w.Mirror; m != nil {
+			w.RepoURL, w.Kind, w.Ref = m.RepoURL, m.Kind, m.Ref
+		}
 		if r.RepoURL != w.RepoURL || string(r.Kind) != w.Kind || r.Ref != w.Ref {
 			t.Errorf("Schema repository %d = %s %s %s, lock part 4 says %s %s %s", i, r.RepoURL, r.Kind, r.Ref, w.RepoURL, w.Kind, w.Ref)
 		}
@@ -191,8 +200,10 @@ func TestOnboardingManifestsDecodeAsConfigServerV0058(t *testing.T) {
 		t.Errorf("DiscoveryRule target profile %s/%v does not name the onboarding profiles %s/%s", tp.ConnectionProfile, tp.SyncProfile, tcp.Name, tsp.Name)
 	}
 	for _, o := range []string{schema.Namespace, tcp.Namespace, tsp.Namespace, dr.Namespace} {
-		if o != "sdc-system" {
-			t.Errorf("onboarding object in namespace %q, want sdc-system", o)
+		// Targets and everything they use live in agentic-netops-system because config-server
+		// v0.0.58 lists them in the Target's namespace (AD-82 decision 2026-09-21-target-namespace).
+		if o != "agentic-netops-system" {
+			t.Errorf("onboarding object in namespace %q, want agentic-netops-system", o)
 		}
 	}
 }

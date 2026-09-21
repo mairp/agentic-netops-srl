@@ -134,9 +134,9 @@
         {
           "evidence": null,
           "exit_status": 0,
-          "name": "inter-as-vpn-state:spine01",
+          "name": "inter-as-vpn-config:spine01",
           "status": "pass",
-          "summary": "inter-as-vpn-state:spine01"
+          "summary": "inter-as-vpn-config:spine01"
         }
       ],
       "failed_checks": [],
@@ -231,6 +231,13 @@
           "name": "reflector-settings:spine01",
           "status": "pass",
           "summary": "reflector-settings:spine01"
+        },
+        {
+          "evidence": null,
+          "exit_status": 0,
+          "name": "reflector-clients-false-stops-reflection",
+          "status": "pass",
+          "summary": "reflector-clients-false-stops-reflection"
         },
         {
           "evidence": null,

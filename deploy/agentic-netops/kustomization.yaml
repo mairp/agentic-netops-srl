@@ -9,15 +9,15 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
-- namespaces.yaml
-- ../../config/crd
-- ../../config/rbac
-- deployment.yaml
-- service.yaml
+  - namespaces.yaml
+  - ../../config/crd
+  - ../../config/rbac
+  - deployment.yaml
+  - service.yaml
 # The provider image is built locally and never pulled: scripts/lib/image_build.sh (T169)
 # writes its content-hash tag into newTag below (a kustomize image override, never a hand
 # edit). Until it has, newTag is the placeholder `unbuilt`, which no registry and no local
 # build carries, so an unbuilt deployment fails visibly (ErrImageNeverPull) — never `latest`.
 images:
-- name: srl-provider
-  newTag: unbuilt
+  - name: srl-provider
+    newTag: 95152c27545775ffa2f3d31c819954bed7babb6ce8a51f37be4841303577fd80

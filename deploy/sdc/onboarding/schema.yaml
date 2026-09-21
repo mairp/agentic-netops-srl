@@ -3,13 +3,20 @@
 # provider srl.nokia.sdcio.dev, version 25.7.1; the native models only (srl_nokia/models), with
 # ietf and openconfig for import resolution and tools excluded. Two repositories, both pinned —
 # the YANG models by tag (part 2, v25.7.1 = badcf9977fe672437907cdae7daebb27a1361c36) and the
-# deviation patch by commit (part 3). A branch reference is forbidden (crd-api.md). Field names
-# are config-server v0.0.58 inv.sdcio.dev/v1alpha1 SchemaSpec.
+# deviation patch by commit (part 3). A branch reference is forbidden (crd-api.md; make
+# sdc-onboard refuses one naming this file). config-server v0.0.58 fetches every non-branch ref
+# as a TAG and sdcio/srlinux-yang-patch has no tags, so part 3's commit is loaded from the
+# in-cluster mirror (deploy/sdc/schema-mirror, scripts/lib/schema_mirror.sh), which asserts the
+# locked commit and serves it ONLY as refs/tags/<commit> (AD-75; versions.lock.yaml part 4
+# repositories[1].mirror). Field names are config-server v0.0.58 inv.sdcio.dev/v1alpha1 SchemaSpec.
+# The mirror itself (a layer workload) stays in sdc-system; only this Schema object moved.
+# Targets and everything they use live in agentic-netops-system because config-server v0.0.58
+# lists them in the Target's namespace (AD-82 decision 2026-09-21-target-namespace).
 apiVersion: inv.sdcio.dev/v1alpha1
 kind: Schema
 metadata:
   name: srl.nokia.sdcio.dev-25.7.1
-  namespace: sdc-system
+  namespace: agentic-netops-system
 spec:
   provider: srl.nokia.sdcio.dev
   version: 25.7.1
@@ -23,8 +30,8 @@ spec:
       models: [srl_nokia/models]
       includes: [ietf, openconfig]
       excludes: ['.*tools.*']
-  - repoURL: https://github.com/sdcio/srlinux-yang-patch
-    kind: hash
+  - repoURL: http://schema-mirror.sdc-system.svc.cluster.local/git/srlinux-yang-patch.git
+    kind: tag
     ref: 7410316d34f1d393b82889c0caa1b5acef80fb60
     dirs:
     - {src: srl_nokia, dst: deviations}

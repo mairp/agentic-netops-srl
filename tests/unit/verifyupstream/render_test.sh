@@ -3,7 +3,9 @@
 # `kubectl kustomize` (or `kustomize build`) of deploy/cert-manager, deploy/sdc, deploy/kuid,
 # deploy/kuid/indices and deploy/sdc/onboarding must succeed with no cluster, and the render must
 #   pin every container image as <repo>:<tag>@sha256:… equal to a versions.lock.yaml `pinned:`;
-#   put every namespaced sdc object in sdc-system and every kuid object in kuid-system (the
+#   put every namespaced sdc object in sdc-system, every onboarding object in agentic-netops-system
+#     (the Targets' namespace: config-server v0.0.58 lists what a Target uses in the Target's
+#     namespace — AD-82 decision 2026-09-21-target-namespace), every kuid object in kuid-system (the
 #     auth-reader RoleBindings and cert-manager's leader-election Roles excepted: they belong in
 #     kube-system), and stamp no namespace on a
 #     cluster-scoped object (kustomize does not know ClusterIssuer is cluster-scoped);
@@ -53,7 +55,7 @@ def containers(d):
     spec = ((d.get("spec") or {}).get("template") or {}).get("spec") or {}
     return (spec.get("initContainers") or []) + (spec.get("containers") or [])
 for name, ns in (("cert-manager", "cert-manager"), ("sdc", "sdc-system"), ("kuid", "kuid-system"),
-                 ("kuid_indices", "kuid-system"), ("sdc_onboarding", "sdc-system")):
+                 ("kuid_indices", "kuid-system"), ("sdc_onboarding", "agentic-netops-system")):
     for d in load(name):
         k, md = d["kind"], d["metadata"]
         where = f"deploy/{name.replace('_', '/')}: {k} {md['name']}"

@@ -2,6 +2,7 @@ package verify
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"go/ast"
 	"go/parser"
@@ -145,8 +146,31 @@ func readyConfig(name string, gen int64) *configv1alpha1.Config {
 
 func fixture(t *testing.T, interASVPN bool) (*Fabric, *fakeReader, *fakeConfigs, FabricInput) {
 	t.Helper()
+	return fixtureRC(t, interASVPN, true)
+}
+
+// spineRunning is a reflecting spine's running configuration as the layer
+// holds it: the configuration-integrity leaves under the default instance's
+// BGP. An empty value leaves that leaf out.
+func spineRunning(interASVPN, client string) string {
+	evpn, rr := "{}", "{}"
+	if interASVPN != "" {
+		evpn = `{"inter-as-vpn":` + interASVPN + `}`
+	}
+	if client != "" {
+		rr = `{"client":` + client + `}`
+	}
+	return `{"srl_nokia-interfaces:interface":[{"name":"system0","admin-state":"enable"}],` +
+		`"srl_nokia-network-instance:network-instance":[{"name":"default","type":"srl_nokia-network-instance:default",` +
+		`"protocols":{"srl_nokia-bgp:bgp":{"afi-safi":[{"afi-safi-name":"srl_nokia-common:ipv4-unicast"},` +
+		`{"afi-safi-name":"srl_nokia-common:evpn","evpn":` + evpn + `}],` +
+		`"group":[{"group-name":"underlay"},{"group-name":"overlay","route-reflector":` + rr + `}]}}}]}`
+}
+
+func fixtureRC(t *testing.T, interASVPN, reflectorClients bool) (*Fabric, *fakeReader, *fakeConfigs, FabricInput) {
+	t.Helper()
 	in := model.FabricInput{
-		Name: "fabric01", FabricASN: 65000, InterASVPN: interASVPN,
+		Name: "fabric01", FabricASN: 65000, InterASVPN: interASVPN, ReflectorClients: reflectorClients,
 		AddressFamilies: []model.AddressFamily{model.FamilyUnderlayIPv4, model.FamilyUnderlayIPv6},
 		MTU:             model.FabricMTU{PortMTU: 9412, UnderlayIPMTU: 9398, BridgedL2MTU: 9412, TenantIPMTU: 9348},
 		Nodes: []model.FabricNodeInput{
@@ -172,12 +196,16 @@ func fixture(t *testing.T, interASVPN bool) (*Fabric, *fakeReader, *fakeConfigs,
 	}
 	r := newFakeReader()
 	cs := &fakeConfigs{cfgs: map[string]*configv1alpha1.Config{}, devs: map[string]*configv1alpha1.Deviation{}}
-	fi := FabricInput{Model: m, InterASVPN: interASVPN, TargetNamespace: "sdc-system"}
+	fi := FabricInput{Model: m, InterASVPN: interASVPN, ReflectorClients: reflectorClients, TargetNamespace: "agentic-netops-system"}
 	for _, n := range m.Nodes {
 		doc := `{"srl_nokia-interfaces:interface":[{"name":"system0","admin-state":"enable"}],` +
 			`"srl_nokia-network-instance:network-instance":[{"name":"default","type":"srl_nokia-network-instance:default"}]}`
 		name := "fabric01." + n.Name
 		r.rendered[n.Name] = doc
+		if n.BGP.RouteReflectorClient != nil {
+			// the device holds the configuration-integrity leaves as declared
+			r.running[n.Name] = spineRunning(strconv.FormatBool(interASVPN), strconv.FormatBool(reflectorClients))
+		}
 		cs.cfgs[name] = readyConfig(name, 1)
 		fi.Nodes = append(fi.Nodes, FabricNodeInput{Node: n.Name, ConfigName: name, Rendered: []byte(doc)})
 	}
@@ -237,11 +265,22 @@ func TestFabricPassesWhenEveryInvariantHolds(t *testing.T) {
 		"/interface[name=system0]/subinterface[index=0]/oper-state",
 		"/network-instance[name=default]/protocols/bgp/neighbor[peer-address=10.0.0.11]/afi-safi[afi-safi-name=srl_nokia-common:evpn]/oper-state",
 		"/network-instance[name=default]/route-table/ipv4-unicast/route[ipv4-prefix=10.0.0.2/32][route-type=bgp]/active",
-		"/network-instance[name=default]/protocols/bgp/afi-safi[afi-safi-name=srl_nokia-common:evpn]/evpn/inter-as-vpn",
-		"/network-instance[name=default]/protocols/bgp/group[group-name=overlay]/route-reflector/client",
 	} {
 		if !containsStr(res.Paths, want) {
 			t.Errorf("path not read: %s", want)
+		}
+	}
+	// the configuration-integrity leaves are read from the configuration
+	// datastore, never from state (AD-76)
+	for _, want := range []string{
+		"/network-instance[name=default]/protocols/bgp/afi-safi[afi-safi-name=srl_nokia-common:evpn]/evpn/inter-as-vpn",
+		"/network-instance[name=default]/protocols/bgp/group[group-name=overlay]/route-reflector/client",
+	} {
+		if !containsStr(res.ConfigPaths, want) {
+			t.Errorf("configuration-integrity path not read from the configuration datastore: %s", want)
+		}
+		if containsStr(res.Paths, want) || containsStr(r.paths, want) {
+			t.Errorf("configuration-integrity path read from the state datastore: %s", want)
 		}
 	}
 	// the IPv6 loopback of every other node, where the family is enabled
@@ -281,8 +320,6 @@ func TestEachAppliedSideInvariantFails(t *testing.T) {
 		{"evpn family not negotiated", "spine02", EVPNFamilyOperStatePath("10.0.0.1"), []string{"down"}, CheckEVPNFamily, []string{"EVPN family on 10.0.0.1"}},
 		{"loopback route inactive", "leaf01", RouteActivePath("ipv4-unicast", "ipv4-prefix", "10.0.0.2/32"), []string{"false"}, CheckLoopbackRoute, []string{"leaf02", "10.0.0.2/32"}},
 		{"loopback route absent", "spine01", RouteActivePath("ipv4-unicast", "ipv4-prefix", "10.0.0.12/32"), nil, CheckLoopbackRoute, []string{"spine02"}},
-		{"inter-as-vpn lost", "spine01", InterASVPNPath(), []string{"false"}, CheckConfigurationIntegrity, []string{"configuration-integrity check", "spine01", "inter-as-vpn"}},
-		{"rr client lost", "spine02", RouteReflectorClientPath("overlay"), nil, CheckConfigurationIntegrity, []string{"configuration-integrity check", "spine02", "route-reflector client"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f, r, _, in := fixture(t, true)
@@ -350,26 +387,123 @@ func TestWrittenSideFails(t *testing.T) {
 	})
 }
 
-// A Fabric that declares overlay.interASVPN false is NotConverged naming each
-// reflecting spine and the setting, even while a device still reads true
-// (AD-43); the message records it as a configuration-integrity check.
-func TestInterASVPNFalseDeclaredIsNotConverged(t *testing.T) {
+// The configuration-integrity leaves are read from the configuration datastore
+// (AD-76): a spine whose running configuration lost one is NotConverged naming
+// the spine and the setting, whatever the state datastore reports, and the
+// message says it is a configuration-integrity check read from there.
+func TestConfigurationIntegrityIsReadFromTheConfigurationDatastore(t *testing.T) {
+	for _, tc := range []struct {
+		name, node, running string
+		sub                 []string
+	}{
+		{"inter-as-vpn lost", "spine01", spineRunning("false", "true"), []string{"spine01", "inter-as-vpn", "reads false in the configuration datastore, want true"}},
+		{"inter-as-vpn absent", "spine02", spineRunning("", "true"), []string{"spine02", "inter-as-vpn", "reads nothing"}},
+		{"rr client lost", "spine02", spineRunning("true", "false"), []string{"spine02", "route-reflector client", "reads false in the configuration datastore, want true"}},
+		{"rr client absent", "spine01", spineRunning("true", ""), []string{"spine01", "route-reflector client", "reads nothing"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f, r, _, in := fixture(t, true)
+			r.running[tc.node] = tc.running
+			res := mustRun(t, f, in)
+			wantMissing(t, res, tc.node, CheckConfigurationIntegrity,
+				append([]string{"configuration-integrity check (read from the configuration datastore)"}, tc.sub...)...)
+			if len(res.Missing) != 1 {
+				t.Errorf("want exactly one missing invariant, got %v", res.Missing)
+			}
+		})
+	}
+	t.Run("state not mirroring the leaves is not a failure", func(t *testing.T) {
+		f, r, _, in := fixture(t, true)
+		r.override[InterASVPNPath()] = nil
+		r.override[RouteReflectorClientPath(model.OverlayGroup)] = nil
+		if res := mustRun(t, f, in); !res.Passed() {
+			t.Fatalf("SR Linux 25.7.1 state does not mirror these leaves; missing: %v", res.Missing)
+		}
+	})
+	t.Run("state reading true does not mask a lost setting", func(t *testing.T) {
+		f, r, _, in := fixture(t, true)
+		r.override[RouteReflectorClientPath(model.OverlayGroup)] = []string{"true"}
+		r.running["spine01"] = spineRunning("true", "false")
+		wantMissing(t, mustRun(t, f, in), "spine01", CheckConfigurationIntegrity, "route-reflector client", "configuration datastore")
+	})
+}
+
+func TestConfigValues(t *testing.T) {
+	var doc any
+	if err := json.Unmarshal([]byte(spineRunning("true", "false")), &doc); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		path string
+		want []string
+	}{
+		{InterASVPNPath(), []string{"true"}},
+		{RouteReflectorClientPath(model.OverlayGroup), []string{"false"}},
+		// the identityref key matches by local name
+		{"/network-instance[name=default]/protocols/bgp/afi-safi[afi-safi-name=evpn]/evpn/inter-as-vpn", []string{"true"}},
+		{RouteReflectorClientPath("underlay"), nil},
+		{"/network-instance[name=other]/protocols/bgp/group[group-name=overlay]/route-reflector/client", nil},
+		{"/interface[name=system0]/admin-state", []string{"enable"}},
+		{"/interface/name", []string{"system0"}},
+	} {
+		if got := ConfigValues(doc, tc.path); strings.Join(got, ",") != strings.Join(tc.want, ",") {
+			t.Errorf("%s: got %v, want %v", tc.path, got, tc.want)
+		}
+	}
+}
+
+// overlay.interASVPN is a configuration-integrity setting only (AD-77): a
+// Fabric declaring it false converges when the device holds false, and is
+// NotConverged only when the read-back differs from the declaration.
+func TestInterASVPNFalseIsAConfigurationIntegrityCaseOnly(t *testing.T) {
 	f, r, _, in := fixture(t, false)
+	if res := mustRun(t, f, in); !res.Passed() {
+		t.Fatalf("interASVPN false read back false is no convergence rule of its own (AD-77); missing: %v", res.Missing)
+	}
+	r.running["spine02"] = spineRunning("true", "true")
+	res := mustRun(t, f, in)
+	wantMissing(t, res, "spine02", CheckConfigurationIntegrity,
+		"configuration-integrity check (read from the configuration datastore)", "inter-as-vpn", "reads true", "want false")
+	if len(res.Missing) != 1 {
+		t.Errorf("want exactly one missing invariant, got %v", res.Missing)
+	}
+}
+
+// A Fabric that declares overlay.reflectorClients false — SC-004's declarative
+// negative control — is NotConverged naming each reflecting spine and the
+// setting route-reflector client, whether the device reads false (as rendered)
+// or still true (AD-77); the message records it as a configuration-integrity
+// check read from the configuration datastore.
+func TestReflectorClientsFalseDeclaredIsNotConverged(t *testing.T) {
+	f, r, _, in := fixtureRC(t, true, false)
 	res := mustRun(t, f, in)
 	for _, spine := range []string{"spine01", "spine02"} {
-		wantMissing(t, res, spine, CheckConfigurationIntegrity, "inter-as-vpn", "declared false")
+		wantMissing(t, res, spine, CheckConfigurationIntegrity, "route-reflector client", "declared false", "spec.overlay.reflectorClients")
 	}
-	if !strings.Contains(res.Message(), "configuration-integrity check") {
-		t.Errorf("message does not say configuration-integrity: %s", res.Message())
+	if !strings.Contains(res.Message(), "configuration-integrity check (read from the configuration datastore)") {
+		t.Errorf("message does not say configuration-integrity read from the configuration datastore: %s", res.Message())
 	}
-	// and the device reading false (as the render states it) names it too
-	r.override[InterASVPNPath()] = []string{"false"}
-	res = mustRun(t, f, in)
-	wantMissing(t, res, "spine01", CheckConfigurationIntegrity, "inter-as-vpn", "reads false")
 	for _, m := range res.Missing {
 		if m.Node == "leaf01" || m.Node == "leaf02" {
 			t.Errorf("a leaf is not a reflecting spine: %v", m)
 		}
+		if strings.Contains(m.Detail, "inter-as-vpn") {
+			t.Errorf("only route-reflector client is named: %v", m)
+		}
+	}
+	if len(res.Missing) != 2 {
+		t.Errorf("want one invariant per reflecting spine, got %v", res.Missing)
+	}
+	// and a device still reading true names the read-back too
+	r.running["spine01"] = spineRunning("true", "true")
+	res = mustRun(t, f, in)
+	wantMissing(t, res, "spine01", CheckConfigurationIntegrity, "route-reflector client", "reads true", "want false")
+	wantMissing(t, res, "spine01", CheckConfigurationIntegrity, "route-reflector client", "declared false")
+	wantMissing(t, res, "spine02", CheckConfigurationIntegrity, "route-reflector client", "declared false")
+	// true restores convergence
+	f, _, _, in = fixtureRC(t, true, true)
+	if res := mustRun(t, f, in); !res.Passed() {
+		t.Fatalf("reflectorClients true: missing %v", res.Missing)
 	}
 }
 
@@ -405,7 +539,7 @@ func TestCouldNotRunIsAnErrorNotAResult(t *testing.T) {
 		var objs []runtimeObject
 		for _, n := range in.Nodes {
 			o := rc.DeepCopy()
-			o.Name, o.Namespace = n.Node, "sdc-system"
+			o.Name, o.Namespace = n.Node, "agentic-netops-system"
 			o.Status.Value.Raw = n.Rendered
 			objs = append(objs, o)
 		}

@@ -1,0 +1,35 @@
+# The intent tier's claim Role on the kuid authority (contracts/kubernetes-objects.md
+# §"Namespace kuid-system", T069, T182). Claim objects only, in exactly two served groups;
+# get, list, watch, create, delete — NO update and NO patch: at the pinned authority an update
+# re-runs the claim and a changed spec.id moves the allocation (AD-32). Selected by the lock
+# file's allocationAuthority.kind at provisioning; T069's deploy/rbac/roles.yaml consumes it.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: kuid-claimer
+  namespace: kuid-system
+  labels:
+    app.kubernetes.io/part-of: agentic-netops-intent-tier
+rules:
+- apiGroups: [vlan.be.kuid.dev]
+  resources: [vlanclaims]
+  verbs: [get, list, watch, create, delete]
+- apiGroups: [genid.be.kuid.dev]
+  resources: [genidclaims]
+  verbs: [get, list, watch, create, delete]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: kuid-claimer
+  namespace: kuid-system
+  labels:
+    app.kubernetes.io/part-of: agentic-netops-intent-tier
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: kuid-claimer
+subjects:
+- kind: ServiceAccount
+  name: intent-allocator
+  namespace: agentic-netops-agents

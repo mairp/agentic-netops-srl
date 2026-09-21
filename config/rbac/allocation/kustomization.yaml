@@ -1,0 +1,11 @@
+# Least-privilege identity of the first-party allocation authority (T179; FR-104, AD-74;
+# data-model.md §23, contracts/kuid-claim-profiles.md §7). One ServiceAccount,
+# agentic-netops-allocation/allocation-authority; every grant is namespaced to
+# agentic-netops-allocation — the authority reads its pools and claims there, writes the pools'
+# status ledger and the claims' status, and holds a claim's release finalizer. Installed only
+# under allocationAuthority.kind: first-party, through deploy/allocation.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+- service_account.yaml
+- role.yaml

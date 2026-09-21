@@ -42,6 +42,24 @@ var _ Claims = (*Upstream)(nil)
 // must carry AddToScheme.
 func NewUpstream(c client.Client) *Upstream { return &Upstream{c: c} }
 
+// Index implements Claims: the pinned kuid-server's served index kinds.
+func (u *Upstream) Index(k Kind) IndexType {
+	switch k {
+	case KindIP:
+		return IndexType{Group: ipamv1alpha1.SchemeGroupVersion.Group, Kind: "IPIndex"}
+	case KindASN:
+		return IndexType{Group: asv1alpha1.SchemeGroupVersion.Group, Kind: "ASIndex"}
+	case KindVLAN:
+		return IndexType{Group: vlanv1alpha1.SchemeGroupVersion.Group, Kind: "VLANIndex"}
+	case KindGENID:
+		return IndexType{Group: genidv1alpha1.SchemeGroupVersion.Group, Kind: "GENIDIndex"}
+	}
+	return IndexType{}
+}
+
+// Authority implements Claims.
+func (u *Upstream) Authority() string { return AuthorityKuid }
+
 // Claim implements Claims: a dynamic claim, neither spec.id nor spec.range.
 func (u *Upstream) Claim(ctx context.Context, req Request) (Claimed, error) {
 	obj, err := buildClaim(req, nil)

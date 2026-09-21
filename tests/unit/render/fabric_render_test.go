@@ -1,9 +1,10 @@
 // T027 — the fabric render goldens and the per-construct assertions of the
 // priority-10 fabric Config (FR-011, FR-014, FR-015, R-37, AD-06, AD-43, AD-68).
 //
-// The golden files under tests/golden/fabric/ are PROVISIONAL until gate item
-// G12 has observed the identityref serialization a real device returns
-// (T047, R-36, AD-31); TestFabricGoldensAreProvisional keeps that visible.
+// The golden files under tests/golden/fabric/ are frozen (T047) in the
+// identityref serialization gate item G12 observed from a real device and
+// recorded in tests/gate/observed/serialization.json (R-36, AD-31, AD-81);
+// TestFabricGoldensFrozenAgainstG12 holds them to it.
 //
 // Regenerate the goldens with:
 //
@@ -47,7 +48,7 @@ var nodes = []string{"leaf01", "leaf02", "spine01", "spine02"}
 // the spine end taking the even address.
 func defaultInput() model.FabricInput {
 	return model.FabricInput{
-		Name: "fabric01", FabricASN: 65000, InterASVPN: true,
+		Name: "fabric01", FabricASN: 65000, InterASVPN: true, ReflectorClients: true,
 		AddressFamilies: []model.AddressFamily{model.FamilyUnderlayIPv4, model.FamilyUnderlayIPv6},
 		MTU:             model.FabricMTU{PortMTU: 9412, UnderlayIPMTU: 9398, BridgedL2MTU: 9412, TenantIPMTU: 9348},
 		Nodes: []model.FabricNodeInput{
@@ -242,24 +243,99 @@ func TestFabricGoldens(t *testing.T) {
 	}
 }
 
-// TestFabricGoldensAreProvisional: until G12 has recorded the device's own
-// identityref serialization, the goldens carry the provisional marker (T047).
-func TestFabricGoldensAreProvisional(t *testing.T) {
-	_, obsErr := os.Stat(g12Observation)
-	_, markErr := os.Stat(provisional)
-	if os.IsNotExist(obsErr) {
-		if markErr != nil {
-			t.Fatalf("G12 has not observed the serialization (%s absent) but the golden marker %s is missing: the goldens must stay marked provisional until T047", g12Observation, provisional)
-		}
-		b, _ := os.ReadFile(provisional)
-		if !strings.Contains(string(b), "provisional until G12 (T047)") {
-			t.Errorf("%s does not state %q", provisional, "provisional until G12 (T047)")
-		}
-		return
+// TestFabricGoldensFrozenAgainstG12: the goldens are frozen (T047) in the
+// identityref form gate item G12 observed from a real device Get and recorded
+// in tests/gate/observed/serialization.json (AD-81). The provisional marker is
+// gone, and every identityref the goldens carry that G12 observed — the BGP
+// family key and the network-instance type — is in the observed form; a bare
+// (unprefixed) value is refused.
+func TestFabricGoldensFrozenAgainstG12(t *testing.T) {
+	if _, err := os.Stat(provisional); err == nil {
+		t.Fatalf("%s still exists: T047 froze the goldens against G12 and removed the marker", provisional)
 	}
-	if markErr == nil {
-		t.Logf("G12 observation %s exists and the goldens are still marked provisional: T047 freezes them", g12Observation)
+	b, err := os.ReadFile(g12Observation)
+	if err != nil {
+		t.Fatalf("G12 observation %s unreadable (%v): the goldens are frozen against it", g12Observation, err)
 	}
+	var obs struct {
+		Summary struct {
+			Qualified   bool     `json:"identityref_values_module_qualified"`
+			AfiSafiEVPN []string `json:"afi_safi_name_evpn"`
+			NIDefault   string   `json:"network_instance_type_default"`
+		} `json:"summary"`
+	}
+	if err := json.Unmarshal(b, &obs); err != nil {
+		t.Fatalf("%s: %v", g12Observation, err)
+	}
+	for _, msg := range checkGoldensAgainstG12(t, obs.Summary.Qualified, obs.Summary.AfiSafiEVPN, obs.Summary.NIDefault, readGoldens(t)) {
+		t.Error(msg)
+	}
+}
+
+// TestFabricGoldensG12CheckNegativeControl: the freeze check fails on a golden
+// carrying the bare form, and on an observation that is not module-qualified.
+func TestFabricGoldensG12CheckNegativeControl(t *testing.T) {
+	bare := map[string]string{"leaf01": `{"afi-safi-name": "evpn", "type": "srl_nokia-network-instance:default"}`}
+	if len(checkGoldensAgainstG12(t, true, []string{"srl_nokia-common:evpn"}, "srl_nokia-network-instance:default", bare)) == 0 {
+		t.Error("a golden carrying the bare afi-safi-name was accepted")
+	}
+	good := map[string]string{"leaf01": `{"afi-safi-name": "srl_nokia-common:evpn", "type": "srl_nokia-network-instance:default"}`}
+	if len(checkGoldensAgainstG12(t, false, []string{"srl_nokia-common:evpn"}, "srl_nokia-network-instance:default", good)) == 0 {
+		t.Error("an observation that is not module-qualified was accepted")
+	}
+	if msgs := checkGoldensAgainstG12(t, true, []string{"srl_nokia-common:evpn"}, "srl_nokia-network-instance:default", good); len(msgs) != 0 {
+		t.Errorf("the observed form was refused: %v", msgs)
+	}
+}
+
+func readGoldens(t *testing.T) map[string]string {
+	t.Helper()
+	out := map[string]string{}
+	for _, n := range nodes {
+		b, err := os.ReadFile(filepath.Join(goldenDir, n+".json"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		out[n] = string(b)
+	}
+	return out
+}
+
+var (
+	afiSafiNameRE = regexp.MustCompile(`"afi-safi-name":\s*"([^"]*)"`)
+	niTypeRE      = regexp.MustCompile(`"type":\s*"([^"]*default)"`)
+)
+
+func checkGoldensAgainstG12(t *testing.T, qualified bool, afiEVPN []string, niDefault string, goldens map[string]string) []string {
+	t.Helper()
+	var msgs []string
+	if !qualified || len(afiEVPN) == 0 || niDefault == "" {
+		return append(msgs, "G12 observation does not record module-qualified identityrefs (identityref_values_module_qualified, afi_safi_name_evpn, network_instance_type_default)")
+	}
+	prefix := func(v string) string { return v[:strings.Index(v, ":")+1] }
+	afiPrefix, niPrefix := prefix(afiEVPN[0]), prefix(niDefault)
+	names := make([]string, 0, len(goldens))
+	for k := range goldens {
+		names = append(names, k)
+	}
+	sort.Strings(names)
+	for _, n := range names {
+		g := goldens[n]
+		for _, m := range afiSafiNameRE.FindAllStringSubmatch(g, -1) {
+			if afiPrefix == "" || !strings.HasPrefix(m[1], afiPrefix) {
+				msgs = append(msgs, fmt.Sprintf("%s: afi-safi-name %q is not in the G12-observed form %q", n, m[1], afiEVPN[0]))
+			}
+		}
+		if strings.Contains(g, `"afi-safi-name"`) && !strings.Contains(g, `"`+afiEVPN[0]+`"`) {
+			msgs = append(msgs, fmt.Sprintf("%s: carries no %q, the EVPN family as G12 observed it", n, afiEVPN[0]))
+		}
+		for _, m := range niTypeRE.FindAllStringSubmatch(g, -1) {
+			if !strings.HasPrefix(m[1], niPrefix) || niPrefix == "" {
+				msgs = append(msgs, fmt.Sprintf("%s: network-instance type %q is not in the G12-observed form %q", n, m[1], niDefault))
+			}
+		}
+	}
+	return msgs
 }
 
 // ---------------------------------------------------------------------------
@@ -449,6 +525,40 @@ func TestInterASVPNFalseChangesOnlyThatLeafOnBothSpines(t *testing.T) {
 	}
 }
 
+// reflectorClients=false renders route-reflector client false on the overlay
+// group of both reflecting spines — stated, never dropped — and changes nothing
+// else; true restores the render byte for byte (AD-77).
+func TestReflectorClientsFalseChangesOnlyThatLeafOnBothSpines(t *testing.T) {
+	on := render(t, defaultInput())
+	in := defaultInput()
+	in.ReflectorClients = false
+	off := render(t, in)
+	d := diff(t, on, off)
+	rr := "/network-instance[name=default]/protocols/bgp/group[group-name=overlay]/route-reflector/client"
+	wantD := []change{
+		{"spine01", rr, "true", "false"},
+		{"spine02", rr, "true", "false"},
+	}
+	if !slices.Equal(d, wantD) {
+		t.Fatalf("reflectorClients=false must render route-reflector client false on both reflecting spines and change nothing else (AD-77):\n got %+v\nwant %+v", d, wantD)
+	}
+	for _, n := range []string{"spine01", "spine02"} {
+		want(t, flatten(t, off[n].JSON), rr, "false")
+	}
+	for _, n := range []string{"leaf01", "leaf02"} {
+		if on[n].Hash != off[n].Hash {
+			t.Errorf("%s: render changed with reflectorClients", n)
+		}
+	}
+	in.ReflectorClients = true
+	back := render(t, in)
+	for _, n := range nodes {
+		if back[n].Hash != on[n].Hash {
+			t.Errorf("%s: reflectorClients=true did not restore the render", n)
+		}
+	}
+}
+
 func TestAccessPortsPortLevelLeavesOnly(t *testing.T) {
 	base := render(t, withUntagged(defaultInput()))
 	l1 := flatten(t, base["leaf01"].JSON)
@@ -591,6 +701,9 @@ func TestRenderedPathsEqualWritePaths(t *testing.T) {
 	v.InterASVPN = false
 	v.Maintenance = []model.MaintenanceEntry{{Node: "spine02", Interface: "ethernet-1/2", AdminState: "disable"}}
 	variants["interASVPN-false+maintenance"] = v
+	rc := defaultInput()
+	rc.ReflectorClients = false
+	variants["reflectorClients-false"] = rc
 	v4 := defaultInput()
 	v4.AddressFamilies = []model.AddressFamily{model.FamilyUnderlayIPv4}
 	variants["ipv4-only"] = v4
@@ -663,7 +776,7 @@ func TestConfigStampsOnGeneratedConfig(t *testing.T) {
 	r := render(t, defaultInput())["spine01"]
 	src := sdc.Source{Kind: sdc.SourceFabric, Namespace: sdc.SystemNamespace, Name: "fabric01", UID: "3f0c-uid", Generation: 7}
 	owner := &metav1.OwnerReference{APIVersion: "fabric.agentic-netops.io/v1alpha1", Kind: "Fabric", Name: "fabric01", UID: "3f0c-uid"}
-	req, err := srl.FabricConfigRequest(r, src, "sdc-system", "cs-1", owner)
+	req, err := srl.FabricConfigRequest(r, src, sdc.SystemNamespace, "cs-1", owner)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -692,7 +805,7 @@ func TestConfigStampsOnGeneratedConfig(t *testing.T) {
 	if len(cfg.OwnerReferences) != 1 || cfg.OwnerReferences[0].UID != "3f0c-uid" {
 		t.Errorf("owner reference: %+v", cfg.OwnerReferences)
 	}
-	if _, err := srl.FabricConfigRequest(r, sdc.Source{Kind: sdc.SourceNetwork, Name: "x", UID: "u"}, "sdc-system", "cs-1", nil); err == nil {
+	if _, err := srl.FabricConfigRequest(r, sdc.Source{Kind: sdc.SourceNetwork, Name: "x", UID: "u"}, sdc.SystemNamespace, "cs-1", nil); err == nil {
 		t.Error("a fabric render accepted for a Network source")
 	}
 }

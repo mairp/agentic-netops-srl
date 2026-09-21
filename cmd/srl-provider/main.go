@@ -7,6 +7,13 @@
 // Start-up refuses, naming the variable, on a DRIFT_POLICY other than the
 // exact string "revertive" and on a REVERIFY_INTERVAL below the 30 s floor or
 // unparseable (config.go) — before anything connects to the cluster.
+//
+// SRL_PROVIDER_ROLE selects what the process runs: "provider" (the default) is
+// the above, its allocation authority chosen by versions.lock.yaml's
+// allocationAuthority.kind through pkg/kuid.New and nothing else;
+// "allocation-authority" hosts the first-party allocation authority's pool and
+// claim controllers (controllers/allocation, T176) and nothing else, and refuses
+// to start unless the lock selects first-party (allocation.go).
 package main
 
 import (
@@ -62,6 +69,13 @@ func run(ctx context.Context, lookup func(string) (string, bool), out io.Writer)
 	if err != nil {
 		return fmt.Errorf("refusing to start: %s: %w", EnvCompatLockFile, err)
 	}
+	allocation, err := registersAllocation(s.Role, set.AuthorityKind())
+	if err != nil {
+		return fmt.Errorf("refusing to start: %w", err)
+	}
+	if allocation {
+		return runAllocationAuthority(ctx, s, set)
+	}
 
 	shutdown, err := setupOTLP(ctx, s.OTLPEndpoint)
 	if err != nil {
@@ -70,7 +84,13 @@ func run(ctx context.Context, lookup func(string) (string, bool), out io.Writer)
 	defer func() { _ = shutdown(context.Background()) }()
 
 	scheme := runtime.NewScheme()
-	for _, add := range []func(*runtime.Scheme) error{clientgoscheme.AddToScheme, fabricv1.AddToScheme, sdc.AddToScheme, kuid.AddToScheme} {
+	adds := []func(*runtime.Scheme) error{clientgoscheme.AddToScheme, fabricv1.AddToScheme, sdc.AddToScheme}
+	if set.AuthorityKind() == kuid.AuthorityKuid {
+		// The upstream claim types only where kuid is the authority; the first-party
+		// kinds are in fabricv1.
+		adds = append(adds, kuid.AddToScheme)
+	}
+	for _, add := range adds {
 		if err := add(scheme); err != nil {
 			return err
 		}
@@ -100,22 +120,27 @@ func run(ctx context.Context, lookup func(string) (string, bool), out io.Writer)
 	if err != nil {
 		return fmt.Errorf("manager: %w", err)
 	}
-	// The allocation authority is an aggregated API: claims are read and
-	// written uncached, in its namespace only.
+	// Claims are read and written uncached, in the authority's namespace only
+	// (kuid's are an aggregated API).
 	direct, err := client.New(cfg, client.Options{Scheme: scheme})
 	if err != nil {
 		return fmt.Errorf("allocation client: %w", err)
+	}
+	claims, err := kuid.New(set.AuthorityKind(), direct)
+	if err != nil {
+		return fmt.Errorf("refusing to start: %w", err)
 	}
 	sdcClient := sdc.New(mgr.GetClient())
 	r := &fabric.Reconciler{
 		Client:   mgr.GetClient(),
 		SDC:      sdcClient,
-		Claims:   kuid.NewUpstream(direct),
+		Claims:   claims,
 		Renderer: srlRenderer{},
-		// T041's read-back, wired here: device state through the
-		// device-configuration layer only, never a device session.
+		// T041's read-back, wired here: the running datastore through the
+		// device-configuration layer, the state datastore through the device
+		// metric collector (DEVICE_METRICS_URL) — never a device session.
 		Verifier: &verify.Fabric{
-			Reader:  &verify.LayerReader{Client: mgr.GetAPIReader()},
+			Reader:  stateReader(s, &verify.LayerReader{Client: mgr.GetAPIReader()}),
 			Configs: sdcClient,
 			Timeout: s.VerifyTimeout,
 		},
@@ -142,7 +167,7 @@ func run(ctx context.Context, lookup func(string) (string, bool), out io.Writer)
 	}
 	log.Info("srl-provider starting", "driftPolicy", s.DriftPolicy, "reverifyInterval", s.Fabric.ReverifyInterval.String(),
 		"reconcileInterval", s.Fabric.ReconcileInterval.String(), "networkWatchScope", s.NetworkWatchScope,
-		"compatibilitySet", set.Identifier())
+		"compatibilitySet", set.Identifier(), "allocationAuthority", claims.Authority())
 	return mgr.Start(ctx)
 }
 
@@ -159,4 +184,16 @@ func setupOTLP(ctx context.Context, endpoint string) (func(context.Context) erro
 	tp := sdktrace.NewTracerProvider(sdktrace.WithBatcher(exp))
 	otel.SetTracerProvider(tp)
 	return tp.Shutdown, nil
+}
+
+// stateReader is the read-back's StateReader: the running datastore always
+// through the device-configuration layer; the state datastore through the
+// device metric collector when DEVICE_METRICS_URL names it (AD-82 decision
+// 2026-09-21-state-source) — else the layer's, which serves none, so every
+// pass could not run (never a pass that passed on the running datastore).
+func stateReader(s settings, layer *verify.LayerReader) verify.StateReader {
+	if s.DeviceMetricsURL == "" {
+		return layer
+	}
+	return &verify.CollectorReader{Layer: layer, URL: s.DeviceMetricsURL}
 }
