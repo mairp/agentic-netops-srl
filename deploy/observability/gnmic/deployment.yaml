@@ -1,7 +1,12 @@
-# gNMIc, the device metric collector's device client (FR-086, FR-089). Its configuration —
-# targets rendered for MGMT_CIDR, subscriptions, the OTLP output and its event processors — is the
-# ConfigMap device-metrics-gnmic written by scripts/lib/device_metrics.sh. The credentials are the
-# collector's own copy, monitoring/srl-credentials (scripts/lib/lab_secrets.sh): never a literal.
+# gNMIc, the device metric collector's device client (T129; FR-086, FR-089, AD-55, AD-82). Its
+# configuration — targets rendered for MGMT_CIDR, subscriptions, the native `type: otlp` output and
+# its event processors, the TLS profile and the api-server — is the ConfigMap device-metrics-gnmic
+# written by scripts/lib/device_metrics.sh. The credentials are the collector's own copy,
+# monitoring/srl-credentials (scripts/lib/lab_secrets.sh, T037): the username and password through
+# secretKeyRef, and the containerlab CA (key ca.crt) mounted read-only at /etc/gnmic-tls/ca.crt, the
+# `tls-ca` the rendered configuration verifies the devices' gNMI server (57400) against — never a
+# literal. Its own /metrics (api-server :7890, enable-metrics) is exposed as port `metrics` and
+# scraped through Service gnmic-self as job `gnmic-self` (service.yaml; data-model.md §21).
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -32,6 +37,8 @@ spec:
           valueFrom: {secretKeyRef: {name: srl-credentials, key: username}}
         - name: GNMIC_PASSWORD
           valueFrom: {secretKeyRef: {name: srl-credentials, key: password}}
+        ports:
+        - {name: metrics, containerPort: 7890}
         resources:
           requests: {cpu: 20m, memory: 32Mi}
           limits: {cpu: 500m, memory: 128Mi}
@@ -39,5 +46,13 @@ spec:
           allowPrivilegeEscalation: false
           readOnlyRootFilesystem: true
           capabilities: {drop: [ALL]}
-        volumeMounts: [{name: cfg, mountPath: /etc/gnmic}]
-      volumes: [{name: cfg, configMap: {name: device-metrics-gnmic}}]
+        volumeMounts:
+        - {name: cfg, mountPath: /etc/gnmic, readOnly: true}
+        - {name: tls, mountPath: /etc/gnmic-tls, readOnly: true}
+      volumes:
+      - {name: cfg, configMap: {name: device-metrics-gnmic}}
+      - name: tls
+        secret:
+          secretName: srl-credentials
+          defaultMode: 0444
+          items: [{key: ca.crt, path: ca.crt}]

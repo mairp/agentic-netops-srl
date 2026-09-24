@@ -5,7 +5,9 @@
 #   - it discovers nested tests/unit/**/*_test.sh by glob and runs them in order;
 #   - it stops at the FIRST non-zero exit, naming the suite, with its status;
 #     a later suite does not run;
-#   - it writes its executed list, and --list prints the same discovery.
+#   - it writes its executed list, and --list prints the same discovery;
+#   - a suite's exit 77 is NOT RUN (T130): named in the summary, not counted as a
+#     pass, the run continues and the runner does not fail on it.
 set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -49,6 +51,18 @@ if [[ "$rc" -eq 0 ]] && grep -q 'test_shell: PASS 3 suite(s)' <<<"$out" \
   pass "all pass: every nested suite found by the glob runs; default executed list equals --list"
 else
   fail "all pass: every nested suite found by the glob runs; executed list equals --list" "$out"$'\n'"listed: $listed"
+fi
+
+t="$TMP/notrun"
+suite "$t" tests/unit/a/a_test.sh 'exit 0'
+suite "$t" tests/unit/b/b_test.sh 'echo "not run: precondition absent"; exit 77'
+suite "$t" tests/unit/c/c_test.sh 'touch "$MARK/c77"; exit 0'
+out="$(MARK="$TMP/mark" TEST_SHELL_EXECUTED_LIST="$TMP/notrun.list" bash "$RUNNER" --root "$t" 2>&1)"; rc=$?
+if [[ "$rc" -eq 0 && -e "$TMP/mark/c77" ]] && grep -q -- '--- NOT RUN tests/unit/b/b_test.sh (exit 77)' <<<"$out" \
+  && grep -qx 'test_shell: PASS 2 suite(s); NOT RUN 1 suite(s) (not counted as passed): tests/unit/b/b_test.sh' <<<"$out"; then
+  pass "exit 77 is NOT RUN: named in the summary, not counted as a pass, the run continues (exit 0)"
+else
+  fail "exit 77 is NOT RUN (rc=$rc)" "$out"
 fi
 
 t="$TMP/empty"; mkdir -p "$t/tests/unit"

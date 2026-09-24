@@ -195,26 +195,44 @@ func (r *Reconciler) allFabrics(ctx context.Context, _ client.Object) []reconcil
 // when it changed.
 func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (res ctrl.Result, rerr error) {
 	r.init()
-	// The reconcile result, latency and retry series (internal/telemetry, T059/AD-50).
+	// The reconcile result, latency and retry series (internal/telemetry, T059/AD-50), the
+	// error, requeue and per-object series and the reconcile span (T133).
+	ctx, span := telemetry.StartReconcile(ctx, telemetry.ControllerFabric, telemetry.KindFabric, req.Namespace, req.Name)
 	started, outcome := time.Now(), telemetry.ResultSuccess
+	// gone: the object is absent or being deleted — its per-object series were removed and
+	// nothing may write them again. reverify: the requeue is the re-verification schedule's.
+	gone, reverify := false, false
 	defer func() {
 		if rerr != nil {
 			outcome = telemetry.ResultError
 		}
 		telemetry.ObserveReconcile(telemetry.ControllerFabric, outcome, time.Since(started))
+		telemetry.ObserveErrorClass(telemetry.ControllerFabric, outcome)
+		if res.RequeueAfter > 0 || res.Requeue { //nolint:staticcheck // Requeue is still honoured by controller-runtime
+			telemetry.ObserveRequeue(telemetry.ControllerFabric, telemetry.RequeueReason(outcome, reverify))
+		}
+		if !gone {
+			telemetry.SetReconcileFailed(telemetry.KindFabric, req.Namespace, req.Name, outcome)
+		}
+		telemetry.EndReconcile(span, outcome, rerr)
 	}()
 	f := &fabricv1.Fabric{}
 	if err := r.Client.Get(ctx, req.NamespacedName, f); err != nil {
 		if apierrors.IsNotFound(err) {
+			gone = true
+			telemetry.ForgetObject(telemetry.KindFabric, req.Namespace, req.Name)
 			return ctrl.Result{}, nil
 		}
 		return ctrl.Result{}, err
 	}
+	telemetry.AnnotateObject(span, f.Generation, string(f.UID), f.Labels)
 	log := logr.FromContextOrDiscard(ctx).WithValues(telemetry.ObjectValues("Fabric", f.Namespace, f.Name, f.Labels)...)
 	ctx = logr.NewContext(ctx, log)
 	if f.DeletionTimestamp != nil {
 		// No finalizer, no held deletion (AD-62): the owner references collect
-		// the Configs.
+		// the Configs. Nothing is re-verified any more: the object's series go (AD-54).
+		gone = true
+		telemetry.ForgetObject(telemetry.KindFabric, f.Namespace, f.Name)
 		r.forget(f.UID)
 		return ctrl.Result{}, nil
 	}
@@ -225,6 +243,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (res ctrl.
 	if p.outcome != "" {
 		outcome = p.outcome
 	}
+	reverify = p.reverifyScheduled
 	f.Status.ObservedGeneration = f.Generation
 	if !equality.Semantic.DeepEqual(before, &f.Status) {
 		if uerr := r.Client.Status().Update(ctx, f); uerr != nil {
@@ -233,6 +252,19 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (res ctrl.
 			}
 			return ctrl.Result{}, fmt.Errorf("update Fabric status: %w", uerr)
 		}
+	}
+	// The re-verification series (FR-107, AD-54), once the status the pass wrote is stored: a
+	// pass that ran advanced lastVerifiedTime whatever it found; one that could not run left it.
+	// The series mirrors the stored field, so it is present from the first reconcile after a
+	// provider restart too.
+	if lv := f.Status.LastVerifiedTime; lv != nil {
+		t := lv.Time
+		if p.passRan || p.passCouldNotRun {
+			telemetry.RecordReverification(telemetry.KindFabric, f.Namespace, f.Name, p.passRan, t)
+		}
+		telemetry.SyncLastVerified(telemetry.KindFabric, f.Namespace, f.Name, &t)
+	} else if p.passCouldNotRun {
+		telemetry.RecordReverification(telemetry.KindFabric, f.Namespace, f.Name, false, time.Time{})
 	}
 	return res, err
 }
@@ -263,6 +295,11 @@ type pass struct {
 	partial    *status.Aggregate
 	passRan    bool
 	targetsBad []string
+
+	// passCouldNotRun: a read-back was attempted and could not run (agentic_netops_reverify_total).
+	passCouldNotRun bool
+	// reverifyScheduled: the returned requeue is the re-verification schedule's.
+	reverifyScheduled bool
 }
 
 func (p *pass) run(ctx context.Context) (ctrl.Result, error) {
@@ -339,10 +376,12 @@ func (p *pass) run(ctx context.Context) (ctrl.Result, error) {
 			// Degraded=True, both VerificationFailed, naming the target, at
 			// once; lastVerifiedTime frozen.
 			r.setUnknownByTarget(f.UID, true)
+			p.passCouldNotRun = true
 			msg := "read-back could not run against " + strings.Join(notReady, ", ") + ": target not Ready"
 			if err := p.writeReady(readyOutcome{kind: readyUnknown, msg: msg}); err != nil {
 				return ctrl.Result{}, err
 			}
+			p.reverifyScheduled = true
 			return ctrl.Result{RequeueAfter: st.ReverifyInterval}, nil
 		}
 		waits = append(waits, "targets not Ready: "+strings.Join(notReady, ", "))
@@ -473,6 +512,7 @@ func (p *pass) run(ctx context.Context) (ctrl.Result, error) {
 		if err := p.writeReady(readyOutcome{kind: readyLeave}); err != nil {
 			return ctrl.Result{}, err
 		}
+		p.reverifyScheduled = true
 		return ctrl.Result{RequeueAfter: next.Sub(p.now)}, nil
 	}
 	vin := verify.FabricInput{Model: m, InterASVPN: interASVPN(f), ReflectorClients: reflectorClients(f),
@@ -490,6 +530,7 @@ func (p *pass) run(ctx context.Context) (ctrl.Result, error) {
 	r.setUnknownByTarget(f.UID, false)
 	result, verr := r.Verifier.VerifyFabric(ctx, vin)
 	if cnr := verify.AsCouldNotRun(verr); cnr != nil {
+		p.passCouldNotRun = true
 		msg := cnr.Error()
 		if hadReportedReady(f) {
 			// A pass that cannot run: Unknown, never False, never a standing
@@ -497,6 +538,7 @@ func (p *pass) run(ctx context.Context) (ctrl.Result, error) {
 			if err := p.writeReady(readyOutcome{kind: readyUnknown, msg: msg}); err != nil {
 				return ctrl.Result{}, err
 			}
+			p.reverifyScheduled = true
 			return ctrl.Result{RequeueAfter: st.ReverifyInterval}, nil
 		}
 		// Never reported Ready: it is converging, and stays Ready=False.
@@ -522,6 +564,7 @@ func (p *pass) run(ctx context.Context) (ctrl.Result, error) {
 	if out.kind == readyTrue {
 		// A Ready Fabric is requeued at the re-verification interval — the
 		// schedule is a requeue, not a second controller.
+		p.reverifyScheduled = true
 		return ctrl.Result{RequeueAfter: st.ReverifyInterval}, nil
 	}
 	return ctrl.Result{RequeueAfter: st.ReconcileInterval}, nil

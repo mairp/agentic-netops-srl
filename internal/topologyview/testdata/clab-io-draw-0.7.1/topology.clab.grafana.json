@@ -1,0 +1,107 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "prometheus"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": 3,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "datasource": {
+        "type": "prometheus"
+      },
+      "gridPos": {
+        "h": 23,
+        "w": 13,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "options": {
+        "animationControlEnabled": true,
+        "animationsEnabled": true,
+        "debuggingCtr": {
+          "colorsCtr": 1,
+          "dataCtr": 0,
+          "displaySvgCtr": 0,
+          "mappingsCtr": 0,
+          "timingsCtr": 0
+        },
+        "highlighterEnabled": true,
+        "panZoomEnabled": true,
+        "panelConfig": "---\nanchors:\n  thresholds-operstate: &thresholds-operstate\n  - color: red\n    level: 0\n  - color: green\n    level: 1\n  thresholds-traffic: &thresholds-traffic\n  - color: gray\n    level: 0\n  - color: green\n    level: 199999\n  - color: yellow\n    level: 500000\n  - color: orange\n    level: 1000000\n  - color: red\n    level: 5000000\n  label-config: &label-config\n    separator: replace\n    units: bps\n    decimalPoints: 1\n    valueMappings:\n    - valueMax: 199999\n      text: \u200b\n    - valueMin: 200000\ncellIdPreamble: cell-\ncells:\n  clab-agentic-netops-fabric-spine01:e1-1:clab-agentic-netops-fabric-leaf01:e1-49:\n    dataRef: oper-state:clab-agentic-netops-fabric-spine01:e1-1\n    fillColor:\n      thresholds: *thresholds-operstate\n  link_id:clab-agentic-netops-fabric-spine01:e1-1:clab-agentic-netops-fabric-leaf01:e1-49:\n    dataRef: clab-agentic-netops-fabric-spine01:e1-1:out\n    label: *label-config\n    strokeColor:\n      thresholds: *thresholds-traffic\n  clab-agentic-netops-fabric-spine01:e1-2:clab-agentic-netops-fabric-leaf02:e1-49:\n    dataRef: oper-state:clab-agentic-netops-fabric-spine01:e1-2\n    fillColor:\n      thresholds: *thresholds-operstate\n  link_id:clab-agentic-netops-fabric-spine01:e1-2:clab-agentic-netops-fabric-leaf02:e1-49:\n    dataRef: clab-agentic-netops-fabric-spine01:e1-2:out\n    label: *label-config\n    strokeColor:\n      thresholds: *thresholds-traffic\n  clab-agentic-netops-fabric-spine02:e1-1:clab-agentic-netops-fabric-leaf01:e1-50:\n    dataRef: oper-state:clab-agentic-netops-fabric-spine02:e1-1\n    fillColor:\n      thresholds: *thresholds-operstate\n  link_id:clab-agentic-netops-fabric-spine02:e1-1:clab-agentic-netops-fabric-leaf01:e1-50:\n    dataRef: clab-agentic-netops-fabric-spine02:e1-1:out\n    label: *label-config\n    strokeColor:\n      thresholds: *thresholds-traffic\n  clab-agentic-netops-fabric-spine02:e1-2:clab-agentic-netops-fabric-leaf02:e1-50:\n    dataRef: oper-state:clab-agentic-netops-fabric-spine02:e1-2\n    fillColor:\n      thresholds: *thresholds-operstate\n  link_id:clab-agentic-netops-fabric-spine02:e1-2:clab-agentic-netops-fabric-leaf02:e1-50:\n    dataRef: clab-agentic-netops-fabric-spine02:e1-2:out\n    label: *label-config\n    strokeColor:\n      thresholds: *thresholds-traffic\n  clab-agentic-netops-fabric-leaf01:e1-49:clab-agentic-netops-fabric-spine01:e1-1:\n    dataRef: oper-state:clab-agentic-netops-fabric-leaf01:e1-49\n    fillColor:\n      thresholds: *thresholds-operstate\n  link_id:clab-agentic-netops-fabric-leaf01:e1-49:clab-agentic-netops-fabric-spine01:e1-1:\n    dataRef: clab-agentic-netops-fabric-leaf01:e1-49:out\n    label: *label-config\n    strokeColor:\n      thresholds: *thresholds-traffic\n  clab-agentic-netops-fabric-leaf01:e1-50:clab-agentic-netops-fabric-spine02:e1-1:\n    dataRef: oper-state:clab-agentic-netops-fabric-leaf01:e1-50\n    fillColor:\n      thresholds: *thresholds-operstate\n  link_id:clab-agentic-netops-fabric-leaf01:e1-50:clab-agentic-netops-fabric-spine02:e1-1:\n    dataRef: clab-agentic-netops-fabric-leaf01:e1-50:out\n    label: *label-config\n    strokeColor:\n      thresholds: *thresholds-traffic\n  clab-agentic-netops-fabric-leaf01:e1-1:clab-agentic-netops-fabric-client01:eth1:\n    dataRef: oper-state:clab-agentic-netops-fabric-leaf01:e1-1\n    fillColor:\n      thresholds: *thresholds-operstate\n  link_id:clab-agentic-netops-fabric-leaf01:e1-1:clab-agentic-netops-fabric-client01:eth1:\n    dataRef: clab-agentic-netops-fabric-leaf01:e1-1:out\n    label: *label-config\n    strokeColor:\n      thresholds: *thresholds-traffic\n  clab-agentic-netops-fabric-leaf02:e1-49:clab-agentic-netops-fabric-spine01:e1-2:\n    dataRef: oper-state:clab-agentic-netops-fabric-leaf02:e1-49\n    fillColor:\n      thresholds: *thresholds-operstate\n  link_id:clab-agentic-netops-fabric-leaf02:e1-49:clab-agentic-netops-fabric-spine01:e1-2:\n    dataRef: clab-agentic-netops-fabric-leaf02:e1-49:out\n    label: *label-config\n    strokeColor:\n      thresholds: *thresholds-traffic\n  clab-agentic-netops-fabric-leaf02:e1-50:clab-agentic-netops-fabric-spine02:e1-2:\n    dataRef: oper-state:clab-agentic-netops-fabric-leaf02:e1-50\n    fillColor:\n      thresholds: *thresholds-operstate\n  link_id:clab-agentic-netops-fabric-leaf02:e1-50:clab-agentic-netops-fabric-spine02:e1-2:\n    dataRef: clab-agentic-netops-fabric-leaf02:e1-50:out\n    label: *label-config\n    strokeColor:\n      thresholds: *thresholds-traffic\n  clab-agentic-netops-fabric-leaf02:e1-1:clab-agentic-netops-fabric-client02:eth1:\n    dataRef: oper-state:clab-agentic-netops-fabric-leaf02:e1-1\n    fillColor:\n      thresholds: *thresholds-operstate\n  link_id:clab-agentic-netops-fabric-leaf02:e1-1:clab-agentic-netops-fabric-client02:eth1:\n    dataRef: clab-agentic-netops-fabric-leaf02:e1-1:out\n    label: *label-config\n    strokeColor:\n      thresholds: *thresholds-traffic\n  clab-agentic-netops-fabric-client01:eth1:clab-agentic-netops-fabric-leaf01:e1-1:\n    dataRef: oper-state:clab-agentic-netops-fabric-client01:eth1\n    fillColor:\n      thresholds: *thresholds-operstate\n  link_id:clab-agentic-netops-fabric-client01:eth1:clab-agentic-netops-fabric-leaf01:e1-1:\n    dataRef: clab-agentic-netops-fabric-client01:eth1:out\n    label: *label-config\n    strokeColor:\n      thresholds: *thresholds-traffic\n  clab-agentic-netops-fabric-client02:eth1:clab-agentic-netops-fabric-leaf02:e1-1:\n    dataRef: oper-state:clab-agentic-netops-fabric-client02:eth1\n    fillColor:\n      thresholds: *thresholds-operstate\n  link_id:clab-agentic-netops-fabric-client02:eth1:clab-agentic-netops-fabric-leaf02:e1-1:\n    dataRef: clab-agentic-netops-fabric-client02:eth1:out\n    label: *label-config\n    strokeColor:\n      thresholds: *thresholds-traffic\n",
+        "siteConfig": "",
+        "svg": "",
+        "testDataEnabled": false,
+        "timeSliderEnabled": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "interface_oper_state",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "oper-state:{{source}}:{{interface_name}}",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "interface_traffic_rate_out_bps",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "{{source}}:{{interface_name}}:out",
+          "range": true,
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "interface_traffic_rate_in_bps",
+          "hide": false,
+          "instant": false,
+          "legendFormat": "{{source}}:{{interface_name}}:in",
+          "range": true,
+          "refId": "C"
+        }
+      ],
+      "title": "Network Telemetry",
+      "type": "andrewbmchugh-flow-panel"
+    }
+  ],
+  "refresh": "5s",
+  "schemaVersion": 38,
+  "tags": [],
+  "time": {
+    "from": "now-5m",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "",
+  "title": "Network Telemetry",
+  "version": 6,
+  "weekStart": ""
+}

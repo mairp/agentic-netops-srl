@@ -1,0 +1,14 @@
+# deploy/observability/grafana — Grafana, the dashboards of the observability stack (T130, T132;
+# FR-087, FR-088, FR-094, FR-096), installed into monitoring by the ObservabilityReady phase (T134):
+#   scripts/lib/grafana_assets.sh apply <generated topology dir>   (plugin chunks, digest, dashboards)
+#   kubectl apply --server-side -k deploy/observability/grafana
+# The image is pinned by the digest versions.lock.yaml records (observability.grafana).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - provisioning.yaml
+  - deployment.yaml
+  - service.yaml
+images:
+  - name: docker.io/grafana/grafana
+    newTag: "13.2.2@sha256:ac461fb352abc50da10a51c7d02462e9c05488f11f53f14b3ad79a8145f638a0"

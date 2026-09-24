@@ -1,0 +1,25 @@
+# Recording rules (T130; data-model.md §21 "EVPN service-path view"). Not alerts: helpers the
+# dashboards (T132) join on.
+#   agentic_netops:vtep_node_info{vtep_address, vtep_source} = 1
+#       which node owns a VXLAN tunnel endpoint address: a node's system0 /32 (the VTEP source).
+#   agentic_netops:vxlan_tunnel_peer_info{source, vtep_address, vtep_source} = 1
+#       a tunnel seen by `source` towards the VTEP of node `vtep_source` (the leaf-to-leaf tunnel path).
+groups:
+  - name: agentic-netops-recording
+    rules:
+      - record: agentic_netops:vtep_node_info
+        expr: |
+          group by (vtep_address, vtep_source) (
+            label_replace(
+              label_replace(
+                srl_nokia_interfaces:interface_subinterface_ipv4_address_status{interface_name="system0", address_ip_prefix=~".+/32"},
+                "vtep_address", "$1", "address_ip_prefix", "(.+)/32"),
+              "vtep_source", "$1", "source", "(.+)")
+          )
+      - record: agentic_netops:vxlan_tunnel_peer_info
+        expr: |
+          group by (source, vtep_address, vtep_source) (
+            srl_nokia_tunnel:tunnel_srl_nokia_vxlan_tunnel_vtep:vxlan_tunnel_vtep_index
+              * on (vtep_address) group_left (vtep_source)
+            agentic_netops:vtep_node_info
+          )

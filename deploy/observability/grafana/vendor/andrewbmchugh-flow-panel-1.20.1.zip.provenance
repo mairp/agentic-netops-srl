@@ -1,0 +1,6 @@
+# Grafana panel plugin andrewbmchugh-flow-panel, vendored unmodified (T130; FR-094, FR-096, SC-017b).
+# The release package as grafana.com serves it — community-signed (MANIFEST.txt inside, signedByOrg
+# andrewbmchugh, keyId 7e4d0c6a708866e7). Its digest is versions.lock.yaml
+# observability.grafanaPlugins[andrewbmchugh-flow-panel].sha256; scripts/lib/grafana_assets.sh refuses
+# to serve it when the two differ, and the Grafana Pod's init container re-checks it in the cluster.
+provenance: source=https://grafana.com/api/plugins/andrewbmchugh-flow-panel/versions/1.20.1/download version=1.20.1 digest=sha256:9c4fd97623191877e6be0ca3afde293cea62b667db50d5044b7679ca83b08816

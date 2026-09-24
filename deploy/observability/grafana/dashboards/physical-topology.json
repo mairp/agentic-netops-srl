@@ -1,0 +1,253 @@
+{
+  "provenance": {
+    "source": "first-party",
+    "version": "1.0.0",
+    "task": "T132",
+    "note": "authored in this repository; every series is named by its logical name in deploy/observability/grafana/series.json, substituted by scripts/lib/grafana_assets.sh at install",
+    "assets": "the flow panel's svg and panelConfig are inlined at install from the generated topology.svg and topology-panel.yaml (T131, containerlab inventory)"
+  },
+  "uid": "agentic-netops-physical-topology",
+  "title": "Physical topology",
+  "description": "T131/T132 (FR-094, FR-096, SC-036): the fabric drawn from the containerlab inventory — node and link set generated with the collector's target list, never hand-drawn — overlaid with link operational state and rate. The flow panel's SVG and panel configuration are inlined at install time from the generated topology assets (scripts/lib/grafana_assets.sh); nothing is loaded from a URL. The join is exactly two labels: source (node) and interface_name (normalized e1-N).",
+  "tags": [
+    "agentic-netops",
+    "topology"
+  ],
+  "editable": false,
+  "graphTooltip": 1,
+  "schemaVersion": 41,
+  "version": 1,
+  "time": {
+    "from": "now-30m",
+    "to": "now"
+  },
+  "refresh": "30s",
+  "timezone": "utc",
+  "annotations": {
+    "list": []
+  },
+  "links": [],
+  "templating": {
+    "list": []
+  },
+  "panels": [
+    {
+      "type": "andrewbmchugh-flow-panel",
+      "title": "Fabric",
+      "description": "Cells are driven by dataRefs oper-state:<node>:<if>, <node>:<if>:out and <node>:<if>:in (legend formats of the three queries).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "@@series:interface_oper_state@@",
+          "legendFormat": "oper-state:{{source}}:{{interface_name}}",
+          "range": true,
+          "instant": false,
+          "editorMode": "code"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "@@series:interface_traffic_rate_out_bps@@",
+          "legendFormat": "{{source}}:{{interface_name}}:out",
+          "range": true,
+          "instant": false,
+          "editorMode": "code"
+        },
+        {
+          "refId": "C",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "@@series:interface_traffic_rate_in_bps@@",
+          "legendFormat": "{{source}}:{{interface_name}}:in",
+          "range": true,
+          "instant": false,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "svg": "@@TOPOLOGY_SVG@@",
+        "panelConfig": "@@TOPOLOGY_PANEL_YAML@@",
+        "siteConfig": "",
+        "testDataEnabled": false,
+        "timeSliderEnabled": true,
+        "timeSliderMode": "local",
+        "panZoomEnabled": true,
+        "highlighterEnabled": false,
+        "highlighterSelection": "",
+        "animationsEnabled": true,
+        "animationControlEnabled": true
+      },
+      "pluginVersion": "1.20.1",
+      "id": 1,
+      "gridPos": {
+        "h": 18,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      }
+    },
+    {
+      "type": "table",
+      "title": "Fabric links",
+      "description": "Every link direction of the inventory with its operational state.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "@@series:interface_oper_state@@ * on (source, interface_name) group_left (peer_source, peer_interface) @@series:fabric_link_info@@",
+          "legendFormat": "__auto",
+          "range": false,
+          "instant": true,
+          "editorMode": "code",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "1": {
+                  "text": "up",
+                  "color": "green",
+                  "index": 0
+                },
+                "0": {
+                  "text": "down",
+                  "color": "red",
+                  "index": 1
+                }
+              }
+            }
+          ],
+          "custom": {
+            "cellOptions": {
+              "type": "color-text"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      },
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "__name__": true,
+              "otel_scope_name": true,
+              "otel_scope_schema_url": true,
+              "otel_scope_version": true,
+              "subscription_name": true,
+              "job": true,
+              "instance": true
+            },
+            "renameByName": {
+              "source": "node",
+              "interface_name": "interface",
+              "peer_source": "peer",
+              "peer_interface": "peer interface",
+              "Value": "oper state"
+            }
+          }
+        }
+      ],
+      "id": 2,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 18
+      }
+    },
+    {
+      "type": "table",
+      "title": "Nodes without samples",
+      "description": "Inventory nodes whose telemetry is missing (DeviceSubscriptionStalled): their cells show no data.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "@@series:node_info@@{role=~\"leaf|spine\"} unless on (source) count by (source) (@@series:interface_oper_state@@)",
+          "legendFormat": "__auto",
+          "range": false,
+          "instant": true,
+          "editorMode": "code",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      },
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "__name__": true,
+              "otel_scope_name": true,
+              "otel_scope_schema_url": true,
+              "otel_scope_version": true,
+              "subscription_name": true,
+              "job": true,
+              "instance": true
+            },
+            "renameByName": {
+              "source": "node",
+              "Value": "missing"
+            }
+          }
+        }
+      ],
+      "id": 3,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 18
+      }
+    }
+  ]
+}

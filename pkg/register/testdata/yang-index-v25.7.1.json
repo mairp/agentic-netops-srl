@@ -1,0 +1,3667 @@
+{
+  "schema": "agentic-netops.register.yang-index/v1",
+  "repository": "https://github.com/nokia/srlinux-yang-models",
+  "tag": "v25.7.1",
+  "commit": "badcf9977fe672437907cdae7daebb27a1361c36",
+  "generator": "go run ./hack/yangindex -models \u003ccheckout of https://github.com/nokia/srlinux-yang-models at commit\u003e",
+  "paths": {
+    "/acl/acl-filter[name=*][type=*]/entry[sequence-id=*]/statistics/incomplete": {
+      "elements": [
+        {
+          "name": "acl",
+          "module": "srl_nokia-acl"
+        },
+        {
+          "name": "acl-filter",
+          "module": "srl_nokia-acl",
+          "keys": [
+            {
+              "name": "name",
+              "type": {
+                "name": "name",
+                "base": "string"
+              }
+            },
+            {
+              "name": "type",
+              "type": {
+                "name": "enumeration",
+                "base": "enumeration",
+                "enums": [
+                  "ipv4",
+                  "ipv6",
+                  "mac"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "entry",
+          "module": "srl_nokia-acl",
+          "keys": [
+            {
+              "name": "sequence-id",
+              "type": {
+                "name": "uint32",
+                "base": "uint32"
+              }
+            }
+          ]
+        },
+        {
+          "name": "statistics",
+          "module": "srl_nokia-acl"
+        },
+        {
+          "name": "incomplete",
+          "module": "srl_nokia-acl"
+        }
+      ],
+      "kind": "leaf",
+      "type": {
+        "name": "boolean",
+        "base": "boolean"
+      }
+    },
+    "/acl/acl-filter[name=*][type=*]/entry[sequence-id=*]/statistics/matched-packets": {
+      "elements": [
+        {
+          "name": "acl",
+          "module": "srl_nokia-acl"
+        },
+        {
+          "name": "acl-filter",
+          "module": "srl_nokia-acl",
+          "keys": [
+            {
+              "name": "name",
+              "type": {
+                "name": "name",
+                "base": "string"
+              }
+            },
+            {
+              "name": "type",
+              "type": {
+                "name": "enumeration",
+                "base": "enumeration",
+                "enums": [
+                  "ipv4",
+                  "ipv6",
+                  "mac"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "entry",
+          "module": "srl_nokia-acl",
+          "keys": [
+            {
+              "name": "sequence-id",
+              "type": {
+                "name": "uint32",
+                "base": "uint32"
+              }
+            }
+          ]
+        },
+        {
+          "name": "statistics",
+          "module": "srl_nokia-acl"
+        },
+        {
+          "name": "matched-packets",
+          "module": "srl_nokia-acl"
+        }
+      ],
+      "kind": "leaf",
+      "type": {
+        "name": "zero-based-counter64",
+        "base": "uint64"
+      }
+    },
+    "/acl/acl-filter[name=*][type=*]/entry[sequence-id=*]/tcam-entries/forwarding-complex[complex-identifier=*]/input-total": {
+      "elements": [
+        {
+          "name": "acl",
+          "module": "srl_nokia-acl"
+        },
+        {
+          "name": "acl-filter",
+          "module": "srl_nokia-acl",
+          "keys": [
+            {
+              "name": "name",
+              "type": {
+                "name": "name",
+                "base": "string"
+              }
+            },
+            {
+              "name": "type",
+              "type": {
+                "name": "enumeration",
+                "base": "enumeration",
+                "enums": [
+                  "ipv4",
+                  "ipv6",
+                  "mac"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "entry",
+          "module": "srl_nokia-acl",
+          "keys": [
+            {
+              "name": "sequence-id",
+              "type": {
+                "name": "uint32",
+                "base": "uint32"
+              }
+            }
+          ]
+        },
+        {
+          "name": "tcam-entries",
+          "module": "srl_nokia-acl"
+        },
+        {
+          "name": "forwarding-complex",
+          "module": "srl_nokia-acl",
+          "keys": [
+            {
+              "name": "complex-identifier",
+              "type": {
+                "name": "string",
+                "base": "string"
+              }
+            }
+          ]
+        },
+        {
+          "name": "input-total",
+          "module": "srl_nokia-acl"
+        }
+      ],
+      "kind": "leaf",
+      "type": {
+        "name": "uint16",
+        "base": "uint16"
+      }
+    },
+    "/acl/acl-filter[name=*][type=*]/entry[sequence-id=*]/tcam-entries/forwarding-complex[complex-identifier=*]/output-total": {
+      "elements": [
+        {
+          "name": "acl",
+          "module": "srl_nokia-acl"
+        },
+        {
+          "name": "acl-filter",
+          "module": "srl_nokia-acl",
+          "keys": [
+            {
+              "name": "name",
+              "type": {
+                "name": "name",
+                "base": "string"
+              }
+            },
+            {
+              "name": "type",
+              "type": {
+                "name": "enumeration",
+                "base": "enumeration",
+                "enums": [
+                  "ipv4",
+                  "ipv6",
+                  "mac"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "entry",
+          "module": "srl_nokia-acl",
+          "keys": [
+            {
+              "name": "sequence-id",
+              "type": {
+                "name": "uint32",
+                "base": "uint32"
+              }
+            }
+          ]
+        },
+        {
+          "name": "tcam-entries",
+          "module": "srl_nokia-acl"
+        },
+        {
+          "name": "forwarding-complex",
+          "module": "srl_nokia-acl",
+          "keys": [
+            {
+              "name": "complex-identifier",
+              "type": {
+                "name": "string",
+                "base": "string"
+              }
+            }
+          ]
+        },
+        {
+          "name": "output-total",
+          "module": "srl_nokia-acl"
+        }
+      ],
+      "kind": "leaf",
+      "type": {
+        "name": "uint16",
+        "base": "uint16"
+      }
+    },
+    "/acl/acl-filter[name=*][type=*]/entry[sequence-id=*]/tcam-entries/forwarding-complex[complex-identifier=*]/single-instance": {
+      "elements": [
+        {
+          "name": "acl",
+          "module": "srl_nokia-acl"
+        },
+        {
+          "name": "acl-filter",
+          "module": "srl_nokia-acl",
+          "keys": [
+            {
+              "name": "name",
+              "type": {
+                "name": "name",
+                "base": "string"
+              }
+            },
+            {
+              "name": "type",
+              "type": {
+                "name": "enumeration",
+                "base": "enumeration",
+                "enums": [
+                  "ipv4",
+                  "ipv6",
+                  "mac"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "entry",
+          "module": "srl_nokia-acl",
+          "keys": [
+            {
+              "name": "sequence-id",
+              "type": {
+                "name": "uint32",
+                "base": "uint32"
+              }
+            }
+          ]
+        },
+        {
+          "name": "tcam-entries",
+          "module": "srl_nokia-acl"
+        },
+        {
+          "name": "forwarding-complex",
+          "module": "srl_nokia-acl",
+          "keys": [
+            {
+              "name": "complex-identifier",
+              "type": {
+                "name": "string",
+                "base": "string"
+              }
+            }
+          ]
+        },
+        {
+          "name": "single-instance",
+          "module": "srl_nokia-acl"
+        }
+      ],
+      "kind": "leaf",
+      "type": {
+        "name": "uint16",
+        "base": "uint16"
+      }
+    },
+    "/acl/datapath-programming/forwarding-complex[slot-id=*][complex-id=*]/programming-complete": {
+      "elements": [
+        {
+          "name": "acl",
+          "module": "srl_nokia-acl"
+        },
+        {
+          "name": "datapath-programming",
+          "module": "srl_nokia-acl"
+        },
+        {
+          "name": "forwarding-complex",
+          "module": "srl_nokia-acl",
+          "keys": [
+            {
+              "name": "slot-id",
+              "type": {
+                "name": "uint8",
+                "base": "uint8"
+              }
+            },
+            {
+              "name": "complex-id",
+              "type": {
+                "name": "uint8",
+                "base": "uint8"
+              }
+            }
+          ]
+        },
+        {
+          "name": "programming-complete",
+          "module": "srl_nokia-acl"
+        }
+      ],
+      "kind": "leaf",
+      "type": {
+        "name": "boolean",
+        "base": "boolean"
+      }
+    },
+    "/interface[name=*]/admin-state": {
+      "elements": [
+        {
+          "name": "interface",
+          "module": "srl_nokia-interfaces",
+          "keys": [
+            {
+              "name": "name",
+              "type": {
+                "name": "interface-all",
+                "base": "string"
+              }
+            }
+          ]
+        },
+        {
+          "name": "admin-state",
+          "module": "srl_nokia-interfaces"
+        }
+      ],
+      "kind": "leaf",
+      "type": {
+        "name": "admin-state",
+        "base": "enumeration",
+        "enums": [
+          "disable",
+          "enable"
+        ]
+      }
+    },
+    "/interface[name=*]/oper-state": {
+      "elements": [
+        {
+          "name": "interface",
+          "module": "srl_nokia-interfaces",
+          "keys": [
+            {
+              "name": "name",
+              "type": {
+                "name": "interface-all",
+                "base": "string"
+              }
+            }
+          ]
+        },
+        {
+          "name": "oper-state",
+          "module": "srl_nokia-interfaces"
+        }
+      ],
+      "kind": "leaf",
+      "type": {
+        "name": "enumeration",
+        "base": "enumeration",
+        "enums": [
+          "down",
+          "testing",
+          "up"
+        ]
+      }
+    },
+    "/interface[name=*]/statistics": {
+      "elements": [
+        {
+          "name": "interface",
+          "module": "srl_nokia-interfaces",
+          "keys": [
+            {
+              "name": "name",
+              "type": {
+                "name": "interface-all",
+                "base": "string"
+              }
+            }
+          ]
+        },
+        {
+          "name": "statistics",
+          "module": "srl_nokia-interfaces"
+        }
+      ],
+      "kind": "container",
+      "leaves": [
+        {
+          "path": [
+            {
+              "name": "carrier-transitions",
+              "module": "srl_nokia-interfaces"
+            }
+          ],
+          "type": {
+            "name": "zero-based-counter64",
+            "base": "uint64"
+          }
+        },
+        {
+          "path": [
+            {
+              "name": "in-broadcast-packets",
+              "module": "srl_nokia-interfaces"
+            }
+          ],
+          "type": {
+            "name": "zero-based-counter64",
+            "base": "uint64"
+          }
+        },
+        {
+          "path": [
+            {
+              "name": "in-discarded-packets",
+              "module": "srl_nokia-interfaces"
+            }
+          ],
+          "type": {
+            "name": "zero-based-counter64",
+            "base": "uint64"
+          }
+        },
+        {
+          "path": [
+            {
+              "name": "in-error-packets",
+              "module": "srl_nokia-interfaces"
+            }
+          ],
+          "type": {
+            "name": "zero-based-counter64",
+            "base": "uint64"
+          }
+        },
+        {
+          "path": [
+            {
+              "name": "in-fcs-error-packets",
+              "module": "srl_nokia-interfaces"
+            }
+          ],
+          "type": {
+            "name": "zero-based-counter64",
+            "base": "uint64"
+          }
+        },
+        {
+          "path": [
+            {
+              "name": "in-multicast-packets",
+              "module": "srl_nokia-interfaces"
+            }
+          ],
+          "type": {
+            "name": "zero-based-counter64",
+            "base": "uint64"
+          }
+        },
+        {
+          "path": [
+            {
+              "name": "in-octets",
+              "module": "srl_nokia-interfaces"
+            }
+          ],
+          "type": {
+            "name": "zero-based-counter64",
+            "base": "uint64"
+          }
+        },
+        {
+          "path": [
+            {
+              "name": "in-packets",
+              "module": "srl_nokia-interfaces"
+            }
+          ],
+          "type": {
+            "name": "zero-based-counter64",
+            "base": "uint64"
+          }
+        },
+        {
+          "path": [
+            {
+              "name": "in-unicast-packets",
+              "module": "srl_nokia-interfaces"
+            }
+          ],
+          "type": {
+            "name": "zero-based-counter64",
+            "base": "uint64"
+          }
+        },
+        {
+          "path": [
+            {
+              "name": "last-clear",
+              "module": "srl_nokia-interfaces"
+            }
+          ],
+          "type": {
+            "name": "date-and-time-delta",
+            "base": "string"
+          }
+        },
+        {
+          "path": [
+            {
+              "name": "out-broadcast-packets",
+              "module": "srl_nokia-interfaces"
+            }
+          ],
+          "type": {
+            "name": "zero-based-counter64",
+            "base": "uint64"
+          }
+        },
+        {
+          "path": [
+            {
+              "name": "out-discarded-packets",
+              "module": "srl_nokia-interfaces"
+            }
+          ],
+          "type": {
+            "name": "zero-based-counter64",
+            "base": "uint64"
+          }
+        },
+        {
+          "path": [
+            {
+              "name": "out-error-packets",
+              "module": "srl_nokia-interfaces"
+            }
+          ],
+          "type": {
+            "name": "zero-based-counter64",
+            "base": "uint64"
+          }
+        },
+        {
+          "path": [
+            {
+              "name": "out-mirror-octets",
+              "module": "srl_nokia-interfaces"
+            }
+          ],
+          "type": {
+            "name": "zero-based-counter64",
+            "base": "uint64"
+          }
+        },
+        {
+          "path": [
+            {
+              "name": "out-mirror-packets",
+              "module": "srl_nokia-interfaces"
+            }
+          ],
+          "type": {
+            "name": "zero-based-counter64",
+            "base": "uint64"
+          }
+        },
+        {
+          "path": [
+            {
+              "name": "out-multicast-packets",
+              "module": "srl_nokia-interfaces"
+            }
+          ],
+          "type": {
+            "name": "zero-based-counter64",
+            "base": "uint64"
+          }
+        },
+        {
+          "path": [
+            {
+              "name": "out-octets",
+              "module": "srl_nokia-interfaces"
+            }
+          ],
+          "type": {
+            "name": "zero-based-counter64",
+            "base": "uint64"
+          }
+        },
+        {
+          "path": [
+            {
+              "name": "out-packets",
+              "module": "srl_nokia-interfaces"
+            }
+          ],
+          "type": {
+            "name": "zero-based-counter64",
+            "base": "uint64"
+          }
+        },
+        {
+          "path": [
+            {
+              "name": "out-unicast-packets",
+              "module": "srl_nokia-interfaces"
+            }
+          ],
+          "type": {
+            "name": "zero-based-counter64",
+            "base": "uint64"
+          }
+        }
+      ]
+    },
+    "/interface[name=*]/subinterface[index=*]/anycast-gw/anycast-gw-mac-origin": {
+      "elements": [
+        {
+          "name": "interface",
+          "module": "srl_nokia-interfaces",
+          "keys": [
+            {
+              "name": "name",
+              "type": {
+                "name": "interface-all",
+                "base": "string"
+              }
+            }
+          ]
+        },
+        {
+          "name": "subinterface",
+          "module": "srl_nokia-interfaces",
+          "keys": [
+            {
+              "name": "index",
+              "type": {
+                "name": "uint32",
+                "base": "uint32"
+              }
+            }
+          ]
+        },
+        {
+          "name": "anycast-gw",
+          "module": "srl_nokia-interfaces"
+        },
+        {
+          "name": "anycast-gw-mac-origin",
+          "module": "srl_nokia-interfaces"
+        }
+      ],
+      "kind": "leaf",
+      "type": {
+        "name": "anycast-gw-mac-origin",
+        "base": "enumeration",
+        "enums": [
+          "configured",
+          "vrid-auto-derived"
+        ]
+      }
+    },
+    "/interface[name=*]/subinterface[index=*]/ipv4/address[ip-prefix=*]/status": {
+      "elements": [
+        {
+          "name": "interface",
+          "module": "srl_nokia-interfaces",
+          "keys": [
+            {
+              "name": "name",
+              "type": {
+                "name": "interface-all",
+                "base": "string"
+              }
+            }
+          ]
+        },
+        {
+          "name": "subinterface",
+          "module": "srl_nokia-interfaces",
+          "keys": [
+            {
+              "name": "index",
+              "type": {
+                "name": "uint32",
+                "base": "uint32"
+              }
+            }
+          ]
+        },
+        {
+          "name": "ipv4",
+          "module": "srl_nokia-interfaces"
+        },
+        {
+          "name": "address",
+          "module": "srl_nokia-interfaces",
+          "keys": [
+            {
+              "name": "ip-prefix",
+              "type": {
+                "name": "ipv4-prefix-with-host-bits",
+                "base": "string"
+              }
+            }
+          ]
+        },
+        {
+          "name": "status",
+          "module": "srl_nokia-interfaces"
+        }
+      ],
+      "kind": "leaf",
+      "type": {
+        "name": "ipv4-address-status",
+        "base": "enumeration",
+        "enums": [
+          "duplicate",
+          "inaccessible",
+          "preferred",
+          "tentative"
+        ]
+      }
+    },
+    "/interface[name=*]/subinterface[index=*]/ipv6/address[ip-prefix=*]/status": {
+      "elements": [
+        {
+          "name": "interface",
+          "module": "srl_nokia-interfaces",
+          "keys": [
+            {
+              "name": "name",
+              "type": {
+                "name": "interface-all",
+                "base": "string"
+              }
+            }
+          ]
+        },
+        {
+          "name": "subinterface",
+          "module": "srl_nokia-interfaces",
+          "keys": [
+            {
+              "name": "index",
+              "type": {
+                "name": "uint32",
+                "base": "uint32"
+              }
+            }
+          ]
+        },
+        {
+          "name": "ipv6",
+          "module": "srl_nokia-interfaces"
+        },
+        {
+          "name": "address",
+          "module": "srl_nokia-interfaces",
+          "keys": [
+            {
+              "name": "ip-prefix",
+              "type": {
+                "name": "ipv6-prefix-with-host-bits",
+                "base": "string"
+              }
+            }
+          ]
+        },
+        {
+          "name": "status",
+          "module": "srl_nokia-interfaces"
+        }
+      ],
+      "kind": "leaf",
+      "type": {
+        "name": "ipv6-address-status",
+        "base": "enumeration",
+        "enums": [
+          "deprecated",
+          "duplicate",
+          "inaccessible",
+          "invalid",
+          "optimistic",
+          "preferred",
+          "tentative",
+          "unknown"
+        ]
+      }
+    },
+    "/interface[name=*]/subinterface[index=*]/oper-down-reason": {
+      "elements": [
+        {
+          "name": "interface",
+          "module": "srl_nokia-interfaces",
+          "keys": [
+            {
+              "name": "name",
+              "type": {
+                "name": "interface-all",
+                "base": "string"
+              }
+            }
+          ]
+        },
+        {
+          "name": "subinterface",
+          "module": "srl_nokia-interfaces",
+          "keys": [
+            {
+              "name": "index",
+              "type": {
+                "name": "uint32",
+                "base": "uint32"
+              }
+            }
+          ]
+        },
+        {
+          "name": "oper-down-reason",
+          "module": "srl_nokia-interfaces"
+        }
+      ],
+      "kind": "leaf",
+      "type": {
+        "name": "subif-oper-down-reason",
+        "base": "enumeration",
+        "enums": [
+          "admin-disabled",
+          "cfm-ccm-defect",
+          "ip-mtu-larger-than-oper-mac-vrf-mtu",
+          "ip-mtu-resource-exceeded",
+          "ip-mtu-too-large",
+          "irb-mac-address-not-programmed",
+          "l2-mtu-too-large",
+          "missing-xdp-state",
+          "mpls-mtu-resource-exceeded",
+          "mpls-mtu-too-large",
+          "no-ip-config",
+          "no-irb-hardware-resources",
+          "no-underlay-egress-next-hop-resources",
+          "other",
+          "port-down"
+        ]
+      }
+    },
+    "/interface[name=*]/subinterface[index=*]/oper-state": {
+      "elements": [
+        {
+          "name": "interface",
+          "module": "srl_nokia-interfaces",
+          "keys": [
+            {
+              "name": "name",
+              "type": {
+                "name": "interface-all",
+                "base": "string"
+              }
+            }
+          ]
+        },
+        {
+          "name": "subinterface",
+          "module": "srl_nokia-interfaces",
+          "keys": [
+            {
+              "name": "index",
+              "type": {
+                "name": "uint32",
+                "base": "uint32"
+              }
+            }
+          ]
+        },
+        {
+          "name": "oper-state",
+          "module": "srl_nokia-interfaces"
+        }
+      ],
+      "kind": "leaf",
+      "type": {
+        "name": "enumeration",
+        "base": "enumeration",
+        "enums": [
+          "down",
+          "up"
+        ]
+      }
+    },
+    "/interface[name=*]/subinterface[index=*]/statistics": {
+      "elements": [
+        {
+          "name": "interface",
+          "module": "srl_nokia-interfaces",
+          "keys": [
+            {
+              "name": "name",
+              "type": {
+                "name": "interface-all",
+                "base": "string"
+              }
+            }
+          ]
+        },
+        {
+          "name": "subinterface",
+          "module": "srl_nokia-interfaces",
+          "keys": [
+            {
+              "name": "index",
+              "type": {
+                "name": "uint32",
+                "base": "uint32"
+              }
+            }
+          ]
+        },
+        {
+          "name": "statistics",
+          "module": "srl_nokia-interfaces"
+        }
+      ],
+      "kind": "container",
+      "leaves": [
+        {
+          "path": [
+            {
+              "name": "in-discarded-packets",
+              "module": "srl_nokia-interfaces"
+            }
+          ],
+          "type": {
+            "name": "zero-based-counter64",
+            "base": "uint64"
+          }
+        },
+        {
+          "path": [
+            {
+              "name": "in-error-packets",
+              "module": "srl_nokia-interfaces"
+            }
+          ],
+          "type": {
+            "name": "zero-based-counter64",
+            "base": "uint64"
+          }
+        },
+        {
+          "path": [
+            {
+              "name": "in-forwarded-octets",
+              "module": "srl_nokia-interfaces"
+            }
+          ],
+          "type": {
+            "name": "zero-based-counter64",
+            "base": "uint64"
+          }
+        },
+        {
+          "path": [
+            {
+              "name": "in-forwarded-packets",
+              "module": "srl_nokia-interfaces"
+            }
+          ],
+          "type": {
+            "name": "zero-based-counter64",
+            "base": "uint64"
+          }
+        },
+        {
+          "path": [
+            {
+              "name": "in-matched-ra-packets",
+              "module": "srl_nokia-interfaces"
+            }
+          ],
+          "type": {
+            "name": "zero-based-counter64",
+            "base": "uint64"
+          }
+        },
+        {
+          "path": [
+            {
+              "name": "in-octets",
+              "module": "srl_nokia-interfaces"
+            }
+          ],
+          "type": {
+            "name": "zero-based-counter64",
+            "base": "uint64"
+          }
+        },
+        {
+          "path": [
+            {
+              "name": "in-packets",
+              "module": "srl_nokia-interfaces"
+            }
+          ],
+          "type": {
+            "name": "zero-based-counter64",
+            "base": "uint64"
+          }
+        },
+        {
+          "path": [
+            {
+              "name": "in-terminated-octets",
+              "module": "srl_nokia-interfaces"
+            }
+          ],
+          "type": {
+            "name": "zero-based-counter64",
+            "base": "uint64"
+          }
+        },
+        {
+          "path": [
+            {
+              "name": "in-terminated-packets",
+              "module": "srl_nokia-interfaces"
+            }
+          ],
+          "type": {
+            "name": "zero-based-counter64",
+            "base": "uint64"
+          }
+        },
+        {
+          "path": [
+            {
+              "name": "last-clear",
+              "module": "srl_nokia-interfaces"
+            }
+          ],
+          "type": {
+            "name": "date-and-time-delta",
+            "base": "string"
+          }
+        },
+        {
+          "path": [
+            {
+              "name": "out-discarded-packets",
+              "module": "srl_nokia-interfaces"
+            }
+          ],
+          "type": {
+            "name": "zero-based-counter64",
+            "base": "uint64"
+          }
+        },
+        {
+          "path": [
+            {
+              "name": "out-error-packets",
+              "module": "srl_nokia-interfaces"
+            }
+          ],
+          "type": {
+            "name": "zero-based-counter64",
+            "base": "uint64"
+          }
+        },
+        {
+          "path": [
+            {
+              "name": "out-forwarded-octets",
+              "module": "srl_nokia-interfaces"
+            }
+          ],
+          "type": {
+            "name": "zero-based-counter64",
+            "base": "uint64"
+          }
+        },
+        {
+          "path": [
+            {
+              "name": "out-forwarded-packets",
+              "module": "srl_nokia-interfaces"
+            }
+          ],
+          "type": {
+            "name": "zero-based-counter64",
+            "base": "uint64"
+          }
+        },
+        {
+          "path": [
+            {
+              "name": "out-octets",
+              "module": "srl_nokia-interfaces"
+            }
+          ],
+          "type": {
+            "name": "zero-based-counter64",
+            "base": "uint64"
+          }
+        },
+        {
+          "path": [
+            {
+              "name": "out-originated-octets",
+              "module": "srl_nokia-interfaces"
+            }
+          ],
+          "type": {
+            "name": "zero-based-counter64",
+            "base": "uint64"
+          }
+        },
+        {
+          "path": [
+            {
+              "name": "out-originated-packets",
+              "module": "srl_nokia-interfaces"
+            }
+          ],
+          "type": {
+            "name": "zero-based-counter64",
+            "base": "uint64"
+          }
+        },
+        {
+          "path": [
+            {
+              "name": "out-packets",
+              "module": "srl_nokia-interfaces"
+            }
+          ],
+          "type": {
+            "name": "zero-based-counter64",
+            "base": "uint64"
+          }
+        }
+      ]
+    },
+    "/interface[name=*]/traffic-rate": {
+      "elements": [
+        {
+          "name": "interface",
+          "module": "srl_nokia-interfaces",
+          "keys": [
+            {
+              "name": "name",
+              "type": {
+                "name": "interface-all",
+                "base": "string"
+              }
+            }
+          ]
+        },
+        {
+          "name": "traffic-rate",
+          "module": "srl_nokia-interfaces"
+        }
+      ],
+      "kind": "container",
+      "leaves": [
+        {
+          "path": [
+            {
+              "name": "in-bps",
+              "module": "srl_nokia-interfaces"
+            }
+          ],
+          "type": {
+            "name": "uint64",
+            "base": "uint64"
+          }
+        },
+        {
+          "path": [
+            {
+              "name": "out-bps",
+              "module": "srl_nokia-interfaces"
+            }
+          ],
+          "type": {
+            "name": "uint64",
+            "base": "uint64"
+          }
+        }
+      ]
+    },
+    "/network-instance[name=*]/bridge-table/statistics/active-entries": {
+      "elements": [
+        {
+          "name": "network-instance",
+          "module": "srl_nokia-network-instance",
+          "keys": [
+            {
+              "name": "name",
+              "type": {
+                "name": "restricted-name",
+                "base": "string"
+              }
+            }
+          ]
+        },
+        {
+          "name": "bridge-table",
+          "module": "srl_nokia-network-instance"
+        },
+        {
+          "name": "statistics",
+          "module": "srl_nokia-bridge-table-mac-table"
+        },
+        {
+          "name": "active-entries",
+          "module": "srl_nokia-bridge-table-mac-table"
+        }
+      ],
+      "kind": "leaf",
+      "type": {
+        "name": "zero-based-counter64",
+        "base": "uint64"
+      }
+    },
+    "/network-instance[name=*]/bridge-table/statistics/failed-entries": {
+      "elements": [
+        {
+          "name": "network-instance",
+          "module": "srl_nokia-network-instance",
+          "keys": [
+            {
+              "name": "name",
+              "type": {
+                "name": "restricted-name",
+                "base": "string"
+              }
+            }
+          ]
+        },
+        {
+          "name": "bridge-table",
+          "module": "srl_nokia-network-instance"
+        },
+        {
+          "name": "statistics",
+          "module": "srl_nokia-bridge-table-mac-table"
+        },
+        {
+          "name": "failed-entries",
+          "module": "srl_nokia-bridge-table-mac-table"
+        }
+      ],
+      "kind": "leaf",
+      "type": {
+        "name": "zero-based-counter64",
+        "base": "uint64"
+      }
+    },
+    "/network-instance[name=*]/bridge-table/statistics/mac-type[type=*]": {
+      "elements": [
+        {
+          "name": "network-instance",
+          "module": "srl_nokia-network-instance",
+          "keys": [
+            {
+              "name": "name",
+              "type": {
+                "name": "restricted-name",
+                "base": "string"
+              }
+            }
+          ]
+        },
+        {
+          "name": "bridge-table",
+          "module": "srl_nokia-network-instance"
+        },
+        {
+          "name": "statistics",
+          "module": "srl_nokia-bridge-table-mac-table"
+        },
+        {
+          "name": "mac-type",
+          "module": "srl_nokia-bridge-table-mac-table",
+          "keys": [
+            {
+              "name": "type",
+              "type": {
+                "name": "mac-type",
+                "base": "enumeration",
+                "enums": [
+                  "duplicate",
+                  "eth-cfm",
+                  "evpn",
+                  "evpn-static",
+                  "irb-interface",
+                  "irb-interface-anycast",
+                  "irb-interface-vrrp",
+                  "learnt",
+                  "proxy-anti-spoof",
+                  "reserved",
+                  "static"
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "kind": "list",
+      "leaves": [
+        {
+          "path": [
+            {
+              "name": "active-entries",
+              "module": "srl_nokia-bridge-table-mac-table"
+            }
+          ],
+          "type": {
+            "name": "zero-based-counter64",
+            "base": "uint64"
+          }
+        },
+        {
+          "path": [
+            {
+              "name": "failed-entries",
+              "module": "srl_nokia-bridge-table-mac-table"
+            }
+          ],
+          "type": {
+            "name": "zero-based-counter64",
+            "base": "uint64"
+          }
+        },
+        {
+          "path": [
+            {
+              "name": "total-entries",
+              "module": "srl_nokia-bridge-table-mac-table"
+            }
+          ],
+          "type": {
+            "name": "zero-based-counter64",
+            "base": "uint64"
+          }
+        },
+        {
+          "path": [
+            {
+              "name": "type",
+              "module": "srl_nokia-bridge-table-mac-table"
+            }
+          ],
+          "type": {
+            "name": "mac-type",
+            "base": "enumeration",
+            "enums": [
+              "duplicate",
+              "eth-cfm",
+              "evpn",
+              "evpn-static",
+              "irb-interface",
+              "irb-interface-anycast",
+              "irb-interface-vrrp",
+              "learnt",
+              "proxy-anti-spoof",
+              "reserved",
+              "static"
+            ]
+          }
+        }
+      ]
+    },
+    "/network-instance[name=*]/bridge-table/statistics/total-entries": {
+      "elements": [
+        {
+          "name": "network-instance",
+          "module": "srl_nokia-network-instance",
+          "keys": [
+            {
+              "name": "name",
+              "type": {
+                "name": "restricted-name",
+                "base": "string"
+              }
+            }
+          ]
+        },
+        {
+          "name": "bridge-table",
+          "module": "srl_nokia-network-instance"
+        },
+        {
+          "name": "statistics",
+          "module": "srl_nokia-bridge-table-mac-table"
+        },
+        {
+          "name": "total-entries",
+          "module": "srl_nokia-bridge-table-mac-table"
+        }
+      ],
+      "kind": "leaf",
+      "type": {
+        "name": "zero-based-counter64",
+        "base": "uint64"
+      }
+    },
+    "/network-instance[name=*]/interface[name=*]/oper-down-reason": {
+      "elements": [
+        {
+          "name": "network-instance",
+          "module": "srl_nokia-network-instance",
+          "keys": [
+            {
+              "name": "name",
+              "type": {
+                "name": "restricted-name",
+                "base": "string"
+              }
+            }
+          ]
+        },
+        {
+          "name": "interface",
+          "module": "srl_nokia-network-instance",
+          "keys": [
+            {
+              "name": "name",
+              "type": {
+                "name": "network-instance-subintf-name",
+                "base": "string"
+              }
+            }
+          ]
+        },
+        {
+          "name": "oper-down-reason",
+          "module": "srl_nokia-network-instance"
+        }
+      ],
+      "kind": "leaf",
+      "type": {
+        "name": "enumeration",
+        "base": "enumeration",
+        "enums": [
+          "associated-ip-vrf-down",
+          "associated-mac-vrf-down",
+          "evpn-mh-standby",
+          "interface-ref-missing",
+          "ip-addr-missing",
+          "ip-addr-overlap",
+          "ip-vrf-association-missing",
+          "mac-dup-detected",
+          "mac-vrf-association-missing",
+          "net-inst-down",
+          "stp-not-forwarding",
+          "subif-down",
+          "vrf-type-mismatch"
+        ]
+      }
+    },
+    "/network-instance[name=*]/interface[name=*]/oper-state": {
+      "elements": [
+        {
+          "name": "network-instance",
+          "module": "srl_nokia-network-instance",
+          "keys": [
+            {
+              "name": "name",
+              "type": {
+                "name": "restricted-name",
+                "base": "string"
+              }
+            }
+          ]
+        },
+        {
+          "name": "interface",
+          "module": "srl_nokia-network-instance",
+          "keys": [
+            {
+              "name": "name",
+              "type": {
+                "name": "network-instance-subintf-name",
+                "base": "string"
+              }
+            }
+          ]
+        },
+        {
+          "name": "oper-state",
+          "module": "srl_nokia-network-instance"
+        }
+      ],
+      "kind": "leaf",
+      "type": {
+        "name": "oper-state",
+        "base": "enumeration",
+        "enums": [
+          "booting",
+          "degraded",
+          "down",
+          "downloading",
+          "empty",
+          "failed",
+          "low-power",
+          "starting",
+          "synchronizing",
+          "up",
+          "upgrading",
+          "waiting",
+          "warm-reboot"
+        ]
+      }
+    },
+    "/network-instance[name=*]/oper-down-reason": {
+      "elements": [
+        {
+          "name": "network-instance",
+          "module": "srl_nokia-network-instance",
+          "keys": [
+            {
+              "name": "name",
+              "type": {
+                "name": "restricted-name",
+                "base": "string"
+              }
+            }
+          ]
+        },
+        {
+          "name": "oper-down-reason",
+          "module": "srl_nokia-network-instance"
+        }
+      ],
+      "kind": "leaf",
+      "type": {
+        "name": "enumeration",
+        "base": "enumeration",
+        "enums": [
+          "admin-down",
+          "no-mcid"
+        ]
+      }
+    },
+    "/network-instance[name=*]/oper-state": {
+      "elements": [
+        {
+          "name": "network-instance",
+          "module": "srl_nokia-network-instance",
+          "keys": [
+            {
+              "name": "name",
+              "type": {
+                "name": "restricted-name",
+                "base": "string"
+              }
+            }
+          ]
+        },
+        {
+          "name": "oper-state",
+          "module": "srl_nokia-network-instance"
+        }
+      ],
+      "kind": "leaf",
+      "type": {
+        "name": "oper-state",
+        "base": "enumeration",
+        "enums": [
+          "booting",
+          "degraded",
+          "down",
+          "downloading",
+          "empty",
+          "failed",
+          "low-power",
+          "starting",
+          "synchronizing",
+          "up",
+          "upgrading",
+          "waiting",
+          "warm-reboot"
+        ]
+      }
+    },
+    "/network-instance[name=*]/protocols/bgp-evpn/bgp-instance[id=*]/evi": {
+      "elements": [
+        {
+          "name": "network-instance",
+          "module": "srl_nokia-network-instance",
+          "keys": [
+            {
+              "name": "name",
+              "type": {
+                "name": "restricted-name",
+                "base": "string"
+              }
+            }
+          ]
+        },
+        {
+          "name": "protocols",
+          "module": "srl_nokia-network-instance"
+        },
+        {
+          "name": "bgp-evpn",
+          "module": "srl_nokia-network-instance"
+        },
+        {
+          "name": "bgp-instance",
+          "module": "srl_nokia-bgp-evpn",
+          "keys": [
+            {
+              "name": "id",
+              "type": {
+                "name": "leafref",
+                "base": "leafref"
+              }
+            }
+          ]
+        },
+        {
+          "name": "evi",
+          "module": "srl_nokia-bgp-evpn"
+        }
+      ],
+      "kind": "leaf",
+      "type": {
+        "name": "evi",
+        "base": "uint32"
+      }
+    },
+    "/network-instance[name=*]/protocols/bgp-evpn/bgp-instance[id=*]/oper-down-reason": {
+      "elements": [
+        {
+          "name": "network-instance",
+          "module": "srl_nokia-network-instance",
+          "keys": [
+            {
+              "name": "name",
+              "type": {
+                "name": "restricted-name",
+                "base": "string"
+              }
+            }
+          ]
+        },
+        {
+          "name": "protocols",
+          "module": "srl_nokia-network-instance"
+        },
+        {
+          "name": "bgp-evpn",
+          "module": "srl_nokia-network-instance"
+        },
+        {
+          "name": "bgp-instance",
+          "module": "srl_nokia-bgp-evpn",
+          "keys": [
+            {
+              "name": "id",
+              "type": {
+                "name": "leafref",
+                "base": "leafref"
+              }
+            }
+          ]
+        },
+        {
+          "name": "oper-down-reason",
+          "module": "srl_nokia-bgp-evpn"
+        }
+      ],
+      "kind": "leaf",
+      "type": {
+        "name": "enumeration",
+        "base": "enumeration",
+        "enums": [
+          "admin-disabled",
+          "bgp-vpn-instance-oper-down",
+          "esi-label-required-in-ethernet-segment",
+          "ethernet-segment-multiple-subinterfaces",
+          "network-instance-oper-down",
+          "no-evi",
+          "no-local-attachment-circuit",
+          "no-mcid",
+          "no-mpls-label",
+          "no-nexthop-address",
+          "no-remote-attachment-circuit",
+          "no-vxlan-interface",
+          "tag-set-not-resolved",
+          "vxlan_interface_no_source_ip_address"
+        ]
+      }
+    },
+    "/network-instance[name=*]/protocols/bgp-evpn/bgp-instance[id=*]/oper-state": {
+      "elements": [
+        {
+          "name": "network-instance",
+          "module": "srl_nokia-network-instance",
+          "keys": [
+            {
+              "name": "name",
+              "type": {
+                "name": "restricted-name",
+                "base": "string"
+              }
+            }
+          ]
+        },
+        {
+          "name": "protocols",
+          "module": "srl_nokia-network-instance"
+        },
+        {
+          "name": "bgp-evpn",
+          "module": "srl_nokia-network-instance"
+        },
+        {
+          "name": "bgp-instance",
+          "module": "srl_nokia-bgp-evpn",
+          "keys": [
+            {
+              "name": "id",
+              "type": {
+                "name": "leafref",
+                "base": "leafref"
+              }
+            }
+          ]
+        },
+        {
+          "name": "oper-state",
+          "module": "srl_nokia-bgp-evpn"
+        }
+      ],
+      "kind": "leaf",
+      "type": {
+        "name": "oper-state",
+        "base": "enumeration",
+        "enums": [
+          "booting",
+          "degraded",
+          "down",
+          "downloading",
+          "empty",
+          "failed",
+          "low-power",
+          "starting",
+          "synchronizing",
+          "up",
+          "upgrading",
+          "waiting",
+          "warm-reboot"
+        ]
+      }
+    },
+    "/network-instance[name=*]/protocols/bgp-vpn/bgp-instance[id=*]/route-distinguisher/route-distinguisher-origin": {
+      "elements": [
+        {
+          "name": "network-instance",
+          "module": "srl_nokia-network-instance",
+          "keys": [
+            {
+              "name": "name",
+              "type": {
+                "name": "restricted-name",
+                "base": "string"
+              }
+            }
+          ]
+        },
+        {
+          "name": "protocols",
+          "module": "srl_nokia-network-instance"
+        },
+        {
+          "name": "bgp-vpn",
+          "module": "srl_nokia-bgp-vpn"
+        },
+        {
+          "name": "bgp-instance",
+          "module": "srl_nokia-bgp-vpn",
+          "keys": [
+            {
+              "name": "id",
+              "type": {
+                "name": "uint8",
+                "base": "uint8"
+              }
+            }
+          ]
+        },
+        {
+          "name": "route-distinguisher",
+          "module": "srl_nokia-bgp-vpn"
+        },
+        {
+          "name": "route-distinguisher-origin",
+          "module": "srl_nokia-bgp-vpn"
+        }
+      ],
+      "kind": "leaf",
+      "type": {
+        "name": "enumeration",
+        "base": "enumeration",
+        "enums": [
+          "auto-derived-from-evi",
+          "auto-derived-from-system-ip:0",
+          "manual",
+          "none"
+        ]
+      }
+    },
+    "/network-instance[name=*]/protocols/bgp-vpn/bgp-instance[id=*]/route-target/export-route-target-origin": {
+      "elements": [
+        {
+          "name": "network-instance",
+          "module": "srl_nokia-network-instance",
+          "keys": [
+            {
+              "name": "name",
+              "type": {
+                "name": "restricted-name",
+                "base": "string"
+              }
+            }
+          ]
+        },
+        {
+          "name": "protocols",
+          "module": "srl_nokia-network-instance"
+        },
+        {
+          "name": "bgp-vpn",
+          "module": "srl_nokia-bgp-vpn"
+        },
+        {
+          "name": "bgp-instance",
+          "module": "srl_nokia-bgp-vpn",
+          "keys": [
+            {
+              "name": "id",
+              "type": {
+                "name": "uint8",
+                "base": "uint8"
+              }
+            }
+          ]
+        },
+        {
+          "name": "route-target",
+          "module": "srl_nokia-bgp-vpn"
+        },
+        {
+          "name": "export-route-target-origin",
+          "module": "srl_nokia-bgp-vpn"
+        }
+      ],
+      "kind": "leaf",
+      "type": {
+        "name": "enumeration",
+        "base": "enumeration",
+        "enums": [
+          "auto-derived-from-esi-bytes-1-6",
+          "auto-derived-from-evi",
+          "from-export-policy",
+          "manual",
+          "none"
+        ]
+      }
+    },
+    "/network-instance[name=*]/protocols/bgp-vpn/bgp-instance[id=*]/route-target/import-route-target-origin": {
+      "elements": [
+        {
+          "name": "network-instance",
+          "module": "srl_nokia-network-instance",
+          "keys": [
+            {
+              "name": "name",
+              "type": {
+                "name": "restricted-name",
+                "base": "string"
+              }
+            }
+          ]
+        },
+        {
+          "name": "protocols",
+          "module": "srl_nokia-network-instance"
+        },
+        {
+          "name": "bgp-vpn",
+          "module": "srl_nokia-bgp-vpn"
+        },
+        {
+          "name": "bgp-instance",
+          "module": "srl_nokia-bgp-vpn",
+          "keys": [
+            {
+              "name": "id",
+              "type": {
+                "name": "uint8",
+                "base": "uint8"
+              }
+            }
+          ]
+        },
+        {
+          "name": "route-target",
+          "module": "srl_nokia-bgp-vpn"
+        },
+        {
+          "name": "import-route-target-origin",
+          "module": "srl_nokia-bgp-vpn"
+        }
+      ],
+      "kind": "leaf",
+      "type": {
+        "name": "enumeration",
+        "base": "enumeration",
+        "enums": [
+          "auto-derived-from-esi-bytes-1-6",
+          "auto-derived-from-evi",
+          "from-import-policy",
+          "manual",
+          "none"
+        ]
+      }
+    },
+    "/network-instance[name=*]/route-table/ipv4-unicast/route/active": {
+      "elements": [
+        {
+          "name": "network-instance",
+          "module": "srl_nokia-network-instance",
+          "keys": [
+            {
+              "name": "name",
+              "type": {
+                "name": "restricted-name",
+                "base": "string"
+              }
+            }
+          ]
+        },
+        {
+          "name": "route-table",
+          "module": "srl_nokia-network-instance"
+        },
+        {
+          "name": "ipv4-unicast",
+          "module": "srl_nokia-ip-route-tables"
+        },
+        {
+          "name": "route",
+          "module": "srl_nokia-ip-route-tables",
+          "keys": [
+            {
+              "name": "ipv4-prefix",
+              "type": {
+                "name": "ipv4-prefix",
+                "base": "string"
+              }
+            },
+            {
+              "name": "route-type",
+              "type": {
+                "name": "identityref",
+                "base": "identityref"
+              }
+            },
+            {
+              "name": "route-owner",
+              "type": {
+                "name": "string",
+                "base": "string"
+              }
+            },
+            {
+              "name": "id",
+              "type": {
+                "name": "uint32",
+                "base": "uint32"
+              }
+            },
+            {
+              "name": "origin-network-instance",
+              "type": {
+                "name": "leafref",
+                "base": "leafref"
+              }
+            }
+          ]
+        },
+        {
+          "name": "active",
+          "module": "srl_nokia-ip-route-tables"
+        }
+      ],
+      "kind": "leaf",
+      "type": {
+        "name": "boolean",
+        "base": "boolean"
+      }
+    },
+    "/network-instance[name=*]/route-table/ipv4-unicast/statistics": {
+      "elements": [
+        {
+          "name": "network-instance",
+          "module": "srl_nokia-network-instance",
+          "keys": [
+            {
+              "name": "name",
+              "type": {
+                "name": "restricted-name",
+                "base": "string"
+              }
+            }
+          ]
+        },
+        {
+          "name": "route-table",
+          "module": "srl_nokia-network-instance"
+        },
+        {
+          "name": "ipv4-unicast",
+          "module": "srl_nokia-ip-route-tables"
+        },
+        {
+          "name": "statistics",
+          "module": "srl_nokia-ip-route-tables"
+        }
+      ],
+      "kind": "container",
+      "leaves": [
+        {
+          "path": [
+            {
+              "name": "active-routes",
+              "module": "srl_nokia-ip-route-tables"
+            }
+          ],
+          "type": {
+            "name": "uint32",
+            "base": "uint32"
+          }
+        },
+        {
+          "path": [
+            {
+              "name": "active-routes-with-ecmp",
+              "module": "srl_nokia-ip-route-tables"
+            }
+          ],
+          "type": {
+            "name": "uint32",
+            "base": "uint32"
+          }
+        },
+        {
+          "path": [
+            {
+              "name": "dynamic-load-balancing-routes",
+              "module": "srl_nokia-ip-route-tables"
+            }
+          ],
+          "type": {
+            "name": "uint32",
+            "base": "uint32"
+          }
+        },
+        {
+          "path": [
+            {
+              "name": "fib-failed-routes",
+              "module": "srl_nokia-ip-route-tables"
+            }
+          ],
+          "type": {
+            "name": "uint32",
+            "base": "uint32"
+          }
+        },
+        {
+          "path": [
+            {
+              "name": "fib-suppressed-routes",
+              "module": "srl_nokia-ip-route-tables"
+            }
+          ],
+          "type": {
+            "name": "uint32",
+            "base": "uint32"
+          }
+        },
+        {
+          "path": [
+            {
+              "name": "leaked-routes",
+              "module": "srl_nokia-ip-route-tables"
+            }
+          ],
+          "type": {
+            "name": "uint32",
+            "base": "uint32"
+          }
+        },
+        {
+          "path": [
+            {
+              "name": "resilient-hash-routes",
+              "module": "srl_nokia-ip-route-tables"
+            }
+          ],
+          "type": {
+            "name": "uint32",
+            "base": "uint32"
+          }
+        },
+        {
+          "path": [
+            {
+              "name": "routes-with-per-prefix-statistics",
+              "module": "srl_nokia-ip-route-tables"
+            }
+          ],
+          "type": {
+            "name": "uint32",
+            "base": "uint32"
+          }
+        },
+        {
+          "path": [
+            {
+              "name": "total-routes",
+              "module": "srl_nokia-ip-route-tables"
+            }
+          ],
+          "type": {
+            "name": "zero-based-counter64",
+            "base": "uint64"
+          }
+        }
+      ]
+    },
+    "/network-instance[name=*]/route-table/ipv6-unicast/route/active": {
+      "elements": [
+        {
+          "name": "network-instance",
+          "module": "srl_nokia-network-instance",
+          "keys": [
+            {
+              "name": "name",
+              "type": {
+                "name": "restricted-name",
+                "base": "string"
+              }
+            }
+          ]
+        },
+        {
+          "name": "route-table",
+          "module": "srl_nokia-network-instance"
+        },
+        {
+          "name": "ipv6-unicast",
+          "module": "srl_nokia-ip-route-tables"
+        },
+        {
+          "name": "route",
+          "module": "srl_nokia-ip-route-tables",
+          "keys": [
+            {
+              "name": "ipv6-prefix",
+              "type": {
+                "name": "ipv6-prefix",
+                "base": "string"
+              }
+            },
+            {
+              "name": "route-type",
+              "type": {
+                "name": "identityref",
+                "base": "identityref"
+              }
+            },
+            {
+              "name": "route-owner",
+              "type": {
+                "name": "string",
+                "base": "string"
+              }
+            },
+            {
+              "name": "id",
+              "type": {
+                "name": "uint32",
+                "base": "uint32"
+              }
+            },
+            {
+              "name": "origin-network-instance",
+              "type": {
+                "name": "leafref",
+                "base": "leafref"
+              }
+            }
+          ]
+        },
+        {
+          "name": "active",
+          "module": "srl_nokia-ip-route-tables"
+        }
+      ],
+      "kind": "leaf",
+      "type": {
+        "name": "boolean",
+        "base": "boolean"
+      }
+    },
+    "/network-instance[name=*]/route-table/ipv6-unicast/statistics": {
+      "elements": [
+        {
+          "name": "network-instance",
+          "module": "srl_nokia-network-instance",
+          "keys": [
+            {
+              "name": "name",
+              "type": {
+                "name": "restricted-name",
+                "base": "string"
+              }
+            }
+          ]
+        },
+        {
+          "name": "route-table",
+          "module": "srl_nokia-network-instance"
+        },
+        {
+          "name": "ipv6-unicast",
+          "module": "srl_nokia-ip-route-tables"
+        },
+        {
+          "name": "statistics",
+          "module": "srl_nokia-ip-route-tables"
+        }
+      ],
+      "kind": "container",
+      "leaves": [
+        {
+          "path": [
+            {
+              "name": "active-routes",
+              "module": "srl_nokia-ip-route-tables"
+            }
+          ],
+          "type": {
+            "name": "uint32",
+            "base": "uint32"
+          }
+        },
+        {
+          "path": [
+            {
+              "name": "active-routes-with-ecmp",
+              "module": "srl_nokia-ip-route-tables"
+            }
+          ],
+          "type": {
+            "name": "uint32",
+            "base": "uint32"
+          }
+        },
+        {
+          "path": [
+            {
+              "name": "dynamic-load-balancing-routes",
+              "module": "srl_nokia-ip-route-tables"
+            }
+          ],
+          "type": {
+            "name": "uint32",
+            "base": "uint32"
+          }
+        },
+        {
+          "path": [
+            {
+              "name": "fib-failed-routes",
+              "module": "srl_nokia-ip-route-tables"
+            }
+          ],
+          "type": {
+            "name": "uint32",
+            "base": "uint32"
+          }
+        },
+        {
+          "path": [
+            {
+              "name": "fib-suppressed-routes",
+              "module": "srl_nokia-ip-route-tables"
+            }
+          ],
+          "type": {
+            "name": "uint32",
+            "base": "uint32"
+          }
+        },
+        {
+          "path": [
+            {
+              "name": "leaked-routes",
+              "module": "srl_nokia-ip-route-tables"
+            }
+          ],
+          "type": {
+            "name": "uint32",
+            "base": "uint32"
+          }
+        },
+        {
+          "path": [
+            {
+              "name": "resilient-hash-routes",
+              "module": "srl_nokia-ip-route-tables"
+            }
+          ],
+          "type": {
+            "name": "uint32",
+            "base": "uint32"
+          }
+        },
+        {
+          "path": [
+            {
+              "name": "routes-with-per-prefix-statistics",
+              "module": "srl_nokia-ip-route-tables"
+            }
+          ],
+          "type": {
+            "name": "uint32",
+            "base": "uint32"
+          }
+        },
+        {
+          "path": [
+            {
+              "name": "total-routes",
+              "module": "srl_nokia-ip-route-tables"
+            }
+          ],
+          "type": {
+            "name": "zero-based-counter64",
+            "base": "uint64"
+          }
+        }
+      ]
+    },
+    "/network-instance[name=*]/tunnel-table/ipv4/statistics": {
+      "elements": [
+        {
+          "name": "network-instance",
+          "module": "srl_nokia-network-instance",
+          "keys": [
+            {
+              "name": "name",
+              "type": {
+                "name": "restricted-name",
+                "base": "string"
+              }
+            }
+          ]
+        },
+        {
+          "name": "tunnel-table",
+          "module": "srl_nokia-network-instance"
+        },
+        {
+          "name": "ipv4",
+          "module": "srl_nokia-tunnel-tables"
+        },
+        {
+          "name": "statistics",
+          "module": "srl_nokia-tunnel-tables"
+        }
+      ],
+      "kind": "container",
+      "leaves": [
+        {
+          "path": [
+            {
+              "name": "active-tunnels",
+              "module": "srl_nokia-tunnel-tables"
+            }
+          ],
+          "type": {
+            "name": "uint32",
+            "base": "uint32"
+          }
+        },
+        {
+          "path": [
+            {
+              "name": "inactive-tunnels",
+              "module": "srl_nokia-tunnel-tables"
+            }
+          ],
+          "type": {
+            "name": "uint32",
+            "base": "uint32"
+          }
+        },
+        {
+          "path": [
+            {
+              "name": "total-tunnels",
+              "module": "srl_nokia-tunnel-tables"
+            }
+          ],
+          "type": {
+            "name": "zero-based-counter64",
+            "base": "uint64"
+          }
+        }
+      ]
+    },
+    "/network-instance[name=*]/vxlan-interface[name=*]/oper-down-reason": {
+      "elements": [
+        {
+          "name": "network-instance",
+          "module": "srl_nokia-network-instance",
+          "keys": [
+            {
+              "name": "name",
+              "type": {
+                "name": "restricted-name",
+                "base": "string"
+              }
+            }
+          ]
+        },
+        {
+          "name": "vxlan-interface",
+          "module": "srl_nokia-network-instance",
+          "keys": [
+            {
+              "name": "name",
+              "type": {
+                "name": "network-instance-vxlan-if-ref",
+                "base": "string"
+              }
+            }
+          ]
+        },
+        {
+          "name": "oper-down-reason",
+          "module": "srl_nokia-network-instance"
+        }
+      ],
+      "kind": "leaf",
+      "type": {
+        "name": "enumeration",
+        "base": "enumeration",
+        "enums": [
+          "net-inst-down",
+          "no-mcid",
+          "vrf-type-mismatch",
+          "vxlan-if-default-net-inst-source-address-missing",
+          "vxlan-if-default-net-inst-source-if-down",
+          "vxlan-tunnel-down"
+        ]
+      }
+    },
+    "/network-instance[name=*]/vxlan-interface[name=*]/oper-state": {
+      "elements": [
+        {
+          "name": "network-instance",
+          "module": "srl_nokia-network-instance",
+          "keys": [
+            {
+              "name": "name",
+              "type": {
+                "name": "restricted-name",
+                "base": "string"
+              }
+            }
+          ]
+        },
+        {
+          "name": "vxlan-interface",
+          "module": "srl_nokia-network-instance",
+          "keys": [
+            {
+              "name": "name",
+              "type": {
+                "name": "network-instance-vxlan-if-ref",
+                "base": "string"
+              }
+            }
+          ]
+        },
+        {
+          "name": "oper-state",
+          "module": "srl_nokia-network-instance"
+        }
+      ],
+      "kind": "leaf",
+      "type": {
+        "name": "oper-state",
+        "base": "enumeration",
+        "enums": [
+          "booting",
+          "degraded",
+          "down",
+          "downloading",
+          "empty",
+          "failed",
+          "low-power",
+          "starting",
+          "synchronizing",
+          "up",
+          "upgrading",
+          "waiting",
+          "warm-reboot"
+        ]
+      }
+    },
+    "/network-instance[name=default]/bgp-rib/afi-safi[afi-safi-name=evpn]/evpn/rib-in-out/rib-in-post/ip-prefix-route[route-distinguisher=*][ethernet-tag-id=*][ip-prefix-length=*][ip-prefix=*][neighbor=*][path-id=*]/used-route": {
+      "elements": [
+        {
+          "name": "network-instance",
+          "module": "srl_nokia-network-instance",
+          "keys": [
+            {
+              "name": "name",
+              "type": {
+                "name": "restricted-name",
+                "base": "string"
+              }
+            }
+          ]
+        },
+        {
+          "name": "bgp-rib",
+          "module": "srl_nokia-rib-bgp"
+        },
+        {
+          "name": "afi-safi",
+          "module": "srl_nokia-rib-bgp",
+          "keys": [
+            {
+              "name": "afi-safi-name",
+              "type": {
+                "name": "identityref",
+                "base": "identityref"
+              }
+            }
+          ]
+        },
+        {
+          "name": "evpn",
+          "module": "srl_nokia-rib-bgp"
+        },
+        {
+          "name": "rib-in-out",
+          "module": "srl_nokia-rib-bgp"
+        },
+        {
+          "name": "rib-in-post",
+          "module": "srl_nokia-rib-bgp"
+        },
+        {
+          "name": "ip-prefix-route",
+          "module": "srl_nokia-rib-bgp",
+          "keys": [
+            {
+              "name": "route-distinguisher",
+              "type": {
+                "name": "route-distinguisher",
+                "base": "union",
+                "members": [
+                  {
+                    "name": "route-distinguisher-type-0",
+                    "base": "string"
+                  },
+                  {
+                    "name": "route-distinguisher-type-1",
+                    "base": "string"
+                  },
+                  {
+                    "name": "route-distinguisher-type-2",
+                    "base": "string"
+                  },
+                  {
+                    "name": "route-distinguisher-type-2b",
+                    "base": "string"
+                  }
+                ]
+              }
+            },
+            {
+              "name": "ethernet-tag-id",
+              "type": {
+                "name": "uint32",
+                "base": "uint32"
+              }
+            },
+            {
+              "name": "ip-prefix-length",
+              "type": {
+                "name": "uint8",
+                "base": "uint8"
+              }
+            },
+            {
+              "name": "ip-prefix",
+              "type": {
+                "name": "ip-prefix",
+                "base": "union",
+                "members": [
+                  {
+                    "name": "ipv4-prefix",
+                    "base": "string"
+                  },
+                  {
+                    "name": "ipv6-prefix",
+                    "base": "string"
+                  }
+                ]
+              }
+            },
+            {
+              "name": "neighbor",
+              "type": {
+                "name": "ip-address-with-zone",
+                "base": "union",
+                "members": [
+                  {
+                    "name": "ipv4-address-with-zone",
+                    "base": "string"
+                  },
+                  {
+                    "name": "ipv6-address-with-zone",
+                    "base": "string"
+                  }
+                ]
+              }
+            },
+            {
+              "name": "path-id",
+              "type": {
+                "name": "uint32",
+                "base": "uint32"
+              }
+            }
+          ]
+        },
+        {
+          "name": "used-route",
+          "module": "srl_nokia-rib-bgp"
+        }
+      ],
+      "kind": "leaf",
+      "type": {
+        "name": "boolean",
+        "base": "boolean"
+      }
+    },
+    "/network-instance[name=default]/protocols/bgp/neighbor[peer-address=*]/afi-safi[afi-safi-name=*]/active-routes": {
+      "elements": [
+        {
+          "name": "network-instance",
+          "module": "srl_nokia-network-instance",
+          "keys": [
+            {
+              "name": "name",
+              "type": {
+                "name": "restricted-name",
+                "base": "string"
+              }
+            }
+          ]
+        },
+        {
+          "name": "protocols",
+          "module": "srl_nokia-network-instance"
+        },
+        {
+          "name": "bgp",
+          "module": "srl_nokia-bgp"
+        },
+        {
+          "name": "neighbor",
+          "module": "srl_nokia-bgp",
+          "keys": [
+            {
+              "name": "peer-address",
+              "type": {
+                "name": "ip-address-with-zone",
+                "base": "union",
+                "members": [
+                  {
+                    "name": "ipv4-address-with-zone",
+                    "base": "string"
+                  },
+                  {
+                    "name": "ipv6-address-with-zone",
+                    "base": "string"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "afi-safi",
+          "module": "srl_nokia-bgp",
+          "keys": [
+            {
+              "name": "afi-safi-name",
+              "type": {
+                "name": "identityref",
+                "base": "identityref"
+              }
+            }
+          ]
+        },
+        {
+          "name": "active-routes",
+          "module": "srl_nokia-bgp"
+        }
+      ],
+      "kind": "leaf",
+      "type": {
+        "name": "uint32",
+        "base": "uint32"
+      }
+    },
+    "/network-instance[name=default]/protocols/bgp/neighbor[peer-address=*]/afi-safi[afi-safi-name=*]/oper-state": {
+      "elements": [
+        {
+          "name": "network-instance",
+          "module": "srl_nokia-network-instance",
+          "keys": [
+            {
+              "name": "name",
+              "type": {
+                "name": "restricted-name",
+                "base": "string"
+              }
+            }
+          ]
+        },
+        {
+          "name": "protocols",
+          "module": "srl_nokia-network-instance"
+        },
+        {
+          "name": "bgp",
+          "module": "srl_nokia-bgp"
+        },
+        {
+          "name": "neighbor",
+          "module": "srl_nokia-bgp",
+          "keys": [
+            {
+              "name": "peer-address",
+              "type": {
+                "name": "ip-address-with-zone",
+                "base": "union",
+                "members": [
+                  {
+                    "name": "ipv4-address-with-zone",
+                    "base": "string"
+                  },
+                  {
+                    "name": "ipv6-address-with-zone",
+                    "base": "string"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "afi-safi",
+          "module": "srl_nokia-bgp",
+          "keys": [
+            {
+              "name": "afi-safi-name",
+              "type": {
+                "name": "identityref",
+                "base": "identityref"
+              }
+            }
+          ]
+        },
+        {
+          "name": "oper-state",
+          "module": "srl_nokia-bgp"
+        }
+      ],
+      "kind": "leaf",
+      "type": {
+        "name": "enumeration",
+        "base": "enumeration",
+        "enums": [
+          "down",
+          "up"
+        ]
+      }
+    },
+    "/network-instance[name=default]/protocols/bgp/neighbor[peer-address=*]/afi-safi[afi-safi-name=*]/received-routes": {
+      "elements": [
+        {
+          "name": "network-instance",
+          "module": "srl_nokia-network-instance",
+          "keys": [
+            {
+              "name": "name",
+              "type": {
+                "name": "restricted-name",
+                "base": "string"
+              }
+            }
+          ]
+        },
+        {
+          "name": "protocols",
+          "module": "srl_nokia-network-instance"
+        },
+        {
+          "name": "bgp",
+          "module": "srl_nokia-bgp"
+        },
+        {
+          "name": "neighbor",
+          "module": "srl_nokia-bgp",
+          "keys": [
+            {
+              "name": "peer-address",
+              "type": {
+                "name": "ip-address-with-zone",
+                "base": "union",
+                "members": [
+                  {
+                    "name": "ipv4-address-with-zone",
+                    "base": "string"
+                  },
+                  {
+                    "name": "ipv6-address-with-zone",
+                    "base": "string"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "afi-safi",
+          "module": "srl_nokia-bgp",
+          "keys": [
+            {
+              "name": "afi-safi-name",
+              "type": {
+                "name": "identityref",
+                "base": "identityref"
+              }
+            }
+          ]
+        },
+        {
+          "name": "received-routes",
+          "module": "srl_nokia-bgp"
+        }
+      ],
+      "kind": "leaf",
+      "type": {
+        "name": "uint32",
+        "base": "uint32"
+      }
+    },
+    "/network-instance[name=default]/protocols/bgp/neighbor[peer-address=*]/session-state": {
+      "elements": [
+        {
+          "name": "network-instance",
+          "module": "srl_nokia-network-instance",
+          "keys": [
+            {
+              "name": "name",
+              "type": {
+                "name": "restricted-name",
+                "base": "string"
+              }
+            }
+          ]
+        },
+        {
+          "name": "protocols",
+          "module": "srl_nokia-network-instance"
+        },
+        {
+          "name": "bgp",
+          "module": "srl_nokia-bgp"
+        },
+        {
+          "name": "neighbor",
+          "module": "srl_nokia-bgp",
+          "keys": [
+            {
+              "name": "peer-address",
+              "type": {
+                "name": "ip-address-with-zone",
+                "base": "union",
+                "members": [
+                  {
+                    "name": "ipv4-address-with-zone",
+                    "base": "string"
+                  },
+                  {
+                    "name": "ipv6-address-with-zone",
+                    "base": "string"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "session-state",
+          "module": "srl_nokia-bgp"
+        }
+      ],
+      "kind": "leaf",
+      "type": {
+        "name": "enumeration",
+        "base": "enumeration",
+        "enums": [
+          "active",
+          "connect",
+          "established",
+          "idle",
+          "openconfirm",
+          "opensent"
+        ]
+      }
+    },
+    "/platform/control[slot=*]/cpu[index=all]/total": {
+      "elements": [
+        {
+          "name": "platform",
+          "module": "srl_nokia-platform"
+        },
+        {
+          "name": "control",
+          "module": "srl_nokia-platform-control",
+          "keys": [
+            {
+              "name": "slot",
+              "type": {
+                "name": "string",
+                "base": "string"
+              }
+            }
+          ]
+        },
+        {
+          "name": "cpu",
+          "module": "srl_nokia-platform-cpu",
+          "keys": [
+            {
+              "name": "index",
+              "type": {
+                "name": "union",
+                "base": "union",
+                "members": [
+                  {
+                    "name": "enumeration",
+                    "base": "enumeration",
+                    "enums": [
+                      "all"
+                    ]
+                  },
+                  {
+                    "name": "uint64",
+                    "base": "uint64"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "total",
+          "module": "srl_nokia-platform-cpu"
+        }
+      ],
+      "kind": "container",
+      "leaves": [
+        {
+          "path": [
+            {
+              "name": "average-1",
+              "module": "srl_nokia-platform-cpu"
+            }
+          ],
+          "type": {
+            "name": "percentage",
+            "base": "uint8"
+          }
+        },
+        {
+          "path": [
+            {
+              "name": "average-15",
+              "module": "srl_nokia-platform-cpu"
+            }
+          ],
+          "type": {
+            "name": "percentage",
+            "base": "uint8"
+          }
+        },
+        {
+          "path": [
+            {
+              "name": "average-5",
+              "module": "srl_nokia-platform-cpu"
+            }
+          ],
+          "type": {
+            "name": "percentage",
+            "base": "uint8"
+          }
+        },
+        {
+          "path": [
+            {
+              "name": "instant",
+              "module": "srl_nokia-platform-cpu"
+            }
+          ],
+          "type": {
+            "name": "percentage",
+            "base": "uint8"
+          }
+        }
+      ]
+    },
+    "/platform/control[slot=*]/memory": {
+      "elements": [
+        {
+          "name": "platform",
+          "module": "srl_nokia-platform"
+        },
+        {
+          "name": "control",
+          "module": "srl_nokia-platform-control",
+          "keys": [
+            {
+              "name": "slot",
+              "type": {
+                "name": "string",
+                "base": "string"
+              }
+            }
+          ]
+        },
+        {
+          "name": "memory",
+          "module": "srl_nokia-platform-memory"
+        }
+      ],
+      "kind": "container",
+      "leaves": [
+        {
+          "path": [
+            {
+              "name": "free",
+              "module": "srl_nokia-platform-memory"
+            }
+          ],
+          "type": {
+            "name": "uint64",
+            "base": "uint64"
+          }
+        },
+        {
+          "path": [
+            {
+              "name": "physical",
+              "module": "srl_nokia-platform-memory"
+            }
+          ],
+          "type": {
+            "name": "uint64",
+            "base": "uint64"
+          }
+        },
+        {
+          "path": [
+            {
+              "name": "reserved",
+              "module": "srl_nokia-platform-memory"
+            }
+          ],
+          "type": {
+            "name": "uint64",
+            "base": "uint64"
+          }
+        },
+        {
+          "path": [
+            {
+              "name": "utilization",
+              "module": "srl_nokia-platform-memory"
+            }
+          ],
+          "type": {
+            "name": "percentage",
+            "base": "uint8"
+          }
+        }
+      ]
+    },
+    "/system/app-management/application[name=*]/state": {
+      "elements": [
+        {
+          "name": "system",
+          "module": "srl_nokia-system"
+        },
+        {
+          "name": "app-management",
+          "module": "srl_nokia-app-mgmt"
+        },
+        {
+          "name": "application",
+          "module": "srl_nokia-app-mgmt",
+          "keys": [
+            {
+              "name": "name",
+              "type": {
+                "name": "string",
+                "base": "string"
+              }
+            }
+          ]
+        },
+        {
+          "name": "state",
+          "module": "srl_nokia-app-mgmt"
+        }
+      ],
+      "kind": "leaf",
+      "type": {
+        "name": "application-state-type",
+        "base": "enumeration",
+        "enums": [
+          "error",
+          "running",
+          "starting",
+          "stopped",
+          "waiting-for-config"
+        ]
+      }
+    },
+    "/tunnel-interface[name=*]/vxlan-interface[index=*]/bridge-table/multicast-destinations/destination[vtep=*][vni=*]/destination-index": {
+      "elements": [
+        {
+          "name": "tunnel-interface",
+          "module": "srl_nokia-tunnel-interfaces",
+          "keys": [
+            {
+              "name": "name",
+              "type": {
+                "name": "tunnel-interface-all",
+                "base": "string"
+              }
+            }
+          ]
+        },
+        {
+          "name": "vxlan-interface",
+          "module": "srl_nokia-tunnel-interfaces",
+          "keys": [
+            {
+              "name": "index",
+              "type": {
+                "name": "uint32",
+                "base": "uint32"
+              }
+            }
+          ]
+        },
+        {
+          "name": "bridge-table",
+          "module": "srl_nokia-tunnel-interfaces"
+        },
+        {
+          "name": "multicast-destinations",
+          "module": "srl_nokia-tunnel-interfaces-vxlan-interface-bridge-table-multicast-destinations"
+        },
+        {
+          "name": "destination",
+          "module": "srl_nokia-tunnel-interfaces-vxlan-interface-bridge-table-multicast-destinations",
+          "keys": [
+            {
+              "name": "vtep",
+              "type": {
+                "name": "ip-address",
+                "base": "union",
+                "members": [
+                  {
+                    "name": "ipv4-address",
+                    "base": "string"
+                  },
+                  {
+                    "name": "ipv6-address",
+                    "base": "string"
+                  }
+                ]
+              }
+            },
+            {
+              "name": "vni",
+              "type": {
+                "name": "uint32",
+                "base": "uint32"
+              }
+            }
+          ]
+        },
+        {
+          "name": "destination-index",
+          "module": "srl_nokia-tunnel-interfaces-vxlan-interface-bridge-table-multicast-destinations"
+        }
+      ],
+      "kind": "leaf",
+      "type": {
+        "name": "uint64",
+        "base": "uint64"
+      }
+    },
+    "/tunnel-interface[name=*]/vxlan-interface[index=*]/bridge-table/multicast-destinations/destination[vtep=*][vni=*]/not-programmed-reason": {
+      "elements": [
+        {
+          "name": "tunnel-interface",
+          "module": "srl_nokia-tunnel-interfaces",
+          "keys": [
+            {
+              "name": "name",
+              "type": {
+                "name": "tunnel-interface-all",
+                "base": "string"
+              }
+            }
+          ]
+        },
+        {
+          "name": "vxlan-interface",
+          "module": "srl_nokia-tunnel-interfaces",
+          "keys": [
+            {
+              "name": "index",
+              "type": {
+                "name": "uint32",
+                "base": "uint32"
+              }
+            }
+          ]
+        },
+        {
+          "name": "bridge-table",
+          "module": "srl_nokia-tunnel-interfaces"
+        },
+        {
+          "name": "multicast-destinations",
+          "module": "srl_nokia-tunnel-interfaces-vxlan-interface-bridge-table-multicast-destinations"
+        },
+        {
+          "name": "destination",
+          "module": "srl_nokia-tunnel-interfaces-vxlan-interface-bridge-table-multicast-destinations",
+          "keys": [
+            {
+              "name": "vtep",
+              "type": {
+                "name": "ip-address",
+                "base": "union",
+                "members": [
+                  {
+                    "name": "ipv4-address",
+                    "base": "string"
+                  },
+                  {
+                    "name": "ipv6-address",
+                    "base": "string"
+                  }
+                ]
+              }
+            },
+            {
+              "name": "vni",
+              "type": {
+                "name": "uint32",
+                "base": "uint32"
+              }
+            }
+          ]
+        },
+        {
+          "name": "not-programmed-reason",
+          "module": "srl_nokia-tunnel-interfaces-vxlan-interface-bridge-table-multicast-destinations"
+        }
+      ],
+      "kind": "leaf",
+      "type": {
+        "name": "enumeration",
+        "base": "enumeration",
+        "enums": [
+          "multicast-limit",
+          "no-destination-index"
+        ]
+      }
+    },
+    "/tunnel-interface[name=*]/vxlan-interface[index=*]/oper-down-reason": {
+      "elements": [
+        {
+          "name": "tunnel-interface",
+          "module": "srl_nokia-tunnel-interfaces",
+          "keys": [
+            {
+              "name": "name",
+              "type": {
+                "name": "tunnel-interface-all",
+                "base": "string"
+              }
+            }
+          ]
+        },
+        {
+          "name": "vxlan-interface",
+          "module": "srl_nokia-tunnel-interfaces",
+          "keys": [
+            {
+              "name": "index",
+              "type": {
+                "name": "uint32",
+                "base": "uint32"
+              }
+            }
+          ]
+        },
+        {
+          "name": "oper-down-reason",
+          "module": "srl_nokia-tunnel-interfaces"
+        }
+      ],
+      "kind": "leaf",
+      "type": {
+        "name": "enumeration",
+        "base": "enumeration",
+        "enums": [
+          "egress-hash-failed",
+          "ingress-hash-failed",
+          "mac-failed",
+          "other"
+        ]
+      }
+    },
+    "/tunnel-interface[name=*]/vxlan-interface[index=*]/oper-state": {
+      "elements": [
+        {
+          "name": "tunnel-interface",
+          "module": "srl_nokia-tunnel-interfaces",
+          "keys": [
+            {
+              "name": "name",
+              "type": {
+                "name": "tunnel-interface-all",
+                "base": "string"
+              }
+            }
+          ]
+        },
+        {
+          "name": "vxlan-interface",
+          "module": "srl_nokia-tunnel-interfaces",
+          "keys": [
+            {
+              "name": "index",
+              "type": {
+                "name": "uint32",
+                "base": "uint32"
+              }
+            }
+          ]
+        },
+        {
+          "name": "oper-state",
+          "module": "srl_nokia-tunnel-interfaces"
+        }
+      ],
+      "kind": "leaf",
+      "type": {
+        "name": "enumeration",
+        "base": "enumeration",
+        "enums": [
+          "down",
+          "up"
+        ]
+      }
+    },
+    "/tunnel/vxlan-tunnel/vtep[address=*]/index": {
+      "elements": [
+        {
+          "name": "tunnel",
+          "module": "srl_nokia-tunnel"
+        },
+        {
+          "name": "vxlan-tunnel",
+          "module": "srl_nokia-vxlan-tunnel-vtep"
+        },
+        {
+          "name": "vtep",
+          "module": "srl_nokia-vxlan-tunnel-vtep",
+          "keys": [
+            {
+              "name": "address",
+              "type": {
+                "name": "ip-address",
+                "base": "union",
+                "members": [
+                  {
+                    "name": "ipv4-address",
+                    "base": "string"
+                  },
+                  {
+                    "name": "ipv6-address",
+                    "base": "string"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "index",
+          "module": "srl_nokia-vxlan-tunnel-vtep"
+        }
+      ],
+      "kind": "leaf",
+      "type": {
+        "name": "uint64",
+        "base": "uint64"
+      }
+    },
+    "/tunnel/vxlan-tunnel/vtep[address=*]/statistics": {
+      "elements": [
+        {
+          "name": "tunnel",
+          "module": "srl_nokia-tunnel"
+        },
+        {
+          "name": "vxlan-tunnel",
+          "module": "srl_nokia-vxlan-tunnel-vtep"
+        },
+        {
+          "name": "vtep",
+          "module": "srl_nokia-vxlan-tunnel-vtep",
+          "keys": [
+            {
+              "name": "address",
+              "type": {
+                "name": "ip-address",
+                "base": "union",
+                "members": [
+                  {
+                    "name": "ipv4-address",
+                    "base": "string"
+                  },
+                  {
+                    "name": "ipv6-address",
+                    "base": "string"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "statistics",
+          "module": "srl_nokia-vxlan-tunnel-vtep"
+        }
+      ],
+      "kind": "container",
+      "leaves": [
+        {
+          "path": [
+            {
+              "name": "in-discarded-packets",
+              "module": "srl_nokia-vxlan-tunnel-vtep"
+            }
+          ],
+          "type": {
+            "name": "zero-based-counter64",
+            "base": "uint64"
+          }
+        },
+        {
+          "path": [
+            {
+              "name": "in-octets",
+              "module": "srl_nokia-vxlan-tunnel-vtep"
+            }
+          ],
+          "type": {
+            "name": "zero-based-counter64",
+            "base": "uint64"
+          }
+        },
+        {
+          "path": [
+            {
+              "name": "in-packets",
+              "module": "srl_nokia-vxlan-tunnel-vtep"
+            }
+          ],
+          "type": {
+            "name": "zero-based-counter64",
+            "base": "uint64"
+          }
+        },
+        {
+          "path": [
+            {
+              "name": "last-clear",
+              "module": "srl_nokia-vxlan-tunnel-vtep"
+            }
+          ],
+          "type": {
+            "name": "date-and-time-delta",
+            "base": "string"
+          }
+        },
+        {
+          "path": [
+            {
+              "name": "out-discarded-packets",
+              "module": "srl_nokia-vxlan-tunnel-vtep"
+            }
+          ],
+          "type": {
+            "name": "zero-based-counter64",
+            "base": "uint64"
+          }
+        },
+        {
+          "path": [
+            {
+              "name": "out-octets",
+              "module": "srl_nokia-vxlan-tunnel-vtep"
+            }
+          ],
+          "type": {
+            "name": "zero-based-counter64",
+            "base": "uint64"
+          }
+        },
+        {
+          "path": [
+            {
+              "name": "out-packets",
+              "module": "srl_nokia-vxlan-tunnel-vtep"
+            }
+          ],
+          "type": {
+            "name": "zero-based-counter64",
+            "base": "uint64"
+          }
+        }
+      ]
+    }
+  }
+}

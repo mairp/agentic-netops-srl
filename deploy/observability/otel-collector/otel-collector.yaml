@@ -1,6 +1,31 @@
-# The OpenTelemetry Collector of the device metric pipeline: OTLP in (from gNMIc), Prometheus out.
-# metric_expiration bounds a sample's age: a series not refreshed within 20 s (4 sample intervals of 5 s)
-# is dropped, so the Fabric read-back never reads a device value older than that as current.
+# The OpenTelemetry Collector of the device metric pipeline (T129; FR-089, FR-086, NFR-002, AD-55,
+# AD-66, AD-82; data-model.md §21): OTLP in (gNMIc's `type: otlp` output, the provider's traces, the
+# tier collector's forward), Prometheus out.
+#
+# The Prometheus exporter's settings are G7's observed ones (tests/gate/observed/telemetry-series.json
+# settings.collector_prometheus_exporter; AD-55) and are never re-chosen here: every series name the
+# Fabric read-back (internal/verify/collector.go) and T130's rules are built from was observed under
+# them. metric_expiration bounds a sample's age: a series not refreshed within 20 s (4 sample intervals
+# of 5 s) is dropped, so the Fabric read-back never reads a device value older than that as current.
+#
+# The metrics filter admits exactly two name prefixes, each matched as a LITERAL string (OTTL
+# HasPrefix, never a regex and never the predecessor collector's pattern — AD-66, D-37):
+#   agentic_netops_agent_  the tier metric prefix, stated once in data-model.md §21 (admitted unmodified)
+#   srl_nokia_             the device metric names as they ARRIVE on OTLP: gNMIc v0.47.0's otlp output
+#                          (metric-prefix "", strip-leading-underscore) names a metric after its path
+#                          with "/" and "-" already turned into "_" (pkg/outputs/otlp_output
+#                          buildMetricName), and SR Linux qualifies the first element with its module,
+#                          so every device name starts srl_nokia_ (all 27 names of the live dump do)
+# Anything else (a stray SDK metric, a controller's own OTLP metrics — the provider is scraped
+# directly as `srl-provider`) is dropped and counted in otelcol_processor_filter_datapoints_filtered.
+#
+# Traces: the provider's OTLP traces (srl-provider-settings otlp-endpoint) are accepted and written
+# to the debug exporter at basic verbosity (one log line per batch) — accepted, never refused.
+# No sending_queue: the Prometheus exporter is a pull exporter (no queue to bound), and the debug
+# exporter is synchronous; otelcol_exporter_queue_* is therefore absent from this collector.
+#
+# Its own telemetry (level detailed) is pulled on :8888 (port `telemetry`) and scraped as
+# `otel-collector` (deploy/observability/prometheus).
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -13,18 +38,33 @@ data:
       otlp:
         protocols:
           grpc: {endpoint: 0.0.0.0:4317}
+    processors:
+      filter/tier-and-device:
+        error_mode: ignore
+        metrics:
+          metric:
+            - not (HasPrefix(name, "agentic_netops_agent_") or HasPrefix(name, "srl_nokia_"))
     exporters:
       prometheus:
         endpoint: 0.0.0.0:8889
         translation_strategy: UnderscoreEscapingWithoutSuffixes
         metric_expiration: 20s
         send_timestamps: true
+      debug: {verbosity: basic}
     extensions:
       health_check: {endpoint: 0.0.0.0:13133}
     service:
       extensions: [health_check]
+      telemetry:
+        metrics:
+          level: detailed
+          readers:
+            - pull:
+                exporter:
+                  prometheus: {host: 0.0.0.0, port: 8888}
       pipelines:
-        metrics: {receivers: [otlp], exporters: [prometheus]}
+        metrics: {receivers: [otlp], processors: [filter/tier-and-device], exporters: [prometheus]}
+        traces: {receivers: [otlp], exporters: [debug]}
 ---
 apiVersion: v1
 kind: Service
@@ -37,6 +77,7 @@ spec:
   ports:
   - {name: otlp-grpc, port: 4317, targetPort: otlp-grpc}
   - {name: prometheus, port: 8889, targetPort: prometheus}
+  - {name: telemetry, port: 8888, targetPort: telemetry}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -65,6 +106,7 @@ spec:
         ports:
         - {name: otlp-grpc, containerPort: 4317}
         - {name: prometheus, containerPort: 8889}
+        - {name: telemetry, containerPort: 8888}
         - {name: health, containerPort: 13133}
         readinessProbe: {httpGet: {path: /, port: health}, periodSeconds: 5}
         livenessProbe: {httpGet: {path: /, port: health}, periodSeconds: 20}

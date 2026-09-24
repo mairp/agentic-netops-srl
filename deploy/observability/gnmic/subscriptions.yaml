@@ -1,0 +1,74 @@
+# GENERATED from the path register (pkg/register SubscribeEntries; T128, FR-017, FR-089) by
+# internal/telemetry/gnmic_config.go — do not edit by hand. Regenerate after changing the register:
+#   go test ./internal/telemetry -run TestGnmicSubscriptionsGolden -update
+# scripts/lib/device_metrics.sh embeds the subscriptions section below into the gNMIc configuration
+# (ConfigMap monitoring/device-metrics-gnmic). Every path is native srl_nokia, re-validated against
+# the pinned YANG models (pkg/register/testdata/yang-index-v25.7.1.json); each subscription is one
+# gNMI Subscribe stream per target (at most three), sampled (G7 qualified no on-change stream).
+subscriptions:
+  device-counters:
+    mode: stream
+    stream-mode: sample
+    sample-interval: 10s
+    paths:
+      - "/interface[name=*]/traffic-rate"
+      - "/interface[name=*]/statistics"
+      - "/interface[name=*]/subinterface[index=*]/statistics"
+      - "/network-instance[name=default]/protocols/bgp/neighbor[peer-address=*]/afi-safi[afi-safi-name=*]/active-routes"
+      - "/tunnel/vxlan-tunnel/vtep[address=*]/statistics"
+      - "/network-instance[name=*]/bridge-table/statistics/total-entries"
+      - "/network-instance[name=*]/bridge-table/statistics/active-entries"
+      - "/network-instance[name=*]/bridge-table/statistics/failed-entries"
+      - "/network-instance[name=*]/bridge-table/statistics/mac-type[type=*]"
+      - "/network-instance[name=*]/route-table/ipv4-unicast/statistics"
+      - "/network-instance[name=*]/route-table/ipv6-unicast/statistics"
+      - "/network-instance[name=*]/tunnel-table/ipv4/statistics"
+  device-health:
+    mode: stream
+    stream-mode: sample
+    sample-interval: 10s
+    paths:
+      - "/platform/control[slot=*]/cpu[index=all]/total"
+      - "/platform/control[slot=*]/memory"
+      - "/system/app-management/application[name=*]/state"
+  device-state:
+    mode: stream
+    stream-mode: sample
+    sample-interval: 5s
+    paths:
+      - "/interface[name=*]/oper-state"
+      - "/interface[name=*]/subinterface[index=*]/oper-state"
+      - "/interface[name=*]/subinterface[index=*]/oper-down-reason"
+      - "/tunnel-interface[name=*]/vxlan-interface[index=*]/oper-state"
+      - "/tunnel-interface[name=*]/vxlan-interface[index=*]/oper-down-reason"
+      - "/tunnel-interface[name=*]/vxlan-interface[index=*]/bridge-table/multicast-destinations/destination[vtep=*][vni=*]/destination-index"
+      - "/tunnel-interface[name=*]/vxlan-interface[index=*]/bridge-table/multicast-destinations/destination[vtep=*][vni=*]/not-programmed-reason"
+      - "/tunnel/vxlan-tunnel/vtep[address=*]/index"
+      - "/network-instance[name=*]/oper-state"
+      - "/network-instance[name=*]/oper-down-reason"
+      - "/network-instance[name=*]/interface[name=*]/oper-state"
+      - "/network-instance[name=*]/interface[name=*]/oper-down-reason"
+      - "/network-instance[name=*]/vxlan-interface[name=*]/oper-state"
+      - "/network-instance[name=*]/vxlan-interface[name=*]/oper-down-reason"
+      - "/network-instance[name=default]/protocols/bgp/neighbor[peer-address=*]/session-state"
+      - "/network-instance[name=default]/protocols/bgp/neighbor[peer-address=*]/afi-safi[afi-safi-name=*]/oper-state"
+      - "/network-instance[name=default]/protocols/bgp/neighbor[peer-address=*]/afi-safi[afi-safi-name=*]/received-routes"
+      - "/network-instance[name=*]/route-table/ipv4-unicast/route/active"
+      - "/network-instance[name=*]/route-table/ipv6-unicast/route/active"
+      - "/network-instance[name=*]/protocols/bgp-evpn/bgp-instance[id=*]/evi"
+      - "/network-instance[name=*]/protocols/bgp-evpn/bgp-instance[id=*]/oper-state"
+      - "/network-instance[name=*]/protocols/bgp-evpn/bgp-instance[id=*]/oper-down-reason"
+      - "/network-instance[name=*]/protocols/bgp-vpn/bgp-instance[id=*]/route-distinguisher/route-distinguisher-origin"
+      - "/network-instance[name=*]/protocols/bgp-vpn/bgp-instance[id=*]/route-target/export-route-target-origin"
+      - "/network-instance[name=*]/protocols/bgp-vpn/bgp-instance[id=*]/route-target/import-route-target-origin"
+      - "/acl/datapath-programming/forwarding-complex[slot-id=*][complex-id=*]/programming-complete"
+      - "/acl/acl-filter[name=*][type=*]/entry[sequence-id=*]/tcam-entries/forwarding-complex[complex-identifier=*]/single-instance"
+      - "/acl/acl-filter[name=*][type=*]/entry[sequence-id=*]/tcam-entries/forwarding-complex[complex-identifier=*]/input-total"
+      - "/acl/acl-filter[name=*][type=*]/entry[sequence-id=*]/tcam-entries/forwarding-complex[complex-identifier=*]/output-total"
+      - "/acl/acl-filter[name=*][type=*]/entry[sequence-id=*]/statistics/matched-packets"
+      - "/acl/acl-filter[name=*][type=*]/entry[sequence-id=*]/statistics/incomplete"
+      - "/interface[name=*]/subinterface[index=*]/anycast-gw/anycast-gw-mac-origin"
+      - "/interface[name=*]/subinterface[index=*]/ipv4/address[ip-prefix=*]/status"
+      - "/interface[name=*]/subinterface[index=*]/ipv6/address[ip-prefix=*]/status"
+      - "/network-instance[name=default]/bgp-rib/afi-safi[afi-safi-name=evpn]/evpn/rib-in-out/rib-in-post/ip-prefix-route[route-distinguisher=*][ethernet-tag-id=*][ip-prefix-length=*][ip-prefix=*][neighbor=*][path-id=*]/used-route"
+      - "/interface[name=*]/admin-state"

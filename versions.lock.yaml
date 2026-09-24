@@ -264,7 +264,7 @@ firstPartyImages:
       - {ref: golang, tag: "1.27.1-alpine", digest: "sha256:4cb7ac979db5fcc41cae44b2227ba5ab8a51e8807f40d9ba4dee20a0ad960b5b"} # tag: <goToolchain.toolchain>-alpine
       - {ref: alpine, tag: 3.24.2, digest: "sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6"}
     dependencyLocks:
-      - {path: go.sum, sha256: "8231910c9b07e6b8e637a32d735a8d37c9918b4e3dffd291a3f5bda93e6b42f2"}
+      - {path: go.sum, sha256: "aa124faab65bf8844fe902947af5145b99f38cc8eade717e713fac4abe466f9c"}
   - name: schema-mirror # T184, AD-75: git smart HTTP, read-only; packages pinned in the Dockerfile
     dockerfile: docker/Dockerfile.schema-mirror
     context: docker/schema-mirror
@@ -306,7 +306,7 @@ firstPartyImages:
       - {ref: golang, tag: "1.27.1-alpine", digest: "sha256:4cb7ac979db5fcc41cae44b2227ba5ab8a51e8807f40d9ba4dee20a0ad960b5b"} # tag: <goToolchain.toolchain>-alpine
       - {ref: alpine, tag: 3.24.2, digest: "sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6"}
     dependencyLocks:
-      - {path: go.sum, sha256: "8231910c9b07e6b8e637a32d735a8d37c9918b4e3dffd291a3f5bda93e6b42f2"}
+      - {path: go.sum, sha256: "aa124faab65bf8844fe902947af5145b99f38cc8eade717e713fac4abe466f9c"}
   - name: ui
     dockerfile: docker/Dockerfile.ui
     context: ui

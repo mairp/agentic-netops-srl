@@ -1,0 +1,362 @@
+# rules_test.yaml — the alert rules' unit test (T130; FR-087, AD-48, AD-55, AD-59; data-model.md §21),
+# run by rules_test.sh with `promtool test rules` from the pinned Prometheus image. A TEMPLATE: the
+# guard's series names are the placeholders @@EVPN_SESSION_STATE@@, @@EVPN_RECEIVED_ROUTES@@ and
+# @@BGP_EVPN_INSTANCE_EVI@@, which rules_test.sh substitutes from the committed
+# tests/gate/observed/telemetry-series.json (never typed here). Every other name is the one the
+# pinned images were observed to expose (deploy/observability/prometheus/rules/pipeline.yaml header).
+#
+# Every one of the ten rules is shown to FIRE on its signature and to CLEAR when it ends, and the
+# no-fire cases that matter: FabricLinkDown silent on an unused port; EvpnRoutesLost silent with
+# sessions established and zero routes while no EVPN instance exists, while one EVI sits on one leaf,
+# and while two leaves carry DIFFERENT evis, firing only once the same evi is on two, and never for a
+# spine; DuplicateDeviceSeries silent for one path and for two different metrics sharing a label set,
+# firing for the same series by two; OtlpDataPointsRejected silent on flat counters, firing on a
+# rising refused, send-failed or error counter; ReverificationStalled silent once the object's series
+# is gone (finalization, AD-54). Series notation: `aXn` is n+1 samples, `_Xn` n missing ones.
+rule_files: [fabric.yaml, reconcile.yaml, pipeline.yaml, recording.yaml]
+evaluation_interval: 1m
+tests:
+  # ------------------------------------------------------------------ FabricLinkDown
+  - name: FabricLinkDown fires on a fabric link down, clears on up, never on an unused port
+    interval: 1m
+    input_series:
+      - series: 'srl_nokia_interfaces:interface_oper_state{job="devices",source="leaf01",interface_name="e1-49",subscription_name="device-state",otel_scope_name="gNMIc"}'
+        values: '1 1 0 0 0 0 1 1 1'
+      - series: 'srl_nokia_interfaces:interface_oper_state{job="devices",source="leaf01",interface_name="e1-5",subscription_name="device-state",otel_scope_name="gNMIc"}'
+        values: '0x8'
+      - series: 'srl_nokia_interfaces:interface_oper_state{job="devices",source="spine01",interface_name="e1-1",subscription_name="device-state",otel_scope_name="gNMIc"}'
+        values: '1x8'
+      - series: 'agentic_netops_fabric_link_info{source="leaf01",interface_name="e1-49",peer_source="spine01",peer_interface="e1-1"}'
+        values: '1x8'
+      - series: 'agentic_netops_fabric_link_info{source="spine01",interface_name="e1-1",peer_source="leaf01",peer_interface="e1-49"}'
+        values: '1x8'
+    alert_rule_test:
+      - {eval_time: 1m, alertname: FabricLinkDown, exp_alerts: []}
+      - eval_time: 3m
+        alertname: FabricLinkDown
+        exp_alerts:
+          - exp_labels: {severity: critical, source: leaf01, interface_name: e1-49, peer_source: spine01, peer_interface: e1-1}
+            exp_annotations:
+              summary: 'Fabric link leaf01 e1-49 → spine01 e1-1 is operationally down'
+              next: &next_link 'Open the fabric topology dashboard (Grafana) for both ends of the link, then `make show-bgp` for the sessions over it and `kubectl -n agentic-netops-system get fabric -o yaml` for the Fabric conditions'
+      - {eval_time: 7m, alertname: FabricLinkDown, exp_alerts: []}
+
+  # ------------------------------------------------------------------ BGPSessionDown
+  - name: BGPSessionDown fires on a session not established, clears once established
+    interval: 1m
+    input_series:
+      - series: '@@EVPN_SESSION_STATE@@{job="devices",source="leaf01",network_instance_name="default",neighbor_peer_address="10.0.0.11",subscription_name="device-state"}'
+        values: '5 5 1 1 1 5 5'
+      - series: '@@EVPN_SESSION_STATE@@{job="devices",source="leaf01",network_instance_name="default",neighbor_peer_address="10.0.0.12",subscription_name="device-state"}'
+        values: '5x6'
+    alert_rule_test:
+      - {eval_time: 1m, alertname: BGPSessionDown, exp_alerts: []}
+      - eval_time: 3m
+        alertname: BGPSessionDown
+        exp_alerts:
+          - exp_labels: {severity: critical, source: leaf01, network_instance_name: default, neighbor_peer_address: 10.0.0.11}
+            exp_annotations:
+              summary: 'BGP session leaf01 → 10.0.0.11 (default) is not established (state 1)'
+              next: 'Run `make show-bgp`; check the underlay links (FabricLinkDown) and `kubectl -n agentic-netops-system get fabric -o yaml` for the Fabric conditions'
+      - {eval_time: 6m, alertname: BGPSessionDown, exp_alerts: []}
+
+  # ------------------------------------------------------------------ EvpnRoutesLost (AD-48 guard)
+  # Sessions established and zero EVPN routes received THROUGHOUT 0–24m on both leaves (and on a
+  # spine). Only the EVPN instances change:
+  #   0–4m    no bgp-evpn instance anywhere                      → silent
+  #   5–9m    evi 10 on leaf01 only                              → silent
+  #   10–14m  evi 10 on leaf01, evi 20 on leaf02 (different)     → silent
+  #   15m–    evi 10 on leaf01 AND leaf02                        → fires (for 1m) on both leaves
+  #   25m–    routes received again                              → clears
+  - name: EvpnRoutesLost is guarded until the same evi is on two leaves, then fires, then clears
+    interval: 1m
+    input_series:
+      - {series: 'agentic_netops_node_info{source="leaf01",role="leaf"}', values: '1x29'}
+      - {series: 'agentic_netops_node_info{source="leaf02",role="leaf"}', values: '1x29'}
+      - {series: 'agentic_netops_node_info{source="spine01",role="spine"}', values: '1x29'}
+      - series: '@@EVPN_SESSION_STATE@@{job="devices",source="leaf01",network_instance_name="default",neighbor_peer_address="10.0.0.11"}'
+        values: '5x29'
+      - series: '@@EVPN_SESSION_STATE@@{job="devices",source="leaf02",network_instance_name="default",neighbor_peer_address="10.0.0.11"}'
+        values: '5x29'
+      - series: '@@EVPN_SESSION_STATE@@{job="devices",source="spine01",network_instance_name="default",neighbor_peer_address="10.0.0.1"}'
+        values: '5x29'
+      - series: '@@EVPN_RECEIVED_ROUTES@@{job="devices",source="leaf01",network_instance_name="default",neighbor_peer_address="10.0.0.11",afi_safi_afi_safi_name="evpn"}'
+        values: '0x24 7x4'
+      - series: '@@EVPN_RECEIVED_ROUTES@@{job="devices",source="leaf02",network_instance_name="default",neighbor_peer_address="10.0.0.11",afi_safi_afi_safi_name="evpn"}'
+        values: '0x24 7x4'
+      - series: '@@EVPN_RECEIVED_ROUTES@@{job="devices",source="leaf01",network_instance_name="default",neighbor_peer_address="10.0.0.11",afi_safi_afi_safi_name="ipv4-unicast"}'
+        values: '0x29'
+      - series: '@@EVPN_RECEIVED_ROUTES@@{job="devices",source="spine01",network_instance_name="default",neighbor_peer_address="10.0.0.1",afi_safi_afi_safi_name="evpn"}'
+        values: '0x29'
+      - series: '@@BGP_EVPN_INSTANCE_EVI@@{job="devices",source="leaf01",network_instance_name="macvrf-a",bgp_instance_id="1"}'
+        values: '_x5 10x24'
+      - series: '@@BGP_EVPN_INSTANCE_EVI@@{job="devices",source="leaf02",network_instance_name="macvrf-b",bgp_instance_id="1"}'
+        values: '_x10 20x19'
+      - series: '@@BGP_EVPN_INSTANCE_EVI@@{job="devices",source="leaf02",network_instance_name="macvrf-a",bgp_instance_id="1"}'
+        values: '_x15 10x14'
+    alert_rule_test:
+      - {eval_time: 4m, alertname: EvpnRoutesLost, exp_alerts: []}
+      - {eval_time: 9m, alertname: EvpnRoutesLost, exp_alerts: []}
+      - {eval_time: 14m, alertname: EvpnRoutesLost, exp_alerts: []}
+      - eval_time: 17m
+        alertname: EvpnRoutesLost
+        exp_alerts:
+          - exp_labels: {severity: critical, source: leaf01, network_instance_name: default, neighbor_peer_address: 10.0.0.11}
+            exp_annotations:
+              summary: 'Leaf leaf01 receives zero EVPN routes from 10.0.0.11 while the session is established and an EVI it carries spans two leaves'
+              next: &next_evpn 'Run `make show-evpn` and `make show-bgp`; check route reflection in `kubectl -n agentic-netops-system get fabric -o yaml` (spec.overlay) and the EVPN service-path dashboard (Grafana)'
+          - exp_labels: {severity: critical, source: leaf02, network_instance_name: default, neighbor_peer_address: 10.0.0.11}
+            exp_annotations:
+              summary: 'Leaf leaf02 receives zero EVPN routes from 10.0.0.11 while the session is established and an EVI it carries spans two leaves'
+              next: *next_evpn
+      - {eval_time: 26m, alertname: EvpnRoutesLost, exp_alerts: []}
+
+  # ------------------------------------------------------------------ ReconciliationFailed
+  - name: ReconciliationFailed fires on a failed last reconcile, clears on success
+    interval: 1m
+    input_series:
+      - series: 'agentic_netops_resource_reconcile_failed{job="srl-provider",kind="Network",namespace="agentic-netops-services",name="lab-vlan"}'
+        values: '0 0 1 1 1 0 0'
+      - series: 'agentic_netops_resource_reconcile_failed{job="srl-provider",kind="Fabric",namespace="agentic-netops-system",name="fabric01"}'
+        values: '0x6'
+    alert_rule_test:
+      - {eval_time: 1m, alertname: ReconciliationFailed, exp_alerts: []}
+      - eval_time: 3m
+        alertname: ReconciliationFailed
+        exp_alerts:
+          - exp_labels: {severity: warning, kind: Network, namespace: agentic-netops-services, name: lab-vlan}
+            exp_annotations:
+              summary: 'Network agentic-netops-services/lab-vlan: the last reconcile ended in an error or a terminal condition'
+              next: 'Read the conditions: `kubectl -n agentic-netops-services get Network lab-vlan -o yaml`, then the provider log `kubectl -n agentic-netops-system logs deploy/srl-provider`'
+      - {eval_time: 6m, alertname: ReconciliationFailed, exp_alerts: []}
+
+  # ------------------------------------------------------------------ ReverificationStalled
+  # Bound = reverify interval 120 s + reconcile interval 60 s = 180 s. lab-vlan's last pass is at 0 s
+  # until 6m, then at 300 s. fabric01 keeps passing. lab-deleted stops passing at 0 s and its series is
+  # removed at 3m (finalization started) — it never ages into the alert.
+  - name: ReverificationStalled fires past one reverify plus one reconcile interval, clears on a pass
+    interval: 1m
+    input_series:
+      - series: 'reverify_last_success_timestamp_seconds{job="srl-provider",kind="Network",namespace="agentic-netops-services",name="lab-vlan"}'
+        values: '0x5 300x4'
+      - series: 'reverify_last_success_timestamp_seconds{job="srl-provider",kind="Fabric",namespace="agentic-netops-system",name="fabric01"}'
+        values: '0+60x9'
+      - series: 'reverify_last_success_timestamp_seconds{job="srl-provider",kind="Network",namespace="agentic-netops-services",name="lab-deleted"}'
+        values: '0 0 0 stale'
+      - {series: 'agentic_netops_reverify_interval_seconds{job="srl-provider"}', values: '120x9'}
+      - {series: 'agentic_netops_reconcile_interval_seconds{job="srl-provider"}', values: '60x9'}
+    alert_rule_test:
+      - {eval_time: 3m, alertname: ReverificationStalled, exp_alerts: []}
+      - eval_time: 5m
+        alertname: ReverificationStalled
+        exp_alerts:
+          - exp_labels: {severity: warning, kind: Network, namespace: agentic-netops-services, name: lab-vlan}
+            exp_annotations:
+              summary: 'Network agentic-netops-services/lab-vlan has not been re-verified for 5m 0s'
+              next: 'Check `kubectl -n agentic-netops-services get Network lab-vlan -o yaml` (status.lastVerifiedTime, Ready), agentic_netops_reverify_total{result="could_not_run"} and the provider log'
+      - {eval_time: 7m, alertname: ReverificationStalled, exp_alerts: []}
+
+  # ------------------------------------------------------------------ DeviceTelemetryTargetDown
+  - name: DeviceTelemetryTargetDown fires on a gNMIc target down, clears when it is up again
+    interval: 1m
+    input_series:
+      - {series: 'gnmic_target_up{job="gnmic-self",name="leaf01"}', values: '1 1 0 0 0 1 1'}
+      - {series: 'gnmic_target_up{job="gnmic-self",name="leaf02"}', values: '1x6'}
+    alert_rule_test:
+      - {eval_time: 1m, alertname: DeviceTelemetryTargetDown, exp_alerts: []}
+      - eval_time: 3m
+        alertname: DeviceTelemetryTargetDown
+        exp_alerts:
+          - exp_labels: {severity: critical, source: leaf01}
+            exp_annotations:
+              summary: 'The device metric collector reports target leaf01 down'
+              next: 'Check the node management reachability and `kubectl -n monitoring logs deploy/device-metrics-gnmic`; then the Targets: `kubectl -n agentic-netops-system get fabric -o yaml`'
+      - {eval_time: 6m, alertname: DeviceTelemetryTargetDown, exp_alerts: []}
+
+  # ------------------------------------------------------------------ DeviceSubscriptionStalled
+  # leaf01's series expire (stale at 4m) and return at 7m; spine01 keeps delivering; a client node
+  # (role client) has no subscription and never fires.
+  - name: DeviceSubscriptionStalled fires when a fabric node's series stop, clears when they return
+    interval: 1m
+    input_series:
+      - {series: 'agentic_netops_node_info{source="leaf01",role="leaf"}', values: '1x12'}
+      - {series: 'agentic_netops_node_info{source="spine01",role="spine"}', values: '1x12'}
+      - {series: 'agentic_netops_node_info{source="client01",role="client"}', values: '1x12'}
+      - series: 'srl_nokia_interfaces:interface_oper_state{job="devices",source="leaf01",interface_name="e1-49"}'
+        values: '1x3 stale _x2 1x5'
+      - series: 'srl_nokia_interfaces:interface_oper_state{job="devices",source="spine01",interface_name="e1-1"}'
+        values: '1x12'
+    alert_rule_test:
+      - {eval_time: 3m, alertname: DeviceSubscriptionStalled, exp_alerts: []}
+      - eval_time: 5m
+        alertname: DeviceSubscriptionStalled
+        exp_alerts:
+          - exp_labels: {severity: warning, source: leaf01}
+            exp_annotations:
+              summary: 'Device leaf01 delivers no subscription updates'
+              next: 'Check `kubectl -n monitoring logs deploy/device-metrics-gnmic` for the subscription of leaf01 and the gnmic-self and devices targets on the Prometheus targets page'
+      - {eval_time: 8m, alertname: DeviceSubscriptionStalled, exp_alerts: []}
+  # leaf02's received-response counter stops rising at 4m (flat 40 from 4m to 8m) and rises again.
+  - name: DeviceSubscriptionStalled fires when gNMIc stops receiving updates, clears when they resume
+    interval: 1m
+    input_series:
+      - {series: 'agentic_netops_node_info{source="leaf02",role="leaf"}', values: '1x14'}
+      - {series: 'srl_nokia_interfaces:interface_oper_state{job="devices",source="leaf02",interface_name="e1-49"}', values: '1x14'}
+      - series: 'gnmic_subscribe_number_of_received_subscribe_response_messages_total{job="gnmic-self",source="leaf02",subscription="device-state"}'
+        values: '0+10x4 40x4 50+10x5'
+      - series: 'gnmic_subscribe_number_of_received_subscribe_response_messages_total{job="gnmic-self",source="leaf01",subscription="device-state"}'
+        values: '0+10x14'
+    alert_rule_test:
+      - {eval_time: 4m, alertname: DeviceSubscriptionStalled, exp_alerts: []}
+      - eval_time: 7m
+        alertname: DeviceSubscriptionStalled
+        exp_alerts:
+          - exp_labels: {severity: warning, source: leaf02}
+            exp_annotations:
+              summary: 'Device leaf02 delivers no subscription updates'
+              next: 'Check `kubectl -n monitoring logs deploy/device-metrics-gnmic` for the subscription of leaf02 and the gnmic-self and devices targets on the Prometheus targets page'
+      - {eval_time: 11m, alertname: DeviceSubscriptionStalled, exp_alerts: []}
+
+  # ------------------------------------------------------------------ OtlpExportFailing
+  - name: OtlpExportFailing fires when a pipeline stage endpoint is down, clears when it is back
+    interval: 1m
+    input_series:
+      - {series: 'up{job="otel-collector",instance="device-metrics.monitoring.svc:8888"}', values: '1 1 0 0 0 0 1 1 1'}
+      - {series: 'up{job="gnmic-self",instance="gnmic-self.monitoring.svc:7890"}', values: '1x8'}
+      - {series: 'up{job="devices",instance="device-metrics.monitoring.svc:8889"}', values: '1x8'}
+      - {series: 'up{job="srl-provider",instance="srl-provider-metrics.agentic-netops-system.svc:8080"}', values: '0x8'}
+    alert_rule_test:
+      - {eval_time: 3m, alertname: OtlpExportFailing, exp_alerts: []}
+      - eval_time: 4m
+        alertname: OtlpExportFailing
+        exp_alerts:
+          - exp_labels: {severity: critical, stage: otel-collector}
+            exp_annotations:
+              summary: 'Telemetry pipeline stage otel-collector has stopped exporting'
+              next: &next_export 'Check `kubectl -n monitoring get pods` and the logs of deploy/device-metrics-gnmic and deploy/device-metrics-otel; the pipeline dashboard (Grafana) shows which stage stopped'
+      - {eval_time: 7m, alertname: OtlpExportFailing, exp_alerts: []}
+  # the collector's exporter stops sending (flat 5m–11m) while its receiver and gNMIc keep going
+  - name: OtlpExportFailing fires when a stage's forwarding counter stops rising, clears when it resumes
+    interval: 1m
+    input_series:
+      - {series: 'otelcol_exporter_sent_metric_points{job="otel-collector",exporter="prometheus"}', values: '0+100x4 400x6 400+100x4'}
+      - {series: 'otelcol_exporter_sent_spans{job="otel-collector",exporter="debug"}', values: '0x16'}
+      - {series: 'otelcol_receiver_accepted_metric_points{job="otel-collector",receiver="otlp",transport="grpc"}', values: '0+100x16'}
+      - {series: 'gnmic_otlp_output_number_of_sent_events_total{job="gnmic-self",output_name="device-metrics"}', values: '0+100x16'}
+    alert_rule_test:
+      - {eval_time: 5m, alertname: OtlpExportFailing, exp_alerts: []}
+      - eval_time: 9m
+        alertname: OtlpExportFailing
+        exp_alerts:
+          - exp_labels: {severity: critical, stage: collector-exporter}
+            exp_annotations:
+              summary: 'Telemetry pipeline stage collector-exporter has stopped exporting'
+              next: *next_export
+      - {eval_time: 14m, alertname: OtlpExportFailing, exp_alerts: []}
+
+  # ------------------------------------------------------------------ OtlpDataPointsRejected
+  - name: OtlpDataPointsRejected is silent on flat error counters and a queue with room
+    interval: 1m
+    input_series:
+      - {series: 'otelcol_receiver_refused_metric_points{job="otel-collector",receiver="otlp",transport="grpc"}', values: '3x10'}
+      - {series: 'otelcol_receiver_failed_metric_points{job="otel-collector",receiver="otlp",transport="grpc"}', values: '0x10'}
+      - {series: 'otelcol_exporter_send_failed_metric_points{job="otel-collector",exporter="prometheus"}', values: '7x10'}
+      - {series: 'otelcol_exporter_enqueue_failed_metric_points{job="otel-collector",exporter="otlp"}', values: '0x10'}
+      - {series: 'otelcol_exporter_queue_size{job="otel-collector",exporter="otlp",data_type="metrics"}', values: '10x10'}
+      - {series: 'otelcol_exporter_queue_capacity{job="otel-collector",exporter="otlp",data_type="metrics"}', values: '1000x10'}
+      - {series: 'gnmic_otlp_output_number_of_failed_events_total{job="gnmic-self",output_name="device-metrics",reason="send_failed"}', values: '2x10'}
+      - {series: 'gnmic_otlp_output_rejected_data_points_total{job="gnmic-self",output_name="device-metrics"}', values: '0x10'}
+    alert_rule_test:
+      - {eval_time: 3m, alertname: OtlpDataPointsRejected, exp_alerts: []}
+      - {eval_time: 9m, alertname: OtlpDataPointsRejected, exp_alerts: []}
+  # refused, send-failed and gNMIc's failed-events counters rise 4m–7m, then stay flat
+  - name: OtlpDataPointsRejected fires on a rising refused, send-failed or error counter, clears when flat
+    interval: 1m
+    input_series:
+      - {series: 'otelcol_receiver_refused_metric_points{job="otel-collector",receiver="otlp",transport="grpc"}', values: '0x3 0+50x3 150x10'}
+      - {series: 'otelcol_exporter_send_failed_metric_points{job="otel-collector",exporter="prometheus"}', values: '0x3 0+50x3 150x10'}
+      - {series: 'gnmic_otlp_output_number_of_failed_events_total{job="gnmic-self",output_name="device-metrics",reason="send_failed"}', values: '0x3 0+50x3 150x10'}
+      - {series: 'otelcol_receiver_failed_metric_points{job="otel-collector",receiver="otlp",transport="grpc"}', values: '0x17'}
+    alert_rule_test:
+      - {eval_time: 4m, alertname: OtlpDataPointsRejected, exp_alerts: []}
+      - eval_time: 6m
+        alertname: OtlpDataPointsRejected
+        exp_alerts:
+          - exp_labels: {severity: warning, stage: collector-receiver-refused}
+            exp_annotations:
+              summary: 'Telemetry is being refused or dropped at collector-receiver-refused'
+              next: &next_rejected 'Read the pipeline dashboard (Grafana) for the stage, then `kubectl -n monitoring logs deploy/device-metrics-otel` and `kubectl -n monitoring logs deploy/device-metrics-gnmic`'
+          - exp_labels: {severity: warning, stage: collector-exporter-send-failed}
+            exp_annotations:
+              summary: 'Telemetry is being refused or dropped at collector-exporter-send-failed'
+              next: *next_rejected
+          - exp_labels: {severity: warning, stage: gnmic-otlp-output-failed}
+            exp_annotations:
+              summary: 'Telemetry is being refused or dropped at gnmic-otlp-output-failed'
+              next: *next_rejected
+      - {eval_time: 14m, alertname: OtlpDataPointsRejected, exp_alerts: []}
+  # an exporter queue above 80 % of its capacity 3m–5m
+  - name: OtlpDataPointsRejected fires on an exporter queue near capacity, clears when it drains
+    interval: 1m
+    input_series:
+      - {series: 'otelcol_exporter_queue_size{job="otel-collector",exporter="otlp",data_type="metrics"}', values: '100x2 900x2 100x4'}
+      - {series: 'otelcol_exporter_queue_capacity{job="otel-collector",exporter="otlp",data_type="metrics"}', values: '1000x8'}
+    alert_rule_test:
+      - {eval_time: 2m, alertname: OtlpDataPointsRejected, exp_alerts: []}
+      - eval_time: 4m
+        alertname: OtlpDataPointsRejected
+        exp_alerts:
+          - exp_labels: {severity: warning, stage: collector-exporter-queue}
+            exp_annotations:
+              summary: 'Telemetry is being refused or dropped at collector-exporter-queue'
+              next: *next_rejected
+      - {eval_time: 7m, alertname: OtlpDataPointsRejected, exp_alerts: []}
+
+  # ------------------------------------------------------------------ DuplicateDeviceSeries
+  # One path throughout; the same series by a second path (another job, another scope) 5m–8m. Two
+  # DIFFERENT metrics with the same label set (the bgp-vpn export/import route-target origins) are
+  # one path each and never counted together.
+  - name: DuplicateDeviceSeries is silent for one path, fires for the same series by two, clears
+    interval: 1m
+    input_series:
+      - series: 'srl_nokia_interfaces:interface_oper_state{job="devices",instance="device-metrics.monitoring.svc:8889",source="leaf01",interface_name="e1-49",subscription_name="device-state",otel_scope_name="gNMIc",otel_scope_version="0.47.0"}'
+        values: '1x12'
+      - series: 'srl_nokia_interfaces:interface_oper_state{job="devices-second-path",instance="10.0.0.99:8889",source="leaf01",interface_name="e1-49",subscription_name="other",otel_scope_name="other",otel_scope_version="1"}'
+        values: '_x5 1x3 stale'
+      - series: 'srl_nokia_network_instance:network_instance_protocols_srl_nokia_bgp_vpn:bgp_vpn_bgp_instance_route_target_export_route_target_origin{job="devices",source="leaf01",network_instance_name="macvrf-a",bgp_instance_id="1"}'
+        values: '1x12'
+      - series: 'srl_nokia_network_instance:network_instance_protocols_srl_nokia_bgp_vpn:bgp_vpn_bgp_instance_route_target_import_route_target_origin{job="devices",source="leaf01",network_instance_name="macvrf-a",bgp_instance_id="1"}'
+        values: '1x12'
+    alert_rule_test:
+      - {eval_time: 3m, alertname: DuplicateDeviceSeries, exp_alerts: []}
+      - eval_time: 7m
+        alertname: DuplicateDeviceSeries
+        exp_alerts:
+          - exp_labels: {severity: warning, metric_name: 'srl_nokia_interfaces:interface_oper_state', source: leaf01, interface_name: e1-49}
+            exp_annotations:
+              summary: 'Device series srl_nokia_interfaces:interface_oper_state from leaf01 arrives by 2 paths'
+              next: 'Find the second path: `count by (job, instance, subscription_name, otel_scope_name) ({__name__="srl_nokia_interfaces:interface_oper_state", source="leaf01"})` in Prometheus, then the collector and scrape configuration'
+      - {eval_time: 11m, alertname: DuplicateDeviceSeries, exp_alerts: []}
+
+  # ------------------------------------------------------------------ recording rules
+  - name: recording rules map a VTEP address to its node and a tunnel to its peer node
+    interval: 1m
+    input_series:
+      - series: 'srl_nokia_interfaces:interface_subinterface_ipv4_address_status{job="devices",source="leaf01",interface_name="system0",subinterface_index="0",address_ip_prefix="10.0.0.1/32"}'
+        values: '1x3'
+      - series: 'srl_nokia_interfaces:interface_subinterface_ipv4_address_status{job="devices",source="leaf02",interface_name="system0",subinterface_index="0",address_ip_prefix="10.0.0.2/32"}'
+        values: '1x3'
+      - series: 'srl_nokia_interfaces:interface_subinterface_ipv4_address_status{job="devices",source="leaf01",interface_name="e1-49",subinterface_index="0",address_ip_prefix="192.168.1.0/31"}'
+        values: '1x3'
+      - series: 'srl_nokia_tunnel:tunnel_srl_nokia_vxlan_tunnel_vtep:vxlan_tunnel_vtep_index{job="devices",source="leaf01",vtep_address="10.0.0.2"}'
+        values: '7567851024x3'
+    promql_expr_test:
+      - expr: agentic_netops:vtep_node_info
+        eval_time: 2m
+        exp_samples:
+          - {labels: 'agentic_netops:vtep_node_info{vtep_address="10.0.0.1",vtep_source="leaf01"}', value: 1}
+          - {labels: 'agentic_netops:vtep_node_info{vtep_address="10.0.0.2",vtep_source="leaf02"}', value: 1}
+      - expr: agentic_netops:vxlan_tunnel_peer_info
+        eval_time: 2m
+        exp_samples:
+          - {labels: 'agentic_netops:vxlan_tunnel_peer_info{source="leaf01",vtep_address="10.0.0.2",vtep_source="leaf02"}', value: 1}

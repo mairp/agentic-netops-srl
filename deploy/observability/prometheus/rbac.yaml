@@ -1,0 +1,67 @@
+# Prometheus's identity (T130; FR-087, SC-037). The ServiceAccount's token is what the `sdc` job
+# presents to the device-configuration layer's controller metrics endpoint (https :8443, authn/authz
+# filtered: TokenReview + SubjectAccessReview on the non-resource URL /metrics). The ClusterRole
+# grants exactly that — `get` on nonResourceURLs /metrics — and nothing on any resource: every other
+# job scrapes a fixed Service address, so no discovery permission is needed.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: prometheus
+  namespace: monitoring
+  labels: {app.kubernetes.io/name: prometheus, app.kubernetes.io/part-of: agentic-netops}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: agentic-netops-prometheus-metrics-reader
+  labels: {app.kubernetes.io/name: prometheus, app.kubernetes.io/part-of: agentic-netops}
+rules:
+  - nonResourceURLs: ["/metrics"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: agentic-netops-prometheus-metrics-reader
+  labels: {app.kubernetes.io/name: prometheus, app.kubernetes.io/part-of: agentic-netops}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: agentic-netops-prometheus-metrics-reader
+subjects:
+  - kind: ServiceAccount
+    name: prometheus
+    namespace: monitoring
+---
+# The SDC controller's /metrics (sdc-controller-server-metrics :8443) is served behind
+# controller-runtime's authentication/authorization filter, which checks the scraper's token with a
+# TokenReview and a SubjectAccessReview made AS THE CONTROLLER. The vendored deploy/sdc/ RBAC does not
+# grant the controller those two verbs, so every scrape answered 500 (observed live by
+# `make verify-metrics`, job sdc). This is the upstream metrics-auth role, granted here because the
+# scrape is this stack's: create on the two review resources, nothing else (T130).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: agentic-netops-sdc-metrics-auth
+  labels: {app.kubernetes.io/name: prometheus, app.kubernetes.io/part-of: agentic-netops}
+rules:
+  - apiGroups: [authentication.k8s.io]
+    resources: [tokenreviews]
+    verbs: [create]
+  - apiGroups: [authorization.k8s.io]
+    resources: [subjectaccessreviews]
+    verbs: [create]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: agentic-netops-sdc-metrics-auth
+  labels: {app.kubernetes.io/name: prometheus, app.kubernetes.io/part-of: agentic-netops}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: agentic-netops-sdc-metrics-auth
+subjects:
+  - kind: ServiceAccount
+    name: controller
+    namespace: sdc-system

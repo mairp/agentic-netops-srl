@@ -1,0 +1,88 @@
+# Telemetry pipeline alert rules (T130; FR-086, FR-087, NFR-002, SC-037, User Story 11 scenario 4;
+# data-model.md §21 — the required alert set). Every stage has evidence of its own (§21): gNMIc's
+# /metrics (job gnmic-self), the collector's own telemetry (job otel-collector), the collector's
+# exporter (job devices). The self-metric names are those the pinned images expose, observed by
+# running them (gNMIc v0.47.0 api-server + otlp output with enable-metrics; otelcol-contrib 0.161.0
+# with service.telemetry level detailed): the collector's counters carry NO `_total` suffix. Each rule
+# carries labels.severity and annotations.summary + annotations.next. Proven by
+# tests/unit/alerts/rules_test.sh — the only proof for OtlpDataPointsRejected and
+# DuplicateDeviceSeries, which this platform has no declared way to provoke live (AD-59).
+groups:
+  - name: agentic-netops-pipeline
+    rules:
+      # gNMIc reports the device target down (gnmic_target_up{name=<node>} is 0 while not connected).
+      - alert: DeviceTelemetryTargetDown
+        expr: |
+          max by (source) (label_replace(gnmic_target_up, "source", "$1", "name", "(.+)")) == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'The device metric collector reports target {{ $labels.source }} down'
+          next: 'Check the node management reachability and `kubectl -n monitoring logs deploy/device-metrics-gnmic`; then the Targets: `kubectl -n agentic-netops-system get fabric -o yaml`'
+      # A fabric node (leaf or spine of the topology) whose subscription has stopped delivering: its
+      # series have expired from the collector (metric_expiration 20 s), or gNMIc's received-response
+      # counter for it has stopped rising.
+      - alert: DeviceSubscriptionStalled
+        expr: |
+          (
+            max by (source) (agentic_netops_node_info{role=~"leaf|spine"})
+              unless on (source)
+            max by (source) (srl_nokia_interfaces:interface_oper_state)
+          )
+          or
+          (
+            max by (source) (rate(gnmic_subscribe_number_of_received_subscribe_response_messages_total[2m])) == 0
+          )
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Device {{ $labels.source }} delivers no subscription updates'
+          next: 'Check `kubectl -n monitoring logs deploy/device-metrics-gnmic` for the subscription of {{ $labels.source }} and the gnmic-self and devices targets on the Prometheus targets page'
+      # A pipeline stage has stopped exporting: a stage's endpoint is down, or its forwarding counter
+      # has stopped rising (collector receiver, collector exporter, gNMIc's otlp output).
+      - alert: OtlpExportFailing
+        expr: |
+          max by (stage) (label_replace(up{job=~"gnmic-self|otel-collector|devices"}, "stage", "$1", "job", "(.+)")) == 0
+          or label_replace(sum(rate(otelcol_receiver_accepted_metric_points{receiver="otlp"}[2m])) == 0, "stage", "collector-receiver", "", "")
+          or label_replace(sum(rate(otelcol_exporter_sent_metric_points{exporter="prometheus"}[2m])) == 0, "stage", "collector-exporter", "", "")
+          or label_replace(sum(rate(gnmic_otlp_output_number_of_sent_events_total[2m])) == 0, "stage", "gnmic-otlp-output", "", "")
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'Telemetry pipeline stage {{ $labels.stage }} has stopped exporting'
+          next: 'Check `kubectl -n monitoring get pods` and the logs of deploy/device-metrics-gnmic and deploy/device-metrics-otel; the pipeline dashboard (Grafana) shows which stage stopped'
+      # Telemetry refused or dropped at any stage: the collector's refused / failed receiver series,
+      # its exporter's send-failed and enqueue-failed series, an exporter queue near capacity, and
+      # gNMIc's own otlp output error counters (failed events, data points the collector rejected).
+      - alert: OtlpDataPointsRejected
+        expr: |
+          label_replace(sum(increase(otelcol_receiver_refused_metric_points[5m])) > 0, "stage", "collector-receiver-refused", "", "")
+          or label_replace(sum(increase(otelcol_receiver_failed_metric_points[5m])) > 0, "stage", "collector-receiver-failed", "", "")
+          or label_replace(sum(increase(otelcol_exporter_send_failed_metric_points[5m])) > 0, "stage", "collector-exporter-send-failed", "", "")
+          or label_replace(sum(increase(otelcol_exporter_enqueue_failed_metric_points[5m])) > 0, "stage", "collector-exporter-enqueue-failed", "", "")
+          or label_replace(max(otelcol_exporter_queue_size / otelcol_exporter_queue_capacity) > 0.8, "stage", "collector-exporter-queue", "", "")
+          or label_replace(sum(increase(gnmic_otlp_output_number_of_failed_events_total[5m])) > 0, "stage", "gnmic-otlp-output-failed", "", "")
+          or label_replace(sum(increase(gnmic_otlp_output_rejected_data_points_total[5m])) > 0, "stage", "gnmic-otlp-output-rejected", "", "")
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Telemetry is being refused or dropped at {{ $labels.stage }}'
+          next: 'Read the pipeline dashboard (Grafana) for the stage, then `kubectl -n monitoring logs deploy/device-metrics-otel` and `kubectl -n monitoring logs deploy/device-metrics-gnmic`'
+      # One device series arriving by more than one path (FR-086: exactly one ingestion path). The
+      # metric name is kept as a label (metric_name) so two different metrics sharing a label set are
+      # never counted together; the path-identifying labels (scrape job and instance, subscription,
+      # instrumentation scope) are what is counted over.
+      - alert: DuplicateDeviceSeries
+        expr: |
+          count without (job, instance, subscription_name, otel_scope_name, otel_scope_version, otel_scope_schema_url) (
+            label_replace({__name__=~"srl_nokia_.+"}, "metric_name", "$1", "__name__", "(.+)")
+          ) > 1
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: 'Device series {{ $labels.metric_name }} from {{ $labels.source }} arrives by {{ $value }} paths'
+          next: 'Find the second path: `count by (job, instance, subscription_name, otel_scope_name) ({__name__="{{ $labels.metric_name }}", source="{{ $labels.source }}"})` in Prometheus, then the collector and scrape configuration'

@@ -144,8 +144,8 @@ wait-fabric: ## T051: the default Fabric reports Ready=True
 wait-services: ## T064: every Network under examples/constructs/ reports Ready=True
 	tests/integration/wait_services.sh
 
-wait-observability:
-	$(not_implemented)
+wait-observability: ## T134: Prometheus, Grafana, the collector and gNMIc rolled out, Prometheus ready, the ten alert rules loaded (bounded)
+	bash scripts/lib/observability_phase.sh wait
 
 # --- Fabric and service verification
 verify-fabric-control-plane: ## T051: sessions + EVPN family, loopbacks, reflector config integrity, reflection probe
@@ -200,14 +200,14 @@ test-ui: ## T025: the chat surface's unit tests
 	cd ui && npm test
 
 # --- Observability (SC-034 to SC-037, quickstart.md §21)
-verify-metrics:
-	$(not_implemented)
+verify-metrics: ## T134: target health per job incl. gnmic-self, zero duplicate series, stale → absent, telemetry outage and one-sink-down halves
+	bash tests/integration/observability_verify.sh run
 
-verify-topology-view:
-	$(not_implemented)
+verify-topology-view: ## T134: physical view identifiers == containerlab inventory == metric labels, normal and under a forced link failure
+	bash tests/integration/topology_parity.sh physical
 
-verify-evpn-service-view:
-	$(not_implemented)
+verify-evpn-service-view: ## T134: the EVPN service-path view's leaves, VTEPs, VNI and ACL filters == the Network's rendered objects (TP_NETWORK=<name>)
+	bash tests/integration/topology_parity.sh service-path
 
-test-alerts:
-	$(not_implemented)
+test-alerts: ## T134: the rule unit test first, then the alerts fired and cleared live (FR-108 fault-making suite; SC-035)
+	bash tests/integration/alerts_fire.sh run

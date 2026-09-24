@@ -1,0 +1,1037 @@
+{
+  "provenance": {
+    "source": "first-party",
+    "version": "1.0.0",
+    "task": "T132",
+    "note": "authored in this repository; every series is named by its logical name in deploy/observability/grafana/series.json, substituted by scripts/lib/grafana_assets.sh at install"
+  },
+  "uid": "agentic-netops-fabric",
+  "title": "Fabric — links, BGP, EVPN",
+  "description": "T132 (FR-087, FR-088, FR-089): fabric link state and rate (links from the containerlab inventory, agentic_netops_fabric_link_info of T131), underlay/overlay BGP session state, EVPN received routes and EVPN instance state, per node (the `source` label = the containerlab node name).",
+  "tags": [
+    "agentic-netops",
+    "fabric",
+    "bgp",
+    "evpn"
+  ],
+  "editable": false,
+  "graphTooltip": 1,
+  "schemaVersion": 41,
+  "version": 1,
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "refresh": "30s",
+  "timezone": "utc",
+  "annotations": {
+    "list": []
+  },
+  "links": [],
+  "templating": {
+    "list": [
+      {
+        "name": "node",
+        "label": "Node",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "query": {
+          "query": "label_values(@@series:interface_oper_state@@, source)",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery",
+          "qryType": 1
+        },
+        "definition": "label_values(@@series:interface_oper_state@@, source)",
+        "regex": "",
+        "refresh": 2,
+        "sort": 1,
+        "multi": true,
+        "includeAll": true,
+        "hide": 0,
+        "current": {},
+        "options": [],
+        "allValue": ".*"
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "row",
+      "title": "Summary",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "panels": []
+    },
+    {
+      "type": "stat",
+      "title": "Fabric links down",
+      "description": "Directions of device-to-device links whose operational state is down (FabricLinkDown).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "count((@@series:interface_oper_state@@ == 0) and on (source, interface_name) @@series:fabric_link_info@@) or vector(0)",
+          "legendFormat": "__auto",
+          "range": false,
+          "instant": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value"
+      },
+      "id": 2,
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 1
+      }
+    },
+    {
+      "type": "stat",
+      "title": "BGP sessions not established",
+      "description": "Underlay and overlay BGP neighbours whose session state is not established (BGPSessionDown).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "count(@@series:bgp_session_state@@ != 5) or vector(0)",
+          "legendFormat": "__auto",
+          "range": false,
+          "instant": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value"
+      },
+      "id": 3,
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 1
+      }
+    },
+    {
+      "type": "stat",
+      "title": "EVPN routes received",
+      "description": "EVPN routes received across all neighbours (EvpnRoutesLost watches for zero with sessions up).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum(@@series:bgp_received_routes@@{afi_safi_afi_safi_name=\"evpn\"})",
+          "legendFormat": "__auto",
+          "range": false,
+          "instant": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "orange",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value"
+      },
+      "id": 4,
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 12,
+        "y": 1
+      }
+    },
+    {
+      "type": "stat",
+      "title": "EVPN instances",
+      "description": "Network instances carrying a bgp-evpn instance on at least one node.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "count(count by (network_instance_name) (@@series:bgp_evpn_instance_evi@@)) or vector(0)",
+          "legendFormat": "__auto",
+          "range": false,
+          "instant": true,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value"
+      },
+      "id": 5,
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 18,
+        "y": 1
+      }
+    },
+    {
+      "id": 6,
+      "type": "row",
+      "title": "Fabric links",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 5
+      },
+      "panels": []
+    },
+    {
+      "type": "state-timeline",
+      "title": "Fabric link operational state",
+      "description": "One row per direction of each fabric link (normalized e1-N interface names).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "@@series:interface_oper_state@@{source=~\"$node\"} * on (source, interface_name) group_left (peer_source, peer_interface) @@series:fabric_link_info@@",
+          "legendFormat": "{{source}}:{{interface_name}} → {{peer_source}}:{{peer_interface}}",
+          "range": true,
+          "instant": false,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "1": {
+                  "text": "up",
+                  "color": "green",
+                  "index": 0
+                },
+                "0": {
+                  "text": "down",
+                  "color": "red",
+                  "index": 1
+                }
+              }
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showValue": "never",
+        "mergeValues": true,
+        "rowHeight": 0.8,
+        "legend": {
+          "showLegend": false
+        },
+        "tooltip": {
+          "mode": "single"
+        }
+      },
+      "id": 7,
+      "gridPos": {
+        "h": 9,
+        "w": 24,
+        "x": 0,
+        "y": 6
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Fabric link rate — out",
+      "description": "Transmit rate of each fabric link direction (device traffic-rate).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "@@series:interface_traffic_rate_out_bps@@{source=~\"$node\"} * on (source, interface_name) group_left (peer_source, peer_interface) @@series:fabric_link_info@@",
+          "legendFormat": "{{source}}:{{interface_name}} → {{peer_source}}",
+          "range": true,
+          "instant": false,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bps",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "id": 8,
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 15
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Fabric link rate — in",
+      "description": "Receive rate of each fabric link direction (device traffic-rate).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "@@series:interface_traffic_rate_in_bps@@{source=~\"$node\"} * on (source, interface_name) group_left (peer_source, peer_interface) @@series:fabric_link_info@@",
+          "legendFormat": "{{source}}:{{interface_name}} ← {{peer_source}}",
+          "range": true,
+          "instant": false,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bps",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "id": 9,
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 15
+      }
+    },
+    {
+      "id": 10,
+      "type": "row",
+      "title": "BGP",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 24
+      },
+      "panels": []
+    },
+    {
+      "type": "table",
+      "title": "BGP sessions",
+      "description": "Session state per node and neighbour (5 = established).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "@@series:bgp_session_state@@{source=~\"$node\"}",
+          "legendFormat": "__auto",
+          "range": false,
+          "instant": true,
+          "editorMode": "code",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "idle",
+                  "color": "red",
+                  "index": 0
+                },
+                "1": {
+                  "text": "connect",
+                  "color": "orange",
+                  "index": 1
+                },
+                "2": {
+                  "text": "active",
+                  "color": "orange",
+                  "index": 2
+                },
+                "3": {
+                  "text": "opensent",
+                  "color": "yellow",
+                  "index": 3
+                },
+                "4": {
+                  "text": "openconfirm",
+                  "color": "yellow",
+                  "index": 4
+                },
+                "5": {
+                  "text": "established",
+                  "color": "green",
+                  "index": 5
+                }
+              }
+            }
+          ],
+          "custom": {
+            "cellOptions": {
+              "type": "color-text"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      },
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "__name__": true,
+              "otel_scope_name": true,
+              "otel_scope_schema_url": true,
+              "otel_scope_version": true,
+              "subscription_name": true,
+              "job": true,
+              "instance": true
+            },
+            "renameByName": {
+              "source": "node",
+              "neighbor_peer_address": "neighbour",
+              "network_instance_name": "instance",
+              "Value": "session state"
+            }
+          }
+        }
+      ],
+      "id": 11,
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 25
+      }
+    },
+    {
+      "type": "state-timeline",
+      "title": "BGP session state",
+      "description": "Session state over time; a gap is a telemetry gap, not a state.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "@@series:bgp_session_state@@{source=~\"$node\"}",
+          "legendFormat": "{{source}} ↔ {{neighbor_peer_address}}",
+          "range": true,
+          "instant": false,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "idle",
+                  "color": "red",
+                  "index": 0
+                },
+                "1": {
+                  "text": "connect",
+                  "color": "orange",
+                  "index": 1
+                },
+                "2": {
+                  "text": "active",
+                  "color": "orange",
+                  "index": 2
+                },
+                "3": {
+                  "text": "opensent",
+                  "color": "yellow",
+                  "index": 3
+                },
+                "4": {
+                  "text": "openconfirm",
+                  "color": "yellow",
+                  "index": 4
+                },
+                "5": {
+                  "text": "established",
+                  "color": "green",
+                  "index": 5
+                }
+              }
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showValue": "never",
+        "mergeValues": true,
+        "rowHeight": 0.8,
+        "legend": {
+          "showLegend": false
+        },
+        "tooltip": {
+          "mode": "single"
+        }
+      },
+      "id": 12,
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 25
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "EVPN routes received per neighbour",
+      "description": "Received EVPN routes (afi-safi evpn) per neighbour.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "@@series:bgp_received_routes@@{source=~\"$node\", afi_safi_afi_safi_name=\"evpn\"}",
+          "legendFormat": "{{source}} ← {{neighbor_peer_address}}",
+          "range": true,
+          "instant": false,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "id": 13,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 34
+      }
+    },
+    {
+      "type": "table",
+      "title": "Address families",
+      "description": "Per neighbour and address family operational state.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "@@series:bgp_afi_safi_oper_state@@{source=~\"$node\"}",
+          "legendFormat": "__auto",
+          "range": false,
+          "instant": true,
+          "editorMode": "code",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "1": {
+                  "text": "up",
+                  "color": "green",
+                  "index": 0
+                },
+                "0": {
+                  "text": "down",
+                  "color": "red",
+                  "index": 1
+                }
+              }
+            }
+          ],
+          "custom": {
+            "cellOptions": {
+              "type": "color-text"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      },
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "__name__": true,
+              "otel_scope_name": true,
+              "otel_scope_schema_url": true,
+              "otel_scope_version": true,
+              "subscription_name": true,
+              "job": true,
+              "instance": true
+            },
+            "renameByName": {
+              "source": "node",
+              "neighbor_peer_address": "neighbour",
+              "afi_safi_afi_safi_name": "family",
+              "network_instance_name": "instance",
+              "Value": "oper state"
+            }
+          }
+        }
+      ],
+      "id": 14,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 34
+      }
+    },
+    {
+      "id": 15,
+      "type": "row",
+      "title": "EVPN instances",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 42
+      },
+      "panels": []
+    },
+    {
+      "type": "table",
+      "title": "EVPN instances (evi) and state",
+      "description": "Per node: each network instance's bgp-evpn instance, its evi and operational state.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "max by (source, network_instance_name) (@@series:bgp_evpn_instance_evi@@{source=~\"$node\"})",
+          "legendFormat": "__auto",
+          "range": false,
+          "instant": true,
+          "editorMode": "code",
+          "format": "table"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "max by (source, network_instance_name) (@@series:bgp_evpn_instance_oper_state@@{source=~\"$node\"})",
+          "legendFormat": "__auto",
+          "range": false,
+          "instant": true,
+          "editorMode": "code",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      },
+      "transformations": [
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "__name__": true,
+              "otel_scope_name": true,
+              "otel_scope_schema_url": true,
+              "otel_scope_version": true,
+              "subscription_name": true,
+              "job": true,
+              "instance": true
+            },
+            "renameByName": {
+              "source": "node",
+              "network_instance_name": "instance",
+              "Value #A": "evi",
+              "Value #B": "oper state"
+            }
+          }
+        }
+      ],
+      "id": 16,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 43
+      }
+    },
+    {
+      "type": "state-timeline",
+      "title": "Network instance operational state",
+      "description": "Every service network instance (default and mgmt excluded).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "@@series:network_instance_oper_state@@{source=~\"$node\", network_instance_name!~\"default|mgmt\"}",
+          "legendFormat": "{{source}} {{network_instance_name}}",
+          "range": true,
+          "instant": false,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "1": {
+                  "text": "up",
+                  "color": "green",
+                  "index": 0
+                },
+                "0": {
+                  "text": "down",
+                  "color": "red",
+                  "index": 1
+                }
+              }
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showValue": "never",
+        "mergeValues": true,
+        "rowHeight": 0.8,
+        "legend": {
+          "showLegend": false
+        },
+        "tooltip": {
+          "mode": "single"
+        }
+      },
+      "id": 17,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 43
+      }
+    }
+  ]
+}

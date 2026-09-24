@@ -42,6 +42,18 @@
 #   FabricReady    examples/fabric/ applied — its pool references rewritten to the selected
 #                  authority's group/kind/namespace (gate::authority_pool_ref; names unchanged,
 #                  the example files untouched); every Fabric in it reports Ready
+#   ObservabilityReady  (T134, scripts/lib/observability_phase.sh; AD-50, AD-55) the observability
+#                  stack installed into monitoring (T037's namespace): T131's generator step (gNMIc
+#                  target list, topology SVG/panel YAML, topology recording rules — one inventory,
+#                  one step), the device collector re-rendered from that target list, Prometheus
+#                  WITHOUT alert rules, the generated assets, Grafana and its assets; all waited
+#                  Ready. Then the RE-CHECK against the gate's observation (tests/gate/observed/
+#                  telemetry-series.json): every recorded series name queried from the installed
+#                  Prometheus and the shipped naming-relevant settings compared with the recorded
+#                  ones — an absent name or a differing setting stops the phase non-zero naming it,
+#                  and the alert rules are never loaded (the bgp-evpn bgp-instance series absent
+#                  while no service exists is reported "not yet observable" and the phase goes on).
+#                  Only then T130's rules applied, Prometheus reloaded, the ten rules read back
 #   IntentTierReady  (--with-intent-tier) its boundary step first (scripts/lib/rbac.sh boundary,
 #                  T073): the safety boundary applied — the tier's namespaces, ServiceAccounts,
 #                  intent-writer, the claim Role the lock file's authority selects, the four
@@ -70,6 +82,8 @@
 #                           and the gate (default: containerlab's nokia_srlinux defaults)
 #   PROVISION_WAIT_TIMEOUT  seconds, every rollout/availability wait (default 300)
 #   PROVISION_TARGETS_TIMEOUT / PROVISION_FABRIC_TIMEOUT  seconds (default 600 / 900)
+#   OBS_WAIT_TIMEOUT / OBS_RECHECK_TIMEOUT / OBS_RULES_TIMEOUT  seconds, ObservabilityReady's
+#                           bounded waits (default 300 / 180 / 180; scripts/lib/observability_phase.sh)
 #   KUBECTL                 the kubectl binary (default kubectl)
 # There is no device-profile flag and no allocator flag, and no variable selects either: the
 # allocation authority is the lock file's `allocationAuthority.kind` and nothing else (FR-104).
@@ -114,7 +128,7 @@ for __lib in preflight docker_net kind containerlab lab_secrets image_build inte
 done
 unset __lib
 
-PROVISION_PHASES=(NetworkReady ClusterReady LabReady AppsReady TargetsReady GateReady FabricReady)
+PROVISION_PHASES=(NetworkReady ClusterReady LabReady AppsReady TargetsReady GateReady FabricReady ObservabilityReady)
 PROVISION_FIELD_MANAGER="agentic-netops-provision"
 MGMT_NETWORK="agentic-netops-mgmt"
 PROVIDER_NS="agentic-netops-system"
@@ -529,6 +543,16 @@ provision::phase_FabricReady() {
   for n in "${names[@]}"; do
     k8s_wait::condition "fabrics.fabric.agentic-netops.io/${n#*/}" Ready "${n%%/*}" "$PROVISION_FABRIC_TIMEOUT" || return 1
   done
+}
+
+# provision::phase_ObservabilityReady — T134: install the stack, re-check the live pipeline against
+# the gate's observation, and only then load the alert rules (scripts/lib/observability_phase.sh).
+provision::phase_ObservabilityReady() {
+  log::phase ObservabilityReady
+  [[ -f "$PROVISION_LIB/observability_phase.sh" ]] || { log::error "scripts/lib/observability_phase.sh is missing: the observability stack cannot be installed"; return 1; }
+  # shellcheck source=lib/observability_phase.sh
+  source "$PROVISION_LIB/observability_phase.sh"
+  observability_phase::run
 }
 
 # provision::boundary_step — IntentTierReady's first step (T073): apply the safety boundary and

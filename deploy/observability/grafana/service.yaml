@@ -1,0 +1,12 @@
+# The Grafana Service (T130): monitoring/grafana:3000, cluster-internal; the operator reaches it
+# through a port-forward with the monitoring/grafana-admin credential (quickstart.md §21, FR-096).
+apiVersion: v1
+kind: Service
+metadata:
+  name: grafana
+  namespace: monitoring
+  labels: {app.kubernetes.io/name: grafana, app.kubernetes.io/part-of: agentic-netops}
+spec:
+  selector: {app.kubernetes.io/name: grafana}
+  ports:
+  - {name: http, port: 3000, targetPort: http}

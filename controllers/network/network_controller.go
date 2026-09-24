@@ -258,29 +258,56 @@ func (r *Reconciler) deviationToNetworks(ctx context.Context, o client.Object) [
 // Reconcile runs one pass over one Network and writes its status once, only when it changed.
 func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (res ctrl.Result, rerr error) {
 	r.init()
+	// The reconcile result, latency and retry series (internal/telemetry, T059/AD-50), the
+	// error, requeue and per-object series and the reconcile span (T133).
+	ctx, span := telemetry.StartReconcile(ctx, telemetry.ControllerNetwork, telemetry.KindNetwork, req.Namespace, req.Name)
 	started, outcome := time.Now(), telemetry.ResultSuccess
+	// gone: the object is absent or its finalizer is off — its per-object series were removed
+	// and nothing may write them again. reverify: the requeue is the re-verification schedule's.
+	gone, reverify := false, false
 	defer func() {
 		if rerr != nil {
 			outcome = telemetry.ResultError
 		}
 		telemetry.ObserveReconcile(telemetry.ControllerNetwork, outcome, time.Since(started))
+		telemetry.ObserveErrorClass(telemetry.ControllerNetwork, outcome)
+		if res.RequeueAfter > 0 || res.Requeue { //nolint:staticcheck // Requeue is still honoured by controller-runtime
+			telemetry.ObserveRequeue(telemetry.ControllerNetwork, telemetry.RequeueReason(outcome, reverify))
+		}
+		if !gone {
+			telemetry.SetReconcileFailed(telemetry.KindNetwork, req.Namespace, req.Name, outcome)
+		}
+		telemetry.EndReconcile(span, outcome, rerr)
 	}()
 	n := &fabricv1.Network{}
 	if err := r.Client.Get(ctx, req.NamespacedName, n); err != nil {
 		if apierrors.IsNotFound(err) {
+			gone = true
+			telemetry.ForgetObject(telemetry.KindNetwork, req.Namespace, req.Name)
 			return ctrl.Result{}, nil
 		}
 		return ctrl.Result{}, err
 	}
+	telemetry.AnnotateObject(span, n.Generation, string(n.UID), n.Labels)
 	log := logr.FromContextOrDiscard(ctx).WithValues(telemetry.ObjectValues("Network", n.Namespace, n.Name, n.Labels)...)
 	ctx = logr.NewContext(ctx, log)
 	p := &pass{r: r, n: n, log: log, now: r.Clock.Now(),
 		conds: status.For(n, &n.Status.Conditions, r.Recorder).WithNow(r.Clock.Now)}
 
 	if n.DeletionTimestamp != nil {
+		// Finalization starts: nothing is re-verified from now on (AD-53), so the object's
+		// re-verification series goes before anything else — a held-in-deletion service never
+		// ages into ReverificationStalled (data-model.md §21, AD-54). The failed-reconcile
+		// series stays while the finalizer does: a finalization that fails is a failed reconcile.
+		telemetry.ForgetReverification(telemetry.KindNetwork, n.Namespace, n.Name)
 		res, err := r.finalize(ctx, p)
 		if p.outcome != "" {
 			outcome = p.outcome
+		}
+		if !controllerutil.ContainsFinalizer(n, Finalizer) {
+			// The finalizer is off: the object is gone (or goes with the next delete).
+			gone = true
+			telemetry.ForgetObject(telemetry.KindNetwork, n.Namespace, n.Name)
 		}
 		return res, err
 	}
@@ -305,6 +332,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (res ctrl.
 	if p.outcome != "" {
 		outcome = p.outcome
 	}
+	reverify = p.reverifyScheduled
 	n.Status.ObservedGeneration = n.Generation
 	if !equality.Semantic.DeepEqual(before, &n.Status) {
 		if uerr := r.Client.Status().Update(ctx, n); uerr != nil {
@@ -313,6 +341,19 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (res ctrl.
 			}
 			return ctrl.Result{}, fmt.Errorf("update Network status: %w", uerr)
 		}
+	}
+	// The re-verification series (FR-107, AD-54), once the status the pass wrote is stored: a
+	// pass that ran advanced lastVerifiedTime whatever it found; one that could not run left
+	// it. The series mirrors the stored field, so it is present from the first reconcile after
+	// a provider restart too.
+	if lv := n.Status.LastVerifiedTime; lv != nil {
+		t := lv.Time
+		if p.passRan || p.passCouldNotRun {
+			telemetry.RecordReverification(telemetry.KindNetwork, n.Namespace, n.Name, p.passRan, t)
+		}
+		telemetry.SyncLastVerified(telemetry.KindNetwork, n.Namespace, n.Name, &t)
+	} else if p.passCouldNotRun {
+		telemetry.RecordReverification(telemetry.KindNetwork, n.Namespace, n.Name, false, time.Time{})
 	}
 	return res, err
 }
@@ -342,6 +383,11 @@ type pass struct {
 	// Degraded inputs gathered on the way.
 	partial    *status.Aggregate
 	targetsBad []string
+
+	// The re-verification series' inputs (T133): passRan — the read-back ran, whatever it
+	// found; passCouldNotRun — one was due and could not run; reverifyScheduled — the returned
+	// requeue is the re-verification schedule's.
+	passRan, passCouldNotRun, reverifyScheduled bool
 }
 
 func (p *pass) run(ctx context.Context) (ctrl.Result, error) {
@@ -482,6 +528,7 @@ func (p *pass) run(ctx context.Context) (ctrl.Result, error) {
 			// Ready=Unknown and Degraded=True, both VerificationFailed, naming the target, at
 			// once; lastVerifiedTime frozen.
 			r.setUnknownByTarget(n.UID, true)
+			p.passCouldNotRun = true
 			msg := "read-back could not run against " + strings.Join(notReady, ", ") + ": target not Ready"
 			if err := p.writeReady(readyOutcome{kind: readyUnknown, msg: msg}); err != nil {
 				return ctrl.Result{}, err
@@ -620,6 +667,7 @@ func (p *pass) run(ctx context.Context) (ctrl.Result, error) {
 		p.targetsBad = bad
 		p.markUnreachable(bad)
 		r.setUnknownByTarget(n.UID, true)
+		p.passCouldNotRun = true
 		msg := "read-back could not run against " + strings.Join(bad, ", ") + ": the layer no longer confirms this generation's Config there"
 		if err := p.writeReady(readyOutcome{kind: readyUnknown, msg: msg}); err != nil {
 			return ctrl.Result{}, err
@@ -677,6 +725,7 @@ func (p *pass) run(ctx context.Context) (ctrl.Result, error) {
 		if err := p.writeReady(readyOutcome{kind: readyLeave}); err != nil {
 			return ctrl.Result{}, err
 		}
+		p.reverifyScheduled = true
 		return ctrl.Result{RequeueAfter: next.Sub(p.now)}, nil
 	}
 	prefixes, err := routedPrefixes(n)
@@ -697,6 +746,7 @@ func (p *pass) run(ctx context.Context) (ctrl.Result, error) {
 	r.setUnknownByTarget(n.UID, false)
 	result, verr := r.Verifier.VerifyService(ctx, vin)
 	if cnr := verify.AsCouldNotRun(verr); cnr != nil {
+		p.passCouldNotRun = true
 		msg := cnr.Error()
 		p.markUnreachable(cnr.Targets())
 		if HadReportedReady(n) {
@@ -717,6 +767,7 @@ func (p *pass) run(ctx context.Context) (ctrl.Result, error) {
 		return p.transient(ctx, "read-back", verr)
 	}
 	// The pass ran: lastVerifiedTime advances whatever it found (AD-54).
+	p.passRan = true
 	status.RecordVerification(&n.Status.LastVerifiedTime, status.Verification{Ran: true}, p.now)
 	out := readyOutcome{kind: readyTrue, msg: result.Message()}
 	if !result.Passed() {
@@ -728,6 +779,7 @@ func (p *pass) run(ctx context.Context) (ctrl.Result, error) {
 	if out.kind == readyTrue {
 		// A Ready Network is requeued at the re-verification interval — the schedule is a
 		// requeue, not a second controller.
+		p.reverifyScheduled = true
 		return ctrl.Result{RequeueAfter: st.ReverifyInterval}, nil
 	}
 	// An invariant missing: converging again, re-read at the reconciliation interval until

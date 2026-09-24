@@ -9,13 +9,10 @@ package register
 
 import (
 	"errors"
-	"slices"
-	"sort"
 	"strings"
 	"testing"
 
 	"github.com/mairp/agentic-netops-srl/internal/model"
-	"github.com/mairp/agentic-netops-srl/internal/telemetry"
 )
 
 func buildFixtures(t *testing.T) (fabs map[string]*model.FabricModel, svcs map[string]*model.ServiceModel) {
@@ -53,7 +50,7 @@ func TestGuardRegisterIsValid(t *testing.T) {
 		if e.Model != Native {
 			t.Errorf("subscribe %s: model %s — there is no recorded exception today", e.Path, e.Model)
 		}
-		if e.Mode != telemetry.Sample {
+		if e.Mode != Sample {
 			t.Errorf("subscribe %s: mode %s — on-change only where G7 covers it, none today", e.Path, e.Mode)
 		}
 	}
@@ -117,27 +114,6 @@ func TestGuardNoStaleWriteEntry(t *testing.T) {
 	}
 }
 
-// TestGuardSubscriptionsCovered drives the real subscription function, and
-// the register carries exactly what it subscribes (no drift either way).
-func TestGuardSubscriptionsCovered(t *testing.T) {
-	subs := telemetry.Subscriptions()
-	if err := CheckSubscriptions(subs); err != nil {
-		t.Fatal(err)
-	}
-	var emitted, registered []string
-	for _, s := range subs {
-		emitted = append(emitted, s.Paths...)
-	}
-	for _, e := range SubscribeEntries() {
-		registered = append(registered, e.Path)
-	}
-	sort.Strings(emitted)
-	sort.Strings(registered)
-	if !slices.Equal(emitted, registered) {
-		t.Errorf("register and subscriptions drift:\n emitted    %v\n registered %v", emitted, registered)
-	}
-}
-
 // --- negative controls: the guard detects what it must ---
 
 func TestGuardDetectsUnregisteredWritePath(t *testing.T) {
@@ -177,24 +153,6 @@ func TestGuardDetectsUnregisteredWritePath(t *testing.T) {
 	}
 }
 
-func TestGuardDetectsUnregisteredSubscription(t *testing.T) {
-	subs := append(telemetry.Subscriptions(), telemetry.Subscription{
-		Name: "srl-new", Mode: telemetry.Sample, SampleInterval: slow,
-		Paths: []string{"/system/lldp/interface[name=*]/neighbor[id=*]/system-name"},
-	})
-	err := CheckSubscriptions(subs)
-	var ue *UncoveredError
-	if !errors.As(err, &ue) || len(ue.Paths) != 1 || !strings.HasPrefix(ue.Paths[0], "/system/lldp/") {
-		t.Fatalf("unregistered subscription not detected: %v", err)
-	}
-	// A registered path under another stream mode is a mismatch.
-	mod := telemetry.Subscriptions()
-	mod[0].Mode = telemetry.OnChange
-	if err := CheckSubscriptions(mod); err == nil {
-		t.Error("a stream-mode change passed the guard")
-	}
-}
-
 func TestGuardDetectsInvalidRegisterEntry(t *testing.T) {
 	errs := validateCommon("write", "/x", OpenConfig, "", map[string]bool{})
 	if len(errs) == 0 {
@@ -205,7 +163,7 @@ func TestGuardDetectsInvalidRegisterEntry(t *testing.T) {
 	}
 }
 
-func TestNormalizeAndDerivation(t *testing.T) {
+func TestNormalize(t *testing.T) {
 	for in, want := range map[string]string{
 		"/interface[name=ethernet-1/1]/subinterface[index=100]/admin-state":                         "/interface[name=*]/subinterface[index=*]/admin-state",
 		"/routing-policy/prefix-set[name=p]/prefix[ip-prefix=10.0.0.0/8][mask-length-range=32..32]": "/routing-policy/prefix-set[name=*]/prefix[ip-prefix=*][mask-length-range=*]",
@@ -214,11 +172,5 @@ func TestNormalizeAndDerivation(t *testing.T) {
 		if got := Normalize(in); got != want {
 			t.Errorf("Normalize(%s) = %s", in, got)
 		}
-	}
-	if got := DeriveMetricName("/network-instance[name=*]/protocols/bgp/neighbor[peer-address=*]/session-state"); got != "network_instance_protocols_bgp_neighbor_session_state" {
-		t.Errorf("metric %s", got)
-	}
-	if got := DeriveLabels("/acl/acl-filter[name=*][type=*]/entry[sequence-id=*]/statistics"); strings.Join(got, ",") != "acl_filter_name,acl_filter_type,entry_sequence_id,source,subscription_name" {
-		t.Errorf("labels %v", got)
 	}
 }

@@ -14,8 +14,9 @@
 // (a miss is `Rendered=False/RegisterUncovered`, data-model.md §18), and
 // guard_test.go drives the actual producers — internal/model's WritePaths over
 // representative intent covering every construct, and
-// internal/telemetry.Subscriptions — through the same functions, so a new
-// construct or a new metric cannot pass uncovered.
+// internal/telemetry.Subscriptions and the generated gNMIc subscriptions file —
+// through the same functions, so a new construct or a new metric cannot pass
+// uncovered.
 package register
 
 import (
@@ -133,8 +134,9 @@ func checkWriteAgainst(paths []string, entries []WriteEntry) error {
 
 // Validate checks the register itself: every entry native or justified, no
 // justification on a native entry, no duplicate pattern, every pattern already
-// normalized, and every subscribed entry carrying a metric name, labels and a
-// stream mode.
+// normalized, and every subscribed entry carrying a metric name, a closed and
+// bounded label set and a stream mode, with no two subscribed paths overlapping
+// (validateSubscribe; the YANG-index half is subscribe_guard_test.go).
 func Validate() error {
 	var errs []string
 	seen := map[string]bool{}
@@ -155,19 +157,7 @@ func Validate() error {
 			errs = append(errs, fmt.Sprintf("write %s: no construct", e.Path))
 		}
 	}
-	seen = map[string]bool{}
-	for _, e := range SubscribeEntries() {
-		errs = append(errs, validateCommon("subscribe", e.Path, e.Model, e.Justification, seen)...)
-		if e.Metric == "" || len(e.Labels) == 0 || e.Mode == "" || e.Subscription == "" || e.SampleInterval <= 0 {
-			errs = append(errs, fmt.Sprintf("subscribe %s: metric, labels, mode, interval and subscription are required", e.Path))
-		}
-		if m := DeriveMetricName(e.Path); e.Metric != m {
-			errs = append(errs, fmt.Sprintf("subscribe %s: metric %q is not the derived %q", e.Path, e.Metric, m))
-		}
-		if l := DeriveLabels(e.Path); strings.Join(e.Labels, ",") != strings.Join(l, ",") {
-			errs = append(errs, fmt.Sprintf("subscribe %s: labels %v are not the derived %v", e.Path, e.Labels, l))
-		}
-	}
+	errs = append(errs, validateSubscribe(SubscribeEntries())...)
 	if len(errs) > 0 {
 		return fmt.Errorf("path register invalid:\n  %s", strings.Join(errs, "\n  "))
 	}

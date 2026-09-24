@@ -379,6 +379,8 @@ func TestDecodeTablesMatchCollectorConfig(t *testing.T) {
 		"rib-bool-to-int":       {"used-route"},
 		"address-status-to-int": {"status"},
 		"anycast-origin-to-int": {"anycast-gw-mac-origin"},
+		"admin-state-to-int":    {"admin-state"},
+		"app-state-to-int":      {"state"},
 		"reason-to-int":         {"oper-down-reason", "not-programmed-reason"},
 		"origin-to-int":         {"route-distinguisher-origin", "export-route-target-origin", "import-route-target-origin"},
 	}
@@ -422,6 +424,10 @@ func TestDecodeTablesMatchCollectorConfig(t *testing.T) {
 	if seen["address-status-to-int"] != len(addressStatuses) || seen["anycast-origin-to-int"] != len(anycastOrigins) {
 		t.Errorf("table sizes differ: address statuses %d rendered / %d decoded, anycast origins %d / %d",
 			seen["address-status-to-int"], len(addressStatuses), seen["anycast-origin-to-int"], len(anycastOrigins))
+	}
+	if seen["admin-state-to-int"] != len(adminStates) || seen["app-state-to-int"] != len(appStates) {
+		t.Errorf("table sizes differ: admin states %d rendered / %d decoded, application states %d / %d",
+			seen["admin-state-to-int"], len(adminStates), seen["app-state-to-int"], len(appStates))
 	}
 	// the uint64 indexes are converted to integers or never exported
 	for _, v := range []string{`".*destination-index$"`, `".*vtep/index$"`, `".*oper-down-reason$"`, `".*not-programmed-reason$"`,

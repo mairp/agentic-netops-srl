@@ -1,7 +1,9 @@
 # deploy/observability/otel-collector — the OpenTelemetry Collector of the device metric pipeline
 # (OTLP in, Prometheus exporter out), installed at TargetsReady through
-# deploy/observability/device-metrics (AD-82 decision 2026-09-21-state-source). T129 completes it
-# (the tier metric filter).
+# deploy/observability/device-metrics (AD-82 decision 2026-09-21-state-source). T129 completes it:
+# the literal-prefix metric filter (tier + device names), the traces pipeline, and the collector's own
+# telemetry on :8888 (scraped as `otel-collector`). The image is the lock file's
+# observability.otelCollector.pinned, by digest (FR-089, CR-005; tests/unit/observability/).
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:

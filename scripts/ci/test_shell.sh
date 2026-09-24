@@ -8,7 +8,11 @@
 #
 # Each suite runs as `bash <suite>` from the repository root, in glob (sorted)
 # order. The run stops at the FIRST non-zero exit, naming the suite and its exit
-# status, and exits with that status.
+# status, and exits with that status — except exit 77, a suite's "not run" (its
+# precondition is not met yet, e.g. tests/unit/alerts/rules_test.sh before the gate
+# has observed the series names; T130): it is reported as NOT RUN, the run
+# continues, and the summary names every such suite — never counted as a pass and
+# not a failure of the runner (exit 0 when nothing else failed).
 #
 # The executed list — one repository-relative path per line, written before a
 # suite starts — goes to $TEST_SHELL_EXECUTED_LIST (default:
@@ -64,16 +68,27 @@ export TEST_SHELL_EXECUTED_LIST="$executed"
 echo "test_shell: ${#suites[@]} suite(s) under $ROOT; executed list: $executed"
 
 n=0
+not_run=()
 for s in "${suites[@]}"; do
   n=$((n + 1))
   printf '%s\n' "$s" >>"$executed"
   echo "=== [$n/${#suites[@]}] $s"
   rc=0
   (cd "$ROOT" && bash "$s") || rc=$?
+  if [[ "$rc" -eq 77 ]]; then
+    not_run+=("$s")
+    echo "--- NOT RUN $s (exit 77)"
+    continue
+  fi
   if [[ "$rc" -ne 0 ]]; then
     echo "test_shell: FAIL $s (exit $rc) — stopping at the first failing suite" >&2
     exit "$rc"
   fi
   echo "--- ok $s"
 done
-echo "test_shell: PASS ${#suites[@]} suite(s)"
+passed=$((${#suites[@]} - ${#not_run[@]}))
+if [[ ${#not_run[@]} -gt 0 ]]; then
+  echo "test_shell: PASS ${passed} suite(s); NOT RUN ${#not_run[@]} suite(s) (not counted as passed): ${not_run[*]}"
+else
+  echo "test_shell: PASS ${passed} suite(s)"
+fi

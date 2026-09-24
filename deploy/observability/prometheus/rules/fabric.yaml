@@ -1,0 +1,82 @@
+# Fabric alert rules (T130; FR-087, FR-100, SC-035, AD-23, AD-31, AD-48, AD-55; data-model.md §21 —
+# the required alert set, by the names that table gives). Each carries labels.severity and
+# annotations.summary + annotations.next (what the operator looks at next: FR-087's "actionable").
+# Proven by tests/unit/alerts/rules_test.sh (fire, clear and the no-fire cases, promtool from the
+# pinned Prometheus image) — a proof of the expression, never reported as a live firing.
+#
+# Series names: the device metric collector's, as exported under G7's recorded pipeline settings.
+# The BGP / EVPN names below are EXACTLY those of tests/gate/observed/telemetry-series.json
+# (series.evpn_session_state, series.evpn_received_routes, series.bgp_evpn_instance_evi); the rule
+# test fails if they differ, and T134 re-checks them against the live pipeline before loading this
+# file. `interface_name` is the normalized e<slot>-<port> of the `devices` scrape (prometheus.yml),
+# the join key with the topology info series of topology.yaml (T131).
+groups:
+  - name: agentic-netops-fabric
+    rules:
+      # A fabric link — only a device↔device link of the topology (agentic_netops_fabric_link_info,
+      # one series per direction), never one of the unused front-panel ports that are down by design.
+      - alert: FabricLinkDown
+        expr: |
+          max by (source, interface_name) (srl_nokia_interfaces:interface_oper_state == 0)
+            * on (source, interface_name) group_left (peer_source, peer_interface)
+          agentic_netops_fabric_link_info
+        for: 30s
+        labels:
+          severity: critical
+        annotations:
+          summary: 'Fabric link {{ $labels.source }} {{ $labels.interface_name }} → {{ $labels.peer_source }} {{ $labels.peer_interface }} is operationally down'
+          next: 'Open the fabric topology dashboard (Grafana) for both ends of the link, then `make show-bgp` for the sessions over it and `kubectl -n agentic-netops-system get fabric -o yaml` for the Fabric conditions'
+      # An underlay or overlay session of the default network-instance that is not established
+      # (session-state as gNMIc's event processors encode it: 5 = established).
+      - alert: BGPSessionDown
+        expr: |
+          max by (source, network_instance_name, neighbor_peer_address) (
+            srl_nokia_network_instance:network_instance_protocols_srl_nokia_bgp:bgp_neighbor_session_state
+          ) != 5
+        for: 30s
+        labels:
+          severity: critical
+        annotations:
+          summary: 'BGP session {{ $labels.source }} → {{ $labels.neighbor_peer_address }} ({{ $labels.network_instance_name }}) is not established (state {{ $value }})'
+          next: 'Run `make show-bgp`; check the underlay links (FabricLinkDown) and `kubectl -n agentic-netops-system get fabric -o yaml` for the Fabric conditions'
+      # "Sessions up, zero EVPN routes" on a leaf — GUARDED (AD-48): it cannot fire until one EVI is
+      # present on at least two leaves. The last conjunct keeps a leaf only while it carries a
+      # bgp-evpn bgp-instance whose evi (the series VALUE) is carried by at least two leaf sources:
+      # before the first service there is no instance, and an instance on a single leaf has no remote
+      # route to receive — zero is then correct, and an alert firing through that window would train
+      # the operator to ignore the one signature it exists to catch (FR-100).
+      - alert: EvpnRoutesLost
+        expr: |
+          (
+            max by (source, network_instance_name, neighbor_peer_address) (
+              srl_nokia_network_instance:network_instance_protocols_srl_nokia_bgp:bgp_neighbor_afi_safi_received_routes{afi_safi_afi_safi_name="evpn"}
+            ) == 0
+          )
+          and on (source, network_instance_name, neighbor_peer_address)
+          (
+            max by (source, network_instance_name, neighbor_peer_address) (
+              srl_nokia_network_instance:network_instance_protocols_srl_nokia_bgp:bgp_neighbor_session_state
+            ) == 5
+          )
+          and on (source) agentic_netops_node_info{role="leaf"}
+          and on (source)
+          (
+            count_values by (source) ("evi",
+              srl_nokia_network_instance:network_instance_protocols_bgp_evpn_srl_nokia_bgp_evpn:bgp_instance_evi
+            )
+            and on (evi)
+            (
+              count by (evi) (
+                count_values by (source) ("evi",
+                  srl_nokia_network_instance:network_instance_protocols_bgp_evpn_srl_nokia_bgp_evpn:bgp_instance_evi
+                  and on (source) agentic_netops_node_info{role="leaf"}
+                )
+              ) >= 2
+            )
+          )
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: 'Leaf {{ $labels.source }} receives zero EVPN routes from {{ $labels.neighbor_peer_address }} while the session is established and an EVI it carries spans two leaves'
+          next: 'Run `make show-evpn` and `make show-bgp`; check route reflection in `kubectl -n agentic-netops-system get fabric -o yaml` (spec.overlay) and the EVPN service-path dashboard (Grafana)'

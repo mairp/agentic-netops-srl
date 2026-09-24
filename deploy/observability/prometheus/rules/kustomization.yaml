@@ -1,0 +1,17 @@
+# deploy/observability/prometheus/rules — ConfigMap prometheus-rules (T130; FR-087; data-model.md
+# §21), mounted by the prometheus Deployment at /etc/prometheus/rules (optional: absent means no rule).
+# Kept OUT of ../kustomization.yaml on purpose: the ObservabilityReady phase (T134) installs
+# Prometheus first and applies this only after re-checking the rules' series names against the live
+# pipeline (AD-55), then reloads (`POST /-/reload`):
+#   kubectl apply -k deploy/observability/prometheus/rules
+# topology.yaml (T131's generated topology info recording rules) is added to the same ConfigMap by
+# the phase from the generated asset; it is not a committed file here.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: monitoring
+configMapGenerator:
+  - name: prometheus-rules
+    files: [fabric.yaml, reconcile.yaml, pipeline.yaml, recording.yaml]
+    options:
+      disableNameSuffixHash: true
+      labels: {app.kubernetes.io/name: prometheus, app.kubernetes.io/part-of: agentic-netops}

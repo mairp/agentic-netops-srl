@@ -9,6 +9,7 @@ require (
 	github.com/henderiw/iputil v0.0.0-20231218081610-37f78ad9c81c
 	github.com/kform-dev/choreo v0.0.21-0.20241226164553-fde3b818f2d4
 	github.com/kuidio/kuid v0.0.13
+	github.com/openconfig/goyang v1.6.0
 	github.com/prometheus/client_golang v1.24.0
 	github.com/sdcio/config-server v0.0.58
 	go.opentelemetry.io/otel v1.39.0

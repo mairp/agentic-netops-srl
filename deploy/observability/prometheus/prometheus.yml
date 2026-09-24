@@ -1,0 +1,66 @@
+# prometheus.yml — the metrics store's scrape configuration (T130; FR-087, FR-089, SC-037, R-10;
+# data-model.md §21). Rendered into ConfigMap prometheus-config by this directory's kustomization;
+# a change is loaded by `POST /-/reload` (--web.enable-lifecycle).
+#
+# The six jobs (their `job` label is what the rules and the dashboards select on):
+#   devices         the device metric collector's Prometheus exporter (devices-via-collector, 5 s)
+#   otel-collector  the collector's own telemetry (receiver, exporter, filter, queue series)
+#   gnmic-self      gNMIc's own /metrics (target up, subscribe counters, otlp output counters)
+#   srl-provider    the provider's /metrics (reconcile, re-verification, telemetry health)
+#   sdc             the device-configuration layer's controller metrics (https, the ServiceAccount's
+#                   token; authorized by ClusterRole prometheus, nonResourceURLs /metrics get)
+#   prometheus      this server
+#
+# The join (R-10, data-model.md §21): at the scrape of `devices` the interface name is normalized,
+# ethernet-<slot>/<port> → e<slot>-<port> (topologyview.NormalizeInterface), so a device series and
+# the topology info series (rules/topology.yaml, T131) share `interface_name`; mgmt0, system0, irb0,
+# lo…, and subinterface names (ethernet-1/1.0) do not match the anchored regex and pass unchanged.
+# The provider reads the collector directly, so its read-back never sees the normalized name.
+global:
+  scrape_interval: 15s
+  scrape_timeout: 10s
+  evaluation_interval: 15s
+rule_files:
+  - /etc/prometheus/rules/*.yaml
+scrape_configs:
+  - job_name: devices
+    scrape_interval: 5s
+    scrape_timeout: 5s
+    # the collector exports with send_timestamps (a recorded naming-irrelevant setting it keeps); a
+    # timestamped series gets no staleness marker by default, so a device that stopped reporting would
+    # read at its LAST value for the whole lookback window. Tracked, the series goes stale on the first
+    # scrape it is missing from (after the collector's metric_expiration) and reads ABSENT (T134, SC-037;
+    # observed live by `make verify-metrics`, step stale)
+    track_timestamps_staleness: true
+    static_configs:
+      - targets: [device-metrics.monitoring.svc:8889]
+    metric_relabel_configs:
+      - source_labels: [interface_name]
+        regex: 'ethernet-(\d+)/(\d+)'
+        target_label: interface_name
+        replacement: 'e${1}-${2}'
+        action: replace
+  - job_name: otel-collector
+    static_configs:
+      - targets: [device-metrics.monitoring.svc:8888]
+  - job_name: gnmic-self
+    static_configs:
+      - targets: [gnmic-self.monitoring.svc:7890]
+  - job_name: srl-provider
+    static_configs:
+      - targets: [srl-provider-metrics.agentic-netops-system.svc:8080]
+  # The server metrics endpoint (8443) only: sdc-controller-target-metrics (9443) has no listener in
+  # the pinned controller (connection refused, observed 2026-09-24) and the vendored NetworkPolicy
+  # allow-metrics-traffic admits the monitoring namespace on 8443 alone.
+  - job_name: sdc
+    scheme: https
+    tls_config:
+      insecure_skip_verify: true
+    authorization:
+      type: Bearer
+      credentials_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+    static_configs:
+      - targets: [sdc-controller-server-metrics.sdc-system.svc:8443]
+  - job_name: prometheus
+    static_configs:
+      - targets: [localhost:9090]

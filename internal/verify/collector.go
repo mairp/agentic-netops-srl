@@ -32,7 +32,8 @@ package verify
 //     the same tables (scripts/lib/device_metrics.sh): session-state,
 //     oper-state, active, the access-list booleans programming-complete and
 //     incomplete (T108), the gateway read-back's (T116) EVPN RIB used-route,
-//     interface address status and anycast-gw-mac-origin, and — for the service
+//     interface address status and anycast-gw-mac-origin, FR-089's interface
+//     admin-state and application state (T128), and — for the service
 //     read-back (T058) — every
 //     oper-down-reason / not-programmed-reason and the bgp-vpn RD/RT origins
 //     (an enum value neither table knows is exported as 0, decoded
@@ -375,6 +376,11 @@ var (
 	}
 	// DEVICE_METRICS_ANYCAST_ORIGINS: an IRB subinterface's anycast-gw-mac-origin (T116).
 	anycastOrigins = map[int64]string{0: UnrecognisedValue, 1: "configured", 2: "vrid-auto-derived"}
+	// DEVICE_METRICS_ADMIN_STATES / DEVICE_METRICS_APP_STATES: FR-089's interface
+	// admin-state and application state (T128) — no read-back reads them today;
+	// the tables keep the collector and this reader to one encoding.
+	adminStates = map[int64]string{0: UnrecognisedValue, 1: "enable", 2: "disable"}
+	appStates   = map[int64]string{0: UnrecognisedValue, 1: "running", 2: "starting", 3: "waiting-for-config", 4: "stopped", 5: "error"}
 )
 
 // UnrecognisedValue is the decoded form of an enumerated leaf whose device
@@ -399,6 +405,10 @@ func decodeValue(leaf, v string) string {
 		table = addressStatuses
 	case "anycast-gw-mac-origin":
 		table = anycastOrigins
+	case "admin-state":
+		table = adminStates
+	case "state":
+		table = appStates
 	case "oper-down-reason", "not-programmed-reason":
 		table = reasons
 	case "route-distinguisher-origin", "export-route-target-origin", "import-route-target-origin":

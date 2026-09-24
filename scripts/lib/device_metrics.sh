@@ -5,8 +5,9 @@
 #   device_metrics::render [MGMT_CIDR]   the gNMIc ConfigMap monitoring/device-metrics-gnmic on
 #                                        stdout: one target per node at its management address of
 #                                        MGMT_CIDR (scripts/lib/onboarding.sh — the same addresses
-#                                        the DiscoveryRule onboards), named after the node, which
-#                                        is the `source` label every exported series carries
+#                                        the DiscoveryRule onboards) or of DEVICE_METRICS_TARGETS_FILE,
+#                                        named after the node, which is the `source` label every
+#                                        exported series carries
 #   device_metrics::ensure               apply the ConfigMap (ownership-labelled) and
 #                                        deploy/observability/device-metrics server-side; restart
 #                                        gNMIc only when its configuration changed; wait for both
@@ -15,13 +16,26 @@
 #                                        from every node (a node the collector cannot read fails
 #                                        naming it)
 #
-# The subscriptions are the Fabric read-back's applied-side leaves (internal/verify/collector.go
-# maps each requested path onto the series this configuration exports) plus G7's EVPN series,
-# which T129/T130 later alert on. String states are exported as integers — gNMIc's OTLP output
-# drops every string value — by the event processors G7 qualified (tests/gate/observed/
-# telemetry-series.json); the reader maps them back with the same tables.
+# The subscriptions are NOT listed here (T128): they are the path register's (pkg/register
+# SubscribeEntries — the union of FR-089's path set and every path the provider's read-back reads,
+# internal/verify/collector.go mapping each requested path onto the series this configuration
+# exports), generated into deploy/observability/gnmic/subscriptions.yaml by
+# internal/telemetry/gnmic_config.go and embedded here verbatim, so the register and the collector
+# cannot drift. String states are exported as integers — gNMIc's OTLP output drops every string
+# value — by the event processors G7 qualified (tests/gate/observed/telemetry-series.json); the
+# reader maps them back with the same tables. internal/telemetry/gnmic_config_test.go holds these
+# processors to the register: every registered leaf the pinned YANG types as a JSON string
+# (enumeration, uint64, …) is converted here, or it would never be exported.
 #
-# env: MGMT_CIDR, KUBECTL, KUBE_CONTEXT, DEVICE_METRICS_TIMEOUT (s, 180), EVIDENCE_DIR
+# TLS (T129): the device's gNMI certificate is verified with the lab CA (monitoring/srl-credentials
+# key ca.crt, mounted at /etc/gnmic-tls) unless DEVICE_METRICS_TLS_VERIFY is off — the switch stays
+# until the device certificates' SANs are verified to carry the management addresses.
+#
+# env: MGMT_CIDR, KUBECTL, KUBE_CONTEXT, DEVICE_METRICS_TIMEOUT (s, 180), EVIDENCE_DIR,
+#      DEVICE_METRICS_TLS_VERIFY (1|0, default 1),
+#      DEVICE_METRICS_TARGETS_FILE (optional; replaces the MGMT_CIDR addresses: one target per line,
+#      `<name> <address>[:port]` or the YAML forms `<name>: <address>[:port]` /
+#      `<name>: {address: "<address>[:port]"}`; `#` comments; T131's generator writes it)
 
 # shellcheck source-path=SCRIPTDIR
 [[ -n "${__AGENTIC_NETOPS_DEVICE_METRICS_SH:-}" ]] && return 0
@@ -42,59 +56,12 @@ source "$DEVICE_METRICS_LIB/evidence.sh"
 
 DEVICE_METRICS_NS="monitoring"
 DEVICE_METRICS_GNMI_PORT=57400
-# The subscribed paths: the Fabric read-back's applied-side leaves, the force-release finding
-# presence leaves, G7's EVPN series (received-routes, bgp-evpn instance), and the service
-# read-back's keyed leaves (T058, internal/verify/{service,macvrf,ipvrf}.go): each service's own
-# network-instance, member interfaces, subinterfaces, vxlan-interfaces and EVPN/BGP-VPN instance,
-# with the device's own down/not-programmed reasons and derivation origins; the remote VTEPs and
-# per-VTEP multicast destinations a spanning mac-vrf needs; and every network-instance's route
-# table, where a spanning ip-vrf's remote prefixes are read per prefix (never a count); and the
-# access-list read-back's applied side (T108, internal/verify/acl.go; contracts/acl-render-contract.md
-# §4.1, §4.3 as reconciled by live finding 2026-09-21-acl-binding-state): the ACL datapath
-# programming-complete gate per forwarding complex, and per filter entry — keyed by filter name, type
-# and sequence-id — its TCAM cost (single-instance, input-total, output-total) and its statistics
-# (matched-packets readable, incomplete). The read-back filters every read by its own filter's keys;
-# the cpm/system filters are sampled too and are never evidence. And the anycast-gateway read-back
-# (T116, internal/verify/gateway.go; live observation 2026-09-24 on SR Linux 25.7.1): an IRB
-# subinterface's anycast-gw MAC origin and each address's status, and the default instance's EVPN
-# RIB IP-prefix (Type-5) routes' used-route, read per route distinguisher and prefix (never a count).
-DEVICE_METRICS_PATHS=(
-  "/interface[name=*]/oper-state"
-  "/interface[name=*]/subinterface[index=*]/oper-state"
-  "/interface[name=*]/subinterface[index=*]/oper-down-reason"
-  "/tunnel-interface[name=*]/vxlan-interface[index=*]/oper-state"
-  "/tunnel-interface[name=*]/vxlan-interface[index=*]/oper-down-reason"
-  "/tunnel-interface[name=*]/vxlan-interface[index=*]/bridge-table/multicast-destinations/destination[vtep=*][vni=*]/destination-index"
-  "/tunnel-interface[name=*]/vxlan-interface[index=*]/bridge-table/multicast-destinations/destination[vtep=*][vni=*]/not-programmed-reason"
-  "/tunnel/vxlan-tunnel/vtep[address=*]/index"
-  "/network-instance[name=*]/oper-state"
-  "/network-instance[name=*]/oper-down-reason"
-  "/network-instance[name=*]/interface[name=*]/oper-state"
-  "/network-instance[name=*]/interface[name=*]/oper-down-reason"
-  "/network-instance[name=*]/vxlan-interface[name=*]/oper-state"
-  "/network-instance[name=*]/vxlan-interface[name=*]/oper-down-reason"
-  "/network-instance[name=default]/protocols/bgp/neighbor[peer-address=*]/session-state"
-  "/network-instance[name=default]/protocols/bgp/neighbor[peer-address=*]/afi-safi[afi-safi-name=*]/oper-state"
-  "/network-instance[name=default]/protocols/bgp/neighbor[peer-address=*]/afi-safi[afi-safi-name=*]/received-routes"
-  "/network-instance[name=*]/route-table/ipv4-unicast/route/active"
-  "/network-instance[name=*]/route-table/ipv6-unicast/route/active"
-  "/network-instance[name=*]/protocols/bgp-evpn/bgp-instance[id=*]/evi"
-  "/network-instance[name=*]/protocols/bgp-evpn/bgp-instance[id=*]/oper-state"
-  "/network-instance[name=*]/protocols/bgp-evpn/bgp-instance[id=*]/oper-down-reason"
-  "/network-instance[name=*]/protocols/bgp-vpn/bgp-instance[id=*]/route-distinguisher/route-distinguisher-origin"
-  "/network-instance[name=*]/protocols/bgp-vpn/bgp-instance[id=*]/route-target/export-route-target-origin"
-  "/network-instance[name=*]/protocols/bgp-vpn/bgp-instance[id=*]/route-target/import-route-target-origin"
-  "/acl/datapath-programming/forwarding-complex[slot-id=*][complex-id=*]/programming-complete"
-  "/acl/acl-filter[name=*][type=*]/entry[sequence-id=*]/tcam-entries/forwarding-complex[complex-identifier=*]/single-instance"
-  "/acl/acl-filter[name=*][type=*]/entry[sequence-id=*]/tcam-entries/forwarding-complex[complex-identifier=*]/input-total"
-  "/acl/acl-filter[name=*][type=*]/entry[sequence-id=*]/tcam-entries/forwarding-complex[complex-identifier=*]/output-total"
-  "/acl/acl-filter[name=*][type=*]/entry[sequence-id=*]/statistics/matched-packets"
-  "/acl/acl-filter[name=*][type=*]/entry[sequence-id=*]/statistics/incomplete"
-  "/interface[name=*]/subinterface[index=*]/anycast-gw/anycast-gw-mac-origin"
-  "/interface[name=*]/subinterface[index=*]/ipv4/address[ip-prefix=*]/status"
-  "/interface[name=*]/subinterface[index=*]/ipv6/address[ip-prefix=*]/status"
-  "/network-instance[name=default]/bgp-rib/afi-safi[afi-safi-name=evpn]/evpn/rib-in-out/rib-in-post/ip-prefix-route[route-distinguisher=*][ethernet-tag-id=*][ip-prefix-length=*][ip-prefix=*][neighbor=*][path-id=*]/used-route"
-)
+# The subscriptions section, generated from the path register (T128) — never edited here.
+DEVICE_METRICS_SUBSCRIPTIONS_FILE="$DEVICE_METRICS_ROOT/deploy/observability/gnmic/subscriptions.yaml"
+# the gNMIc api-server (gnmic-self: /metrics and health, scraped by Prometheus job gnmic-self) and
+# where the deployment mounts the lab CA (monitoring/srl-credentials key ca.crt)
+DEVICE_METRICS_API_ADDRESS=":7890"
+DEVICE_METRICS_TLS_CA="/etc/gnmic-tls/ca.crt"
 
 # The integer encodings of the enumerated string leaves beyond the three state tables below
 # ("<code>:<value>"; internal/verify/collector.go decodeValue carries the same tables, and
@@ -135,6 +102,15 @@ DEVICE_METRICS_ADDRESS_STATUSES=(
 DEVICE_METRICS_ANYCAST_ORIGINS=(
   1:configured 2:vrid-auto-derived
 )
+# FR-089's interface admin-state (T128; srl_nokia-common admin-state)
+DEVICE_METRICS_ADMIN_STATES=(
+  1:enable 2:disable
+)
+# FR-089's application health: an SR Linux application's state (T128; srl_nokia-app-mgmt
+# application-state-type on 25.7.1)
+DEVICE_METRICS_APP_STATES=(
+  1:running 2:starting 3:waiting-for-config 4:stopped 5:error
+)
 
 # device_metrics::_transforms <code:value>… — gNMIc event-strings replace transforms, one per
 # value (anchored; every tabled value is [a-z0-9_:-] only, so none needs regex escaping), then
@@ -157,17 +133,57 @@ device_metrics::_gnmic_config() {
   device_metrics::_k get configmap device-metrics-gnmic -n "$DEVICE_METRICS_NS" -o jsonpath='{.data.gnmic\.yaml}' 2>/dev/null || true
 }
 
+# device_metrics::_hosts [MGMT_CIDR] — the targets, `<name> <address>` per line: from
+# DEVICE_METRICS_TARGETS_FILE when set, else the node addresses of MGMT_CIDR
+device_metrics::_hosts() {
+  local f="${DEVICE_METRICS_TARGETS_FILE:-}"
+  if [[ -z "$f" ]]; then
+    onboarding::hosts "${1:-${MGMT_CIDR:-172.25.25.0/24}}"
+    return
+  fi
+  [[ -r "$f" ]] || { log::error "device_metrics: DEVICE_METRICS_TARGETS_FILE $f is not readable"; return 1; }
+  local out
+  out="$(sed -e 's/#.*$//' -e 's/^[[:space:]]*-[[:space:]]*//' -e 's/[{}"'"'"']//g' -e 's/address:[[:space:]]*//' \
+      -e 's/:[[:space:]]\{1,\}/ /' "$f" | awk 'NF == 2 {print $1, $2} NF != 0 && NF != 2 {bad = 1} END {exit bad}')" \
+    || { log::error "device_metrics: DEVICE_METRICS_TARGETS_FILE $f: a line is not <name> <address>"; return 1; }
+  [[ -n "$out" ]] || { log::error "device_metrics: DEVICE_METRICS_TARGETS_FILE $f names no target"; return 1; }
+  printf '%s\n' "$out"
+}
+
+# device_metrics::_tls — the TLS settings: the lab CA verifies the device certificate unless
+# DEVICE_METRICS_TLS_VERIFY is off
+device_metrics::_tls() {
+  case "${DEVICE_METRICS_TLS_VERIFY:-1}" in
+    1 | true | yes | on) printf 'skip-verify: false\n    tls-ca: %s\n' "$DEVICE_METRICS_TLS_CA" ;;
+    0 | false | no | off) printf 'skip-verify: true\n' ;;
+    *) log::error "device_metrics: DEVICE_METRICS_TLS_VERIFY '${DEVICE_METRICS_TLS_VERIFY}' is not 1 or 0"; return 1 ;;
+  esac
+}
+
+# device_metrics::_subscriptions — the generated subscriptions section, indented into gnmic.yaml
+device_metrics::_subscriptions() {
+  local f="$DEVICE_METRICS_SUBSCRIPTIONS_FILE"
+  grep -qx 'subscriptions:' "$f" 2>/dev/null \
+    || { log::error "device_metrics: $f has no subscriptions section — regenerate: go test ./internal/telemetry -run TestGnmicSubscriptionsGolden -update"; return 1; }
+  sed -n '/^subscriptions:$/,$p' "$f" | sed 's/^/    /'
+}
+
 device_metrics::render() {
-  local cidr="${1:-${MGMT_CIDR:-172.25.25.0/24}}" hosts name addr targets="" paths="" p reasons origins statuses anycast
-  hosts="$(onboarding::hosts "$cidr")" || return 1
+  local cidr="${1:-${MGMT_CIDR:-172.25.25.0/24}}" hosts name addr targets="" subs tls reasons origins statuses anycast admin apps
+  hosts="$(device_metrics::_hosts "$cidr")" || return 1
   while read -r name addr; do
-    [[ -n "$name" ]] && targets+="      ${name}: {address: \"${addr}:${DEVICE_METRICS_GNMI_PORT}\"}"$'\n'
+    [[ -n "$name" ]] || continue
+    [[ "$addr" == *:* ]] || addr+=":${DEVICE_METRICS_GNMI_PORT}"
+    targets+="      ${name}: {address: \"${addr}\"}"$'\n'
   done <<<"$hosts"
-  for p in "${DEVICE_METRICS_PATHS[@]}"; do paths+="          - \"${p}\""$'\n'; done
+  subs="$(device_metrics::_subscriptions)" || return 1
+  tls="$(device_metrics::_tls)" || return 1
   reasons="$(device_metrics::_transforms "${DEVICE_METRICS_REASONS[@]}")"
   origins="$(device_metrics::_transforms "${DEVICE_METRICS_ORIGINS[@]}")"
   statuses="$(device_metrics::_transforms "${DEVICE_METRICS_ADDRESS_STATUSES[@]}")"
   anycast="$(device_metrics::_transforms "${DEVICE_METRICS_ANYCAST_ORIGINS[@]}")"
+  admin="$(device_metrics::_transforms "${DEVICE_METRICS_ADMIN_STATES[@]}")"
+  apps="$(device_metrics::_transforms "${DEVICE_METRICS_APP_STATES[@]}")"
   cat <<YAML
 apiVersion: v1
 kind: ConfigMap
@@ -177,17 +193,15 @@ metadata:
   labels: {app.kubernetes.io/name: device-metrics-gnmic, app.kubernetes.io/part-of: agentic-netops, $(ownership::key): "$(ownership::value)"}
 data:
   gnmic.yaml: |
-    skip-verify: true
+    ${tls}
     encoding: json_ietf
     log: true
+    api-server:
+      address: "${DEVICE_METRICS_API_ADDRESS}"
+      enable-metrics: true
     targets:
-${targets}    subscriptions:
-      device-state:
-        mode: stream
-        stream-mode: sample
-        sample-interval: 5s
-        paths:
-${paths}    outputs:
+${targets}${subs}
+    outputs:
       device-metrics:
         type: otlp
         endpoint: device-metrics.${DEVICE_METRICS_NS}.svc:4317
@@ -197,7 +211,11 @@ ${paths}    outputs:
         strip-leading-underscore: true
         strings-as-attributes: false
         counter-patterns: []
-        event-processors: [session-state-to-int, oper-state-to-int, active-to-int, acl-bool-to-int, rib-bool-to-int, reason-to-int, origin-to-int, address-status-to-int, anycast-origin-to-int, state-as-int]
+        # the output's own counters (gnmic_otlp_output_number_of_{sent,failed}_events_total,
+        # gnmic_otlp_output_rejected_data_points_total) on the api-server's /metrics — what makes an
+        # export gap visible on the collector-health dashboard (T129/T134, SC-037); not naming-relevant
+        enable-metrics: true
+        event-processors: [session-state-to-int, oper-state-to-int, active-to-int, acl-bool-to-int, rib-bool-to-int, reason-to-int, origin-to-int, address-status-to-int, anycast-origin-to-int, admin-state-to-int, app-state-to-int, state-as-int, counters-as-int]
     processors:
       session-state-to-int:
         event-strings:
@@ -256,15 +274,35 @@ ${statuses}
           value-names: [".*anycast-gw-mac-origin$"]
           transforms:
 ${anycast}
+      # FR-089's interface admin-state and application health (T128)
+      admin-state-to-int:
+        event-strings:
+          value-names: [".*:interface/admin-state$"]
+          transforms:
+${admin}
+      app-state-to-int:
+        event-strings:
+          value-names: [".*app-management/application/state$"]
+          transforms:
+${apps}
       # gNMIc's otlp output skips every string value, a digit string included (v0.47.0), so the
       # mapped state leaves are converted to integers or they are never exported — and so are the
       # uint64 indexes (the VTEP's and the multicast destination's), which JSON_IETF encodes as
       # strings (RFC 7951 §6.1; observed on 25.7.1) — and an access-list entry's matched-packets
       # (uint64) with its booleans; its uint16 TCAM counts are converted too, a no-op on a number; and
-      # the gateway read-back's used-route, address status and anycast-gw-mac-origin (T116)
+      # the gateway read-back's used-route, address status and anycast-gw-mac-origin (T116); and
+      # FR-089's interface admin-state and application state (T128)
       state-as-int:
         event-convert:
-          value-names: [".*session-state$", ".*oper-state$", ".*/active$", ".*oper-down-reason$", ".*not-programmed-reason$", ".*route-distinguisher-origin$", ".*route-target-origin$", ".*destination-index$", ".*vtep/index$", ".*/programming-complete$", ".*/statistics/incomplete$", ".*/statistics/matched-packets$", ".*/single-instance$", ".*/input-total$", ".*/output-total$", ".*/used-route$", ".*address/status$", ".*anycast-gw-mac-origin$"]
+          value-names: [".*session-state$", ".*oper-state$", ".*/active$", ".*oper-down-reason$", ".*not-programmed-reason$", ".*route-distinguisher-origin$", ".*route-target-origin$", ".*destination-index$", ".*vtep/index$", ".*/programming-complete$", ".*/statistics/incomplete$", ".*/statistics/matched-packets$", ".*/single-instance$", ".*/input-total$", ".*/output-total$", ".*/used-route$", ".*address/status$", ".*anycast-gw-mac-origin$", ".*:interface/admin-state$", ".*app-management/application/state$"]
+          type: int
+      # FR-089's 64-bit counters and gauges (T128), which JSON_IETF encodes as strings: interface,
+      # subinterface and VTEP statistics, the interface traffic rate, bridge-table MAC counts, the
+      # route- and tunnel-table totals and platform memory — scoped to the numeric leaves only, so
+      # no date-and-time leaf (last-clear) is ever handed to the conversion
+      counters-as-int:
+        event-convert:
+          value-names: [".*statistics/[a-z-]*(packets|octets|transitions)$", ".*/traffic-rate/(in|out)-bps$", ".*statistics/(total|active|failed)-entries$", ".*/mac-type/(total|active|failed)-entries$", ".*statistics/total-routes$", ".*statistics/total-tunnels$", ".*memory/(free|physical|reserved)$"]
           type: int
 YAML
 }
@@ -316,7 +354,7 @@ device_metrics::wait_samples() {
     while read -r name addr; do
       [[ -n "$name" ]] || continue
       grep -q "source=\"${name}\"" <<<"$out" || missing+=" $name"
-    done < <(onboarding::hosts "${MGMT_CIDR:-172.25.25.0/24}")
+    done < <(device_metrics::_hosts "${MGMT_CIDR:-172.25.25.0/24}")
     if [[ -z "$missing" ]]; then
       local id="device-metrics.samples" n=1
       while [[ -e "$EVIDENCE_DIR/$id.json" ]]; do n=$((n + 1)); id="device-metrics.samples-${n}"; done

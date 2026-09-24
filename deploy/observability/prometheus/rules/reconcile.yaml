@@ -1,0 +1,33 @@
+# Reconciliation alert rules (T130; FR-087, FR-107, NFR-005, SC-035, AD-54; data-model.md §21 — the
+# required alert set). Series: the provider's /metrics (job srl-provider; internal/telemetry/metrics.go,
+# T133). Each rule carries labels.severity and annotations.summary + annotations.next. Proven by
+# tests/unit/alerts/rules_test.sh.
+groups:
+  - name: agentic-netops-reconcile
+    rules:
+      # A Fabric or Network whose last reconcile ended in an error or a terminal condition (the gauge
+      # is 1 then, 0 otherwise, and is deleted with the object).
+      - alert: ReconciliationFailed
+        expr: |
+          max by (kind, namespace, name) (agentic_netops_resource_reconcile_failed) == 1
+        for: 30s
+        labels:
+          severity: warning
+        annotations:
+          summary: '{{ $labels.kind }} {{ $labels.namespace }}/{{ $labels.name }}: the last reconcile ended in an error or a terminal condition'
+          next: 'Read the conditions: `kubectl -n {{ $labels.namespace }} get {{ $labels.kind }} {{ $labels.name }} -o yaml`, then the provider log `kubectl -n agentic-netops-system logs deploy/srl-provider`'
+      # FR-107's "a stalled schedule is itself detectable": the age of the last completed
+      # re-verification pass (a timestamp, not an age, so it stays right while not scraped) beyond one
+      # re-verification interval plus one reconciliation interval (the provider's configured values,
+      # exported as gauges). The series is removed when finalization starts, so a deleted or
+      # held-in-deletion object never ages into this alert (AD-54).
+      - alert: ReverificationStalled
+        expr: |
+          time() - max by (kind, namespace, name) (reverify_last_success_timestamp_seconds)
+            > on () group_left ()
+          (max(agentic_netops_reverify_interval_seconds) + max(agentic_netops_reconcile_interval_seconds))
+        labels:
+          severity: warning
+        annotations:
+          summary: '{{ $labels.kind }} {{ $labels.namespace }}/{{ $labels.name }} has not been re-verified for {{ $value | humanizeDuration }}'
+          next: 'Check `kubectl -n {{ $labels.namespace }} get {{ $labels.kind }} {{ $labels.name }} -o yaml` (status.lastVerifiedTime, Ready), agentic_netops_reverify_total{result="could_not_run"} and the provider log'

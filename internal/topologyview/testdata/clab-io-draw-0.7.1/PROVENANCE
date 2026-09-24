@@ -1,0 +1,22 @@
+clab-io-draw output over lab/topology.clab.yml — the offline fixture of tests/unit/topologyview/parity_test.go (T131).
+
+generator: ghcr.io/srl-labs/clab-io-draw:0.7.1@sha256:1722f83ee643ceda3b9c2e4fb5df4005ade159288041ce89e4919f73fd2ee83a
+           (versions.lock.yaml observability.topologyGenerator.pinned; local image id sha256:79b5cdb51ab139445cd658707f39d97b8d291484e6e8ab180da097e903ef66aa)
+inventory: lab/topology.clab.yml sha256:449c172c0b9e38baa8d4ef88493d5ce19c95a6ff516790dcc320267173b18c28
+command:   observability::draw (scripts/lib/observability.sh) —
+           docker run --rm --network none --user <uid>:<gid> -v <dir>:/data <generator> \
+             -i topology.clab.yml -g --theme grafana --grafana-interface-format 'ethernet-{x}/{x}:e{x}-{x}'
+generated: 2026-09-24T19:37:02Z
+
+Files, as the generator wrote them (never edited):
+  topology.clab.drawio                   draw.io diagram (uncompressed mxGraphModel); ids clab-<lab>-<node>, ethernet-1/N
+  topology.clab.grafana.flow_panel.yaml  flow-panel YAML (cellIdPreamble cell-); interfaces already e1-N via the format flag
+  topology.clab.grafana.json             Grafana dashboard; flow-panel query legend formats
+Observed of 0.7.1: no SVG export ("Grafana SVG export skipped. Export ... manually using draw.io");
+-o together with -g fails (UnboundLocalError grafana_output_file), so outputs land beside the input;
+midpoint/label positions carry random jitter between runs (the ids do not).
+
+Regenerate after any change to lab/topology.clab.yml (the parity test compares the digest above):
+  D=internal/topologyview/testdata/clab-io-draw-0.7.1; cp lab/topology.clab.yml $D/ && \
+  bash -c 'source scripts/lib/observability.sh; observability::draw "$(observability::generator_ref)" "$PWD/'$D'"' && \
+  rm $D/topology.clab.yml   # then update the inventory digest and date above

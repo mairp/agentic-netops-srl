@@ -1,0 +1,136 @@
+---
+anchors:
+  thresholds-operstate: &thresholds-operstate
+  - color: red
+    level: 0
+  - color: green
+    level: 1
+  thresholds-traffic: &thresholds-traffic
+  - color: gray
+    level: 0
+  - color: green
+    level: 199999
+  - color: yellow
+    level: 500000
+  - color: orange
+    level: 1000000
+  - color: red
+    level: 5000000
+  label-config: &label-config
+    separator: replace
+    units: bps
+    decimalPoints: 1
+    valueMappings:
+    - valueMax: 199999
+      text: ​
+    - valueMin: 200000
+cellIdPreamble: cell-
+cells:
+  clab-agentic-netops-fabric-spine01:e1-1:clab-agentic-netops-fabric-leaf01:e1-49:
+    dataRef: oper-state:clab-agentic-netops-fabric-spine01:e1-1
+    fillColor:
+      thresholds: *thresholds-operstate
+  link_id:clab-agentic-netops-fabric-spine01:e1-1:clab-agentic-netops-fabric-leaf01:e1-49:
+    dataRef: clab-agentic-netops-fabric-spine01:e1-1:out
+    label: *label-config
+    strokeColor:
+      thresholds: *thresholds-traffic
+  clab-agentic-netops-fabric-spine01:e1-2:clab-agentic-netops-fabric-leaf02:e1-49:
+    dataRef: oper-state:clab-agentic-netops-fabric-spine01:e1-2
+    fillColor:
+      thresholds: *thresholds-operstate
+  link_id:clab-agentic-netops-fabric-spine01:e1-2:clab-agentic-netops-fabric-leaf02:e1-49:
+    dataRef: clab-agentic-netops-fabric-spine01:e1-2:out
+    label: *label-config
+    strokeColor:
+      thresholds: *thresholds-traffic
+  clab-agentic-netops-fabric-spine02:e1-1:clab-agentic-netops-fabric-leaf01:e1-50:
+    dataRef: oper-state:clab-agentic-netops-fabric-spine02:e1-1
+    fillColor:
+      thresholds: *thresholds-operstate
+  link_id:clab-agentic-netops-fabric-spine02:e1-1:clab-agentic-netops-fabric-leaf01:e1-50:
+    dataRef: clab-agentic-netops-fabric-spine02:e1-1:out
+    label: *label-config
+    strokeColor:
+      thresholds: *thresholds-traffic
+  clab-agentic-netops-fabric-spine02:e1-2:clab-agentic-netops-fabric-leaf02:e1-50:
+    dataRef: oper-state:clab-agentic-netops-fabric-spine02:e1-2
+    fillColor:
+      thresholds: *thresholds-operstate
+  link_id:clab-agentic-netops-fabric-spine02:e1-2:clab-agentic-netops-fabric-leaf02:e1-50:
+    dataRef: clab-agentic-netops-fabric-spine02:e1-2:out
+    label: *label-config
+    strokeColor:
+      thresholds: *thresholds-traffic
+  clab-agentic-netops-fabric-leaf01:e1-49:clab-agentic-netops-fabric-spine01:e1-1:
+    dataRef: oper-state:clab-agentic-netops-fabric-leaf01:e1-49
+    fillColor:
+      thresholds: *thresholds-operstate
+  link_id:clab-agentic-netops-fabric-leaf01:e1-49:clab-agentic-netops-fabric-spine01:e1-1:
+    dataRef: clab-agentic-netops-fabric-leaf01:e1-49:out
+    label: *label-config
+    strokeColor:
+      thresholds: *thresholds-traffic
+  clab-agentic-netops-fabric-leaf01:e1-50:clab-agentic-netops-fabric-spine02:e1-1:
+    dataRef: oper-state:clab-agentic-netops-fabric-leaf01:e1-50
+    fillColor:
+      thresholds: *thresholds-operstate
+  link_id:clab-agentic-netops-fabric-leaf01:e1-50:clab-agentic-netops-fabric-spine02:e1-1:
+    dataRef: clab-agentic-netops-fabric-leaf01:e1-50:out
+    label: *label-config
+    strokeColor:
+      thresholds: *thresholds-traffic
+  clab-agentic-netops-fabric-leaf01:e1-1:clab-agentic-netops-fabric-client01:eth1:
+    dataRef: oper-state:clab-agentic-netops-fabric-leaf01:e1-1
+    fillColor:
+      thresholds: *thresholds-operstate
+  link_id:clab-agentic-netops-fabric-leaf01:e1-1:clab-agentic-netops-fabric-client01:eth1:
+    dataRef: clab-agentic-netops-fabric-leaf01:e1-1:out
+    label: *label-config
+    strokeColor:
+      thresholds: *thresholds-traffic
+  clab-agentic-netops-fabric-leaf02:e1-49:clab-agentic-netops-fabric-spine01:e1-2:
+    dataRef: oper-state:clab-agentic-netops-fabric-leaf02:e1-49
+    fillColor:
+      thresholds: *thresholds-operstate
+  link_id:clab-agentic-netops-fabric-leaf02:e1-49:clab-agentic-netops-fabric-spine01:e1-2:
+    dataRef: clab-agentic-netops-fabric-leaf02:e1-49:out
+    label: *label-config
+    strokeColor:
+      thresholds: *thresholds-traffic
+  clab-agentic-netops-fabric-leaf02:e1-50:clab-agentic-netops-fabric-spine02:e1-2:
+    dataRef: oper-state:clab-agentic-netops-fabric-leaf02:e1-50
+    fillColor:
+      thresholds: *thresholds-operstate
+  link_id:clab-agentic-netops-fabric-leaf02:e1-50:clab-agentic-netops-fabric-spine02:e1-2:
+    dataRef: clab-agentic-netops-fabric-leaf02:e1-50:out
+    label: *label-config
+    strokeColor:
+      thresholds: *thresholds-traffic
+  clab-agentic-netops-fabric-leaf02:e1-1:clab-agentic-netops-fabric-client02:eth1:
+    dataRef: oper-state:clab-agentic-netops-fabric-leaf02:e1-1
+    fillColor:
+      thresholds: *thresholds-operstate
+  link_id:clab-agentic-netops-fabric-leaf02:e1-1:clab-agentic-netops-fabric-client02:eth1:
+    dataRef: clab-agentic-netops-fabric-leaf02:e1-1:out
+    label: *label-config
+    strokeColor:
+      thresholds: *thresholds-traffic
+  clab-agentic-netops-fabric-client01:eth1:clab-agentic-netops-fabric-leaf01:e1-1:
+    dataRef: oper-state:clab-agentic-netops-fabric-client01:eth1
+    fillColor:
+      thresholds: *thresholds-operstate
+  link_id:clab-agentic-netops-fabric-client01:eth1:clab-agentic-netops-fabric-leaf01:e1-1:
+    dataRef: clab-agentic-netops-fabric-client01:eth1:out
+    label: *label-config
+    strokeColor:
+      thresholds: *thresholds-traffic
+  clab-agentic-netops-fabric-client02:eth1:clab-agentic-netops-fabric-leaf02:e1-1:
+    dataRef: oper-state:clab-agentic-netops-fabric-client02:eth1
+    fillColor:
+      thresholds: *thresholds-operstate
+  link_id:clab-agentic-netops-fabric-client02:eth1:clab-agentic-netops-fabric-leaf02:e1-1:
+    dataRef: clab-agentic-netops-fabric-client02:eth1:out
+    label: *label-config
+    strokeColor:
+      thresholds: *thresholds-traffic

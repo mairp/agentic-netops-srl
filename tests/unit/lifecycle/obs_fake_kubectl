@@ -1,0 +1,82 @@
+#!/usr/bin/env bash
+# obs_fake_kubectl — an offline stand-in for kubectl used by observability_recheck_test.sh (T134).
+# Not a suite (no _test.sh suffix). It answers what ObservabilityReady reads, and records every call.
+#
+# State lives under $FAKE_OBS:
+#   calls           every invocation, one line (the "recorded call log"): "kubectl <args…>"
+#   series          the fake Prometheus series store: one metric name per line. A
+#                   `get --raw …/services/prometheus:9090/proxy/api/v1/query?query=count({__name__="<n>"})`
+#                   answers count 1 when <n> is in it, an empty vector otherwise
+#   gnmic.yaml      the data key gnmic.yaml of ConfigMap monitoring/device-metrics-gnmic
+#   otel.yaml       the data key config.yaml of ConfigMap monitoring/device-metrics-otel
+#   networks.json   what `get networks.fabric.agentic-netops.io -A -o json` returns (default: no item)
+#   rules-applied   created by `apply -k …/deploy/observability/prometheus/rules`; from then on
+#                   …/proxy/api/v1/rules lists the alert names of $FAKE_OBS/rule-names (one per line)
+#   query-fail      when present, every Prometheus query answers an error (status "error")
+set -uo pipefail
+S="${FAKE_OBS:?FAKE_OBS must be set}"
+printf 'kubectl %s\n' "$*" >>"$S/calls"
+
+args=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --context) shift 2 ;;
+    --context=*|--request-timeout=*) shift ;;
+    *) args+=("$1"); shift ;;
+  esac
+done
+set -- "${args[@]}"
+all=" $* "
+
+urldecode() { local s="${1//+/ }"; printf '%b' "${s//%/\\x}"; }
+
+raw=""
+for ((i = 1; i <= $#; i++)); do
+  if [[ "${!i}" == --raw ]]; then j=$((i + 1)); raw="${!j}"; fi
+done
+
+if [[ "$1" == get && -n "$raw" ]]; then
+  case "$raw" in
+    */services/prometheus:9090/proxy/api/v1/query\?query=*)
+      [[ -e "$S/query-fail" ]] && { echo '{"status":"error","errorType":"internal","error":"fake failure"}'; exit 0; }
+      q="$(urldecode "${raw#*query=}")"
+      n="$(sed -n 's/.*__name__="\([^"]*\)".*/\1/p' <<<"$q")"
+      if [[ -n "$n" ]] && grep -qxF -- "$n" "$S/series" 2>/dev/null; then
+        printf '{"status":"success","data":{"resultType":"vector","result":[{"metric":{},"value":[1790000000,"1"]}]}}\n'
+      else
+        printf '{"status":"success","data":{"resultType":"vector","result":[]}}\n'
+      fi
+      exit 0 ;;
+    */services/prometheus:9090/proxy/api/v1/rules*)
+      if [[ -e "$S/rules-applied" ]]; then
+        jq -Rn '[inputs | select(length > 0) | {name: ., type: "alerting", state: "inactive"}]
+                | {status: "success", data: {groups: [{name: "fake", rules: .}]}}' <"$S/rule-names"
+      else
+        printf '{"status":"success","data":{"groups":[]}}\n'
+      fi
+      exit 0 ;;
+    */services/prometheus:9090/proxy/-/ready) echo "Prometheus Server is Ready."; exit 0 ;;
+    *) echo "Error from server (NotFound): the server could not find the requested resource" >&2; exit 1 ;;
+  esac
+fi
+if [[ "$1" == create && -n "$raw" ]]; then exit 0; fi   # POST …/-/reload
+
+case "$all" in
+  *" get configmap device-metrics-gnmic "*)
+    [[ -f "$S/gnmic.yaml" ]] || { echo 'Error from server (NotFound): configmaps "device-metrics-gnmic" not found' >&2; exit 1; }
+    jq -n --rawfile c "$S/gnmic.yaml" '{kind: "ConfigMap", metadata: {name: "device-metrics-gnmic", namespace: "monitoring"}, data: {"gnmic.yaml": $c}}'
+    exit 0 ;;
+  *" get configmap device-metrics-otel "*)
+    [[ -f "$S/otel.yaml" ]] || { echo 'Error from server (NotFound): configmaps "device-metrics-otel" not found' >&2; exit 1; }
+    jq -n --rawfile c "$S/otel.yaml" '{kind: "ConfigMap", metadata: {name: "device-metrics-otel", namespace: "monitoring"}, data: {"config.yaml": $c}}'
+    exit 0 ;;
+  *" get networks.fabric.agentic-netops.io "*)
+    if [[ -f "$S/networks.json" ]]; then cat "$S/networks.json"; else echo '{"items":[]}'; fi
+    exit 0 ;;
+  *" apply "*)
+    for ((i = 1; i <= $#; i++)); do
+      if [[ "${!i}" == -k ]]; then j=$((i + 1)); [[ "${!j}" == */deploy/observability/prometheus/rules ]] && touch "$S/rules-applied"; fi
+    done
+    exit 0 ;;
+esac
+exit 0

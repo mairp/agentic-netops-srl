@@ -26,10 +26,13 @@ import (
 	"math/rand/v2"
 	"os"
 
+	"github.com/go-logr/logr"
 	configv1alpha1 "github.com/sdcio/config-server/apis/config/v1alpha1"
 	invv1alpha1 "github.com/sdcio/config-server/apis/inv/v1alpha1"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
+	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/discovery"
@@ -82,7 +85,9 @@ func run(ctx context.Context, lookup func(string) (string, bool), out io.Writer)
 		return runAllocationAuthority(ctx, s, set)
 	}
 
-	shutdown, err := setupOTLP(ctx, s.OTLPEndpoint)
+	// The configured intervals, which the ReverificationStalled bound reads (T133, FR-107).
+	telemetry.SetIntervals(s.Fabric.ReverifyInterval, s.Fabric.ReconcileInterval)
+	health, shutdown, err := setupOTLP(ctx, s.OTLPEndpoint, log)
 	if err != nil {
 		return fmt.Errorf("refusing to start: %s: %w", EnvOTLPEndpoint, err)
 	}
@@ -151,7 +156,9 @@ func run(ctx context.Context, lookup func(string) (string, bool), out io.Writer)
 			Configs: sdcClient,
 			Timeout: s.VerifyTimeout,
 		},
-		Telemetry: telemetry.UnwiredHealth{},
+		// The telemetry-health input (T133, AD-62): the provider's own OTLP export — the only
+		// thing Degraded=True/TelemetryUnavailable is set from; it never blocks configuration.
+		Telemetry: health,
 		Compat:    set,
 		Recorder:  mgr.GetEventRecorderFor(telemetry.Component), //nolint:staticcheck // record.EventRecorder is what internal/status takes
 		Clock:     clock.RealClock{},
@@ -161,7 +168,7 @@ func run(ctx context.Context, lookup func(string) (string, bool), out io.Writer)
 	if err := r.SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("fabric reconciler: %w", err)
 	}
-	deps := providerDeps{Settings: s, Compat: set, SDC: sdcClient, Claims: claims, APIReader: mgr.GetAPIReader()}
+	deps := providerDeps{Settings: s, Compat: set, SDC: sdcClient, Claims: claims, APIReader: mgr.GetAPIReader(), Health: health}
 	if err := setupNetwork(mgr, deps); err != nil {
 		return fmt.Errorf("network reconciler: %w", err)
 	}
@@ -199,21 +206,33 @@ type providerDeps struct {
 	SDC       *sdc.Client
 	Claims    kuid.Claims
 	APIReader client.Reader
+	// Health is the telemetry-health input both reconcilers are given (T133).
+	Health *telemetry.ExportHealth
 }
 
-// setupOTLP installs an OTLP/gRPC trace exporter when an endpoint is set; with
-// none, tracing stays the no-op provider. T133 adds the spans (tracing.go).
-func setupOTLP(ctx context.Context, endpoint string) (func(context.Context) error, error) {
+// setupOTLP installs an OTLP/gRPC trace exporter when an endpoint is set — the provider's own
+// OTLP, direct to the collector (data-model.md §21) — and returns the telemetry-health input
+// over it (T133): the exporter is wrapped so that every export's outcome is recorded, and the
+// health is the OpenTelemetry error handler. With no endpoint tracing stays the no-op provider
+// and the health reports "OTLP export not configured". The exporter connects lazily and exports
+// from the batch processor's own goroutine, dropping spans when its queue is full: an absent or
+// refusing collector never delays a reconcile — it only turns the health unhealthy (Rule 9).
+func setupOTLP(ctx context.Context, endpoint string, log logr.Logger) (*telemetry.ExportHealth, func(context.Context) error, error) {
+	health := telemetry.NewExportHealth(endpoint, log)
 	if endpoint == "" {
-		return func(context.Context) error { return nil }, nil
+		return health, func(context.Context) error { return nil }, nil
 	}
 	exp, err := otlptracegrpc.New(ctx, otlptracegrpc.WithEndpointURL(endpoint))
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	tp := sdktrace.NewTracerProvider(sdktrace.WithBatcher(exp))
+	otel.SetErrorHandler(health)
+	tp := sdktrace.NewTracerProvider(
+		sdktrace.WithBatcher(health.WrapExporter(exp)),
+		sdktrace.WithResource(resource.NewSchemaless(attribute.String("service.name", telemetry.Component))),
+	)
 	otel.SetTracerProvider(tp)
-	return tp.Shutdown, nil
+	return health, tp.Shutdown, nil
 }
 
 // stateReader is the read-back's StateReader: the running datastore always

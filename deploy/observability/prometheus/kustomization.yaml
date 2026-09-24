@@ -1,0 +1,29 @@
+# deploy/observability/prometheus — the metrics store (T130; FR-087, FR-089, SC-035, SC-037;
+# data-model.md §21), installed into `monitoring` by the ObservabilityReady phase (T134).
+#
+#   kubectl apply -k deploy/observability/prometheus         ServiceAccount + metrics-reader RBAC,
+#                                                            ConfigMap prometheus-config, Deployment
+#                                                            and Service prometheus — NO alert rules
+#   kubectl apply -k deploy/observability/prometheus/rules   ConfigMap prometheus-rules (the rules),
+#                                                            applied only after T134's re-check of the
+#                                                            rules' series names; then POST /-/reload
+#
+# The rules directory is deliberately NOT a resource of this kustomization, so that installing
+# Prometheus never loads a rule whose series names have not been re-checked against the live
+# pipeline (AD-55). The image is the lock file's observability.prometheus.pinned, by digest
+# (FR-089, CR-005; tests/unit/observability/).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: monitoring
+resources:
+  - rbac.yaml
+  - deployment.yaml
+configMapGenerator:
+  - name: prometheus-config
+    files: [prometheus.yml]
+    options:
+      disableNameSuffixHash: true
+      labels: {app.kubernetes.io/name: prometheus, app.kubernetes.io/part-of: agentic-netops}
+images:
+  - name: quay.io/prometheus/prometheus
+    newTag: "v3.14.0@sha256:5ce7540c3c00ef4ab0c9d2c995c6a5b9c421f44b4a115d97a2c7af3b1c21cbb0"

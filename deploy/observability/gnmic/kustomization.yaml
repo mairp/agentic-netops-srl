@@ -1,11 +1,14 @@
 # deploy/observability/gnmic — gNMIc, the device metric collector's device client (FR-086, FR-089),
 # installed at TargetsReady through deploy/observability/device-metrics (AD-82 decision
 # 2026-09-21-state-source). Its configuration is the ConfigMap device-metrics-gnmic, rendered for
-# MGMT_CIDR by scripts/lib/device_metrics.sh. T129 completes this directory (TLS profile, gnmic-self).
+# MGMT_CIDR by scripts/lib/device_metrics.sh. T129 completes this directory: the TLS CA mount (the
+# monitoring copy of the credentials) and Service gnmic-self (its own /metrics). The image is the lock
+# file's compatibilitySet.gnmic.image.pinned, by digest (FR-089, CR-005; tests/unit/observability/).
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
   - deployment.yaml
+  - service.yaml
 images:
   - name: ghcr.io/openconfig/gnmic
     newTag: "0.47.0@sha256:fd59f5f1c7a98e14ff5b14f85329e5e0a4d49ef1d5b0dddfd910b6caef03b9fb"

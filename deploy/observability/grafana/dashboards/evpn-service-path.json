@@ -1,0 +1,878 @@
+{
+  "provenance": {
+    "source": "first-party",
+    "version": "1.0.0",
+    "task": "T132",
+    "note": "authored in this repository; every series is named by its logical name in deploy/observability/grafana/series.json, substituted by scripts/lib/grafana_assets.sh at install"
+  },
+  "uid": "agentic-netops-evpn-service-path",
+  "title": "EVPN service path",
+  "description": "T132 (FR-094, evidence/06-telemetry-visualization.md §8.2): for one mac-vrf / ip-vrf — the leaf-to-leaf tunnel path (each leaf carrying the instance and the remote VTEPs its VNI floods to, a VTEP resolved to its node through the node's system0 address), per-VTEP tunnel statistics, per-VNI MAC counts, the routed instance's route counts and the hit counters of the access lists bound to the service (acl-<service>-ingress / -egress, internal/model/names.go).",
+  "tags": [
+    "agentic-netops",
+    "evpn",
+    "service"
+  ],
+  "editable": false,
+  "graphTooltip": 1,
+  "schemaVersion": 41,
+  "version": 1,
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "refresh": "30s",
+  "timezone": "utc",
+  "annotations": {
+    "list": []
+  },
+  "links": [],
+  "templating": {
+    "list": [
+      {
+        "name": "service",
+        "label": "Service instance",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "query": {
+          "query": "label_values(@@series:network_instance_oper_state@@{network_instance_name=~\"(vlan|macvrf|ipvrf)-.+\"}, network_instance_name)",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery",
+          "qryType": 1
+        },
+        "definition": "label_values(@@series:network_instance_oper_state@@{network_instance_name=~\"(vlan|macvrf|ipvrf)-.+\"}, network_instance_name)",
+        "regex": "",
+        "refresh": 2,
+        "sort": 1,
+        "multi": false,
+        "includeAll": false,
+        "hide": 0,
+        "current": {},
+        "options": []
+      },
+      {
+        "name": "service_id",
+        "label": "Service id",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "query": {
+          "query": "label_values(@@series:network_instance_oper_state@@{network_instance_name=\"$service\"}, network_instance_name)",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery",
+          "qryType": 1
+        },
+        "definition": "label_values(@@series:network_instance_oper_state@@{network_instance_name=\"$service\"}, network_instance_name)",
+        "regex": "/^(?:vlan|macvrf|ipvrf)-(.+)$/",
+        "refresh": 2,
+        "sort": 1,
+        "multi": false,
+        "includeAll": false,
+        "hide": 2,
+        "current": {},
+        "options": []
+      },
+      {
+        "name": "vni",
+        "label": "VNI",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "query": {
+          "query": "label_values(@@series:network_instance_vxlan_interface_oper_state@@{network_instance_name=\"$service\"}, vxlan_interface_name)",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery",
+          "qryType": 1
+        },
+        "definition": "label_values(@@series:network_instance_vxlan_interface_oper_state@@{network_instance_name=\"$service\"}, vxlan_interface_name)",
+        "regex": "/^[^.]+\\.([0-9]+)$/",
+        "refresh": 2,
+        "sort": 1,
+        "multi": true,
+        "includeAll": true,
+        "hide": 0,
+        "current": {},
+        "options": [],
+        "allValue": null
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "row",
+      "title": "Tunnel path",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "panels": []
+    },
+    {
+      "type": "table",
+      "title": "Leaf-to-leaf tunnel path",
+      "description": "Per leaf (source) carrying $service: each remote VTEP it holds whose node (the owner of that system0 address) carries $service too — the leaf-to-leaf VXLAN tunnels the service can use.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "count by (source, peer, vtep_address) ((@@series:vxlan_vtep_index@@ * on (vtep_address) group_left (peer) max by (vtep_address, peer) (label_replace(label_replace(@@series:subif_ipv4_address_status@@{interface_name=\"system0\"}, \"vtep_address\", \"$1\", \"address_ip_prefix\", \"(.+)/32\"), \"peer\", \"$1\", \"source\", \"(.+)\"))) and on (source) @@series:bgp_evpn_instance_evi@@{network_instance_name=\"$service\"} and on (peer) label_replace(@@series:bgp_evpn_instance_evi@@{network_instance_name=\"$service\"}, \"peer\", \"$1\", \"source\", \"(.+)\"))",
+          "legendFormat": "__auto",
+          "range": false,
+          "instant": true,
+          "editorMode": "code",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      },
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "__name__": true,
+              "otel_scope_name": true,
+              "otel_scope_schema_url": true,
+              "otel_scope_version": true,
+              "subscription_name": true,
+              "job": true,
+              "instance": true
+            },
+            "renameByName": {
+              "source": "leaf",
+              "peer": "remote leaf",
+              "vtep_address": "remote VTEP",
+              "Value": "tunnels"
+            }
+          }
+        }
+      ],
+      "id": 2,
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 1
+      }
+    },
+    {
+      "type": "table",
+      "title": "Flood list per VNI (mac-vrf)",
+      "description": "A mac-vrf's BUM destinations per VNI (vxlan-interface index = VNI) and the node owning each destination VTEP; empty for an ip-vrf, which floods nothing.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "count by (source, peer, destination_vtep, destination_vni) (@@series:vxlan_multicast_destination@@{vxlan_interface_index=~\"$vni\"} * on (destination_vtep) group_left (peer) max by (destination_vtep, peer) (label_replace(label_replace(@@series:subif_ipv4_address_status@@{interface_name=\"system0\"}, \"destination_vtep\", \"$1\", \"address_ip_prefix\", \"(.+)/32\"), \"peer\", \"$1\", \"source\", \"(.+)\")))",
+          "legendFormat": "__auto",
+          "range": false,
+          "instant": true,
+          "editorMode": "code",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      },
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "__name__": true,
+              "otel_scope_name": true,
+              "otel_scope_schema_url": true,
+              "otel_scope_version": true,
+              "subscription_name": true,
+              "job": true,
+              "instance": true
+            },
+            "renameByName": {
+              "source": "leaf",
+              "peer": "remote leaf",
+              "destination_vtep": "remote VTEP",
+              "destination_vni": "VNI",
+              "Value": "destinations"
+            }
+          }
+        }
+      ],
+      "id": 3,
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 1
+      }
+    },
+    {
+      "type": "table",
+      "title": "Instance state per leaf",
+      "description": "Which leaves carry the instance: its operational state, its vxlan-interface state, its evi and the bgp-evpn instance state.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "max by (source) (@@series:network_instance_oper_state@@{network_instance_name=\"$service\"})",
+          "legendFormat": "__auto",
+          "range": false,
+          "instant": true,
+          "editorMode": "code",
+          "format": "table"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "max by (source) (@@series:network_instance_vxlan_interface_oper_state@@{network_instance_name=\"$service\"})",
+          "legendFormat": "__auto",
+          "range": false,
+          "instant": true,
+          "editorMode": "code",
+          "format": "table"
+        },
+        {
+          "refId": "C",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "max by (source) (@@series:bgp_evpn_instance_evi@@{network_instance_name=\"$service\"})",
+          "legendFormat": "__auto",
+          "range": false,
+          "instant": true,
+          "editorMode": "code",
+          "format": "table"
+        },
+        {
+          "refId": "D",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "max by (source) (@@series:bgp_evpn_instance_oper_state@@{network_instance_name=\"$service\"})",
+          "legendFormat": "__auto",
+          "range": false,
+          "instant": true,
+          "editorMode": "code",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      },
+      "transformations": [
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "__name__": true,
+              "otel_scope_name": true,
+              "otel_scope_schema_url": true,
+              "otel_scope_version": true,
+              "subscription_name": true,
+              "job": true,
+              "instance": true
+            },
+            "renameByName": {
+              "source": "leaf",
+              "Value #A": "instance",
+              "Value #B": "vxlan-interface",
+              "Value #C": "evi",
+              "Value #D": "bgp-evpn"
+            }
+          }
+        }
+      ],
+      "id": 4,
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 1
+      }
+    },
+    {
+      "type": "state-timeline",
+      "title": "Tunnel path over time",
+      "description": "Each leaf-to-leaf path of the service over time; a path that disappears is a lost remote VTEP.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "count by (source, peer, vtep_address) ((@@series:vxlan_vtep_index@@ * on (vtep_address) group_left (peer) max by (vtep_address, peer) (label_replace(label_replace(@@series:subif_ipv4_address_status@@{interface_name=\"system0\"}, \"vtep_address\", \"$1\", \"address_ip_prefix\", \"(.+)/32\"), \"peer\", \"$1\", \"source\", \"(.+)\"))) and on (source) @@series:bgp_evpn_instance_evi@@{network_instance_name=\"$service\"} and on (peer) label_replace(@@series:bgp_evpn_instance_evi@@{network_instance_name=\"$service\"}, \"peer\", \"$1\", \"source\", \"(.+)\"))",
+          "legendFormat": "{{source}} → {{peer}} ({{vtep_address}})",
+          "range": true,
+          "instant": false,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "1": {
+                  "text": "present",
+                  "color": "green",
+                  "index": 0
+                }
+              }
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "showValue": "never",
+        "mergeValues": true,
+        "rowHeight": 0.8,
+        "legend": {
+          "showLegend": false
+        },
+        "tooltip": {
+          "mode": "single"
+        }
+      },
+      "id": 5,
+      "gridPos": {
+        "h": 7,
+        "w": 24,
+        "x": 0,
+        "y": 9
+      }
+    },
+    {
+      "id": 6,
+      "type": "row",
+      "title": "Per-VTEP tunnel statistics",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 16
+      },
+      "panels": []
+    },
+    {
+      "type": "timeseries",
+      "title": "VTEP traffic (bits/s)",
+      "description": "Tunnel-endpoint counters of the VTEPs on this service's path (the tunnel endpoint carries the packet counters; a VTEP is shared by every service between the same two leaves).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "8 * rate(@@series:vxlan_vtep_out_octets@@[$__rate_interval]) and on (source, vtep_address) count by (source, peer, vtep_address) ((@@series:vxlan_vtep_index@@ * on (vtep_address) group_left (peer) max by (vtep_address, peer) (label_replace(label_replace(@@series:subif_ipv4_address_status@@{interface_name=\"system0\"}, \"vtep_address\", \"$1\", \"address_ip_prefix\", \"(.+)/32\"), \"peer\", \"$1\", \"source\", \"(.+)\"))) and on (source) @@series:bgp_evpn_instance_evi@@{network_instance_name=\"$service\"} and on (peer) label_replace(@@series:bgp_evpn_instance_evi@@{network_instance_name=\"$service\"}, \"peer\", \"$1\", \"source\", \"(.+)\"))",
+          "legendFormat": "{{source}} → {{vtep_address}} out",
+          "range": true,
+          "instant": false,
+          "editorMode": "code"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "8 * rate(@@series:vxlan_vtep_in_octets@@[$__rate_interval]) and on (source, vtep_address) count by (source, peer, vtep_address) ((@@series:vxlan_vtep_index@@ * on (vtep_address) group_left (peer) max by (vtep_address, peer) (label_replace(label_replace(@@series:subif_ipv4_address_status@@{interface_name=\"system0\"}, \"vtep_address\", \"$1\", \"address_ip_prefix\", \"(.+)/32\"), \"peer\", \"$1\", \"source\", \"(.+)\"))) and on (source) @@series:bgp_evpn_instance_evi@@{network_instance_name=\"$service\"} and on (peer) label_replace(@@series:bgp_evpn_instance_evi@@{network_instance_name=\"$service\"}, \"peer\", \"$1\", \"source\", \"(.+)\"))",
+          "legendFormat": "{{source}} ← {{vtep_address}} in",
+          "range": true,
+          "instant": false,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bps",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "id": 7,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 17
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "VTEP packets (packets/s)",
+      "description": "Packet rate per tunnel endpoint on the path.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "rate(@@series:vxlan_vtep_out_packets@@[$__rate_interval]) and on (source, vtep_address) count by (source, peer, vtep_address) ((@@series:vxlan_vtep_index@@ * on (vtep_address) group_left (peer) max by (vtep_address, peer) (label_replace(label_replace(@@series:subif_ipv4_address_status@@{interface_name=\"system0\"}, \"vtep_address\", \"$1\", \"address_ip_prefix\", \"(.+)/32\"), \"peer\", \"$1\", \"source\", \"(.+)\"))) and on (source) @@series:bgp_evpn_instance_evi@@{network_instance_name=\"$service\"} and on (peer) label_replace(@@series:bgp_evpn_instance_evi@@{network_instance_name=\"$service\"}, \"peer\", \"$1\", \"source\", \"(.+)\"))",
+          "legendFormat": "{{source}} → {{vtep_address}} out",
+          "range": true,
+          "instant": false,
+          "editorMode": "code"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "rate(@@series:vxlan_vtep_in_packets@@[$__rate_interval]) and on (source, vtep_address) count by (source, peer, vtep_address) ((@@series:vxlan_vtep_index@@ * on (vtep_address) group_left (peer) max by (vtep_address, peer) (label_replace(label_replace(@@series:subif_ipv4_address_status@@{interface_name=\"system0\"}, \"vtep_address\", \"$1\", \"address_ip_prefix\", \"(.+)/32\"), \"peer\", \"$1\", \"source\", \"(.+)\"))) and on (source) @@series:bgp_evpn_instance_evi@@{network_instance_name=\"$service\"} and on (peer) label_replace(@@series:bgp_evpn_instance_evi@@{network_instance_name=\"$service\"}, \"peer\", \"$1\", \"source\", \"(.+)\"))",
+          "legendFormat": "{{source}} ← {{vtep_address}} in",
+          "range": true,
+          "instant": false,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "pps",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "id": 8,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 17
+      }
+    },
+    {
+      "id": 9,
+      "type": "row",
+      "title": "MAC and route counts",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 25
+      },
+      "panels": []
+    },
+    {
+      "type": "timeseries",
+      "title": "MACs per VNI",
+      "description": "Active bridge-table entries of the mac-vrf (one VNI per mac-vrf), total and by MAC type (learnt, evpn, static, irb-interface…).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "@@series:bridge_table_active_entries@@{network_instance_name=\"$service\"}",
+          "legendFormat": "{{source}} $service total",
+          "range": true,
+          "instant": false,
+          "editorMode": "code"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "@@series:bridge_table_mac_type_active_entries@@{network_instance_name=\"$service\"}",
+          "legendFormat": "{{source}} $service {{mac_type_type}}",
+          "range": true,
+          "instant": false,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "id": 10,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 26
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Routes of the routed instance",
+      "description": "Active routes of ipvrf-$service_id (the service's own ip-vrf, or the one a gatewayed mac-vrf routes through): counted per route and as the route table's statistics.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "count by (source) (@@series:ipv4_route_active@@{network_instance_name=\"ipvrf-$service_id\"} == 1)",
+          "legendFormat": "{{source}} ipv4 active",
+          "range": true,
+          "instant": false,
+          "editorMode": "code"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "count by (source) (@@series:ipv6_route_active@@{network_instance_name=\"ipvrf-$service_id\"} == 1)",
+          "legendFormat": "{{source}} ipv6 active",
+          "range": true,
+          "instant": false,
+          "editorMode": "code"
+        },
+        {
+          "refId": "C",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "@@series:ipv4_active_routes@@{network_instance_name=\"ipvrf-$service_id\"}",
+          "legendFormat": "{{source}} ipv4 (statistics)",
+          "range": true,
+          "instant": false,
+          "editorMode": "code"
+        },
+        {
+          "refId": "D",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "@@series:ipv6_active_routes@@{network_instance_name=\"ipvrf-$service_id\"}",
+          "legendFormat": "{{source}} ipv6 (statistics)",
+          "range": true,
+          "instant": false,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "id": 11,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 26
+      }
+    },
+    {
+      "id": 12,
+      "type": "row",
+      "title": "Access lists bound to the service",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 34
+      },
+      "panels": []
+    },
+    {
+      "type": "table",
+      "title": "ACL entry hit counters",
+      "description": "Matched packets per filter entry of acl-$service_id-ingress / -egress (sequence 65535 is the default action).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "@@series:acl_matched_packets@@{acl_filter_name=~\"acl-$service_id-(ingress|egress)\"}",
+          "legendFormat": "__auto",
+          "range": false,
+          "instant": true,
+          "editorMode": "code",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      },
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "__name__": true,
+              "otel_scope_name": true,
+              "otel_scope_schema_url": true,
+              "otel_scope_version": true,
+              "subscription_name": true,
+              "job": true,
+              "instance": true
+            },
+            "renameByName": {
+              "source": "leaf",
+              "acl_filter_name": "filter",
+              "acl_filter_type": "type",
+              "entry_sequence_id": "entry",
+              "Value": "matched packets"
+            }
+          }
+        }
+      ],
+      "id": 13,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 35
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "ACL entry hits (packets/s)",
+      "description": "Hit rate per filter entry.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "rate(@@series:acl_matched_packets@@{acl_filter_name=~\"acl-$service_id-(ingress|egress)\"}[$__rate_interval])",
+          "legendFormat": "{{source}} {{acl_filter_name}} {{acl_filter_type}} #{{entry_sequence_id}}",
+          "range": true,
+          "instant": false,
+          "editorMode": "code"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "pps",
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 1,
+            "fillOpacity": 10,
+            "showPoints": "never",
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ]
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "id": 14,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 35
+      }
+    }
+  ]
+}

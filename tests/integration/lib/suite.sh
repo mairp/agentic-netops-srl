@@ -257,6 +257,11 @@ YAML
 }
 
 suite::finish() {
+  # the declared faults of this run (T043's convention) are evidence: record them, so the file is
+  # referenced by a run-captured record and verify-evidence admits it (NFR-013)
+  if [[ -f "$EVIDENCE_DIR/declared-faults.json" ]]; then
+    evidence_run "$(gate::id "$1.declared-faults")" --attach declared-faults.json -- cat "$EVIDENCE_DIR/declared-faults.json" >/dev/null || true
+  fi
   if [[ ${#SUITE_FAILS[@]} -gt 0 ]]; then
     log::error "$1 FAILED: ${SUITE_FAILS[*]} (evidence: $EVIDENCE_DIR)"; return 1
   fi

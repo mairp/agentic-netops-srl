@@ -1,0 +1,81 @@
+# Prometheus, the metrics store (T130; FR-087, FR-089, SC-035, SC-037; data-model.md §21). One
+# replica, TSDB on an emptyDir with a two-day retention (a lab store: the evidence of a run is the
+# acceptance run's own capture, never this TSDB). `--web.enable-lifecycle` so that a changed
+# configuration or rule set is loaded by `POST /-/reload` (T134 applies the rules after its re-check).
+#
+# Configuration: ConfigMap prometheus-config (prometheus.yml, this directory's kustomization).
+# Rules: ConfigMap prometheus-rules, mounted at /etc/prometheus/rules and marked optional — it is NOT
+# part of `kubectl apply -k deploy/observability/prometheus`; it is produced by
+# deploy/observability/prometheus/rules (its own kustomization) and applied by the ObservabilityReady
+# phase only after it has re-checked the rules' series names against the live pipeline (T134, AD-55).
+# Until then Prometheus runs with no rule loaded (rule_files matches nothing).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus
+  namespace: monitoring
+  labels: {app.kubernetes.io/name: prometheus, app.kubernetes.io/part-of: agentic-netops}
+spec:
+  replicas: 1
+  strategy: {type: Recreate}   # one writer of the TSDB directory
+  selector:
+    matchLabels: {app.kubernetes.io/name: prometheus}
+  template:
+    metadata:
+      labels: {app.kubernetes.io/name: prometheus, app.kubernetes.io/part-of: agentic-netops}
+    spec:
+      serviceAccountName: prometheus
+      automountServiceAccountToken: true   # the `sdc` job's bearer token (rbac.yaml)
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        fsGroup: 65534
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+      - name: prometheus
+        image: quay.io/prometheus/prometheus
+        imagePullPolicy: IfNotPresent
+        args:
+        - --config.file=/etc/prometheus/config/prometheus.yml
+        - --storage.tsdb.path=/prometheus
+        - --storage.tsdb.retention.time=2d
+        - --web.enable-lifecycle
+        - --web.listen-address=:9090
+        ports:
+        - {name: web, containerPort: 9090}
+        readinessProbe: {httpGet: {path: /-/ready, port: web}, periodSeconds: 5}
+        livenessProbe: {httpGet: {path: /-/healthy, port: web}, periodSeconds: 20, failureThreshold: 6}
+        resources:
+          requests: {cpu: 100m, memory: 256Mi}
+          limits: {cpu: "1", memory: 1Gi}
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities: {drop: [ALL]}
+        volumeMounts:
+        - {name: config, mountPath: /etc/prometheus/config, readOnly: true}   # a directory, never a subPath: a subPath mount never sees a ConfigMap update
+        - {name: rules, mountPath: /etc/prometheus/rules, readOnly: true}
+        - {name: data, mountPath: /prometheus}
+      volumes:
+      - {name: config, configMap: {name: prometheus-config}}
+      - name: rules
+        # one directory, two sources: the alert rules (prometheus-rules, applied by ObservabilityReady
+        # only after the re-check) and T131's generated topology recording rules
+        # (prometheus-topology-rules, topology.yaml) — both optional, so Prometheus starts without either
+        projected:
+          sources:
+          - configMap: {name: prometheus-rules, optional: true}
+          - configMap: {name: prometheus-topology-rules, optional: true}
+      - {name: data, emptyDir: {sizeLimit: 2Gi}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus
+  namespace: monitoring
+  labels: {app.kubernetes.io/name: prometheus, app.kubernetes.io/part-of: agentic-netops}
+spec:
+  selector: {app.kubernetes.io/name: prometheus}
+  ports:
+  - {name: web, port: 9090, targetPort: web}

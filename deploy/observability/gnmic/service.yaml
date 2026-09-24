@@ -1,0 +1,16 @@
+# gnmic-self — gNMIc's own /metrics (T129; data-model.md §21: "gNMIc's own /metrics endpoint is
+# scraped as gnmic-self so that every pipeline stage has evidence rather than only its endpoints").
+# The api-server (:7890, enable-metrics) is configured in the rendered gNMIc configuration
+# (scripts/lib/device_metrics.sh); Prometheus scrapes this Service as job `gnmic-self`
+# (deploy/observability/prometheus, T130), which the DeviceTelemetryTargetDown,
+# DeviceSubscriptionStalled, OtlpExportFailing and OtlpDataPointsRejected rules read.
+apiVersion: v1
+kind: Service
+metadata:
+  name: gnmic-self
+  namespace: monitoring
+  labels: {app.kubernetes.io/name: device-metrics-gnmic, app.kubernetes.io/part-of: agentic-netops}
+spec:
+  selector: {app.kubernetes.io/name: device-metrics-gnmic}
+  ports:
+  - {name: metrics, port: 7890, targetPort: metrics}

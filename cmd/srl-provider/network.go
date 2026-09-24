@@ -12,6 +12,7 @@ import (
 	"errors"
 	"math/rand/v2"
 
+	"github.com/go-logr/logr"
 	"k8s.io/utils/clock"
 	ctrl "sigs.k8s.io/controller-runtime"
 
@@ -42,7 +43,7 @@ func setupNetwork(mgr ctrl.Manager, deps providerDeps) error {
 			Configs: deps.SDC,
 			Timeout: deps.Settings.VerifyTimeout,
 		},
-		Telemetry: telemetry.UnwiredHealth{},
+		Telemetry: deps.telemetryHealth(),
 		Compat:    deps.Compat,
 		Recorder:  mgr.GetEventRecorderFor(telemetry.Component), //nolint:staticcheck // record.EventRecorder is what internal/status takes
 		Clock:     clock.RealClock{},
@@ -55,6 +56,15 @@ func setupNetwork(mgr ctrl.Manager, deps providerDeps) error {
 		r.Reachability = cr
 	}
 	return r.SetupWithManager(mgr)
+}
+
+// telemetryHealth is the telemetry-health input (T133): the provider's OTLP export health, or —
+// only where no health was built (a test's deps) — one reporting no export configured.
+func (d providerDeps) telemetryHealth() network.TelemetryHealth {
+	if d.Health == nil {
+		return telemetry.NewExportHealth("", logr.Discard())
+	}
+	return d.Health
 }
 
 // srlServiceRenderer adapts internal/render/srl's service entry point to the Network
