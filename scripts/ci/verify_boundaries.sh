@@ -23,6 +23,8 @@
 #   device-client      FR-108/SC-049: gnmic, gnmi_cli, sr_cli, sshpass, ssh to a
 #                      management address (clab-*, an IPv4 literal, *mgmt*), or
 #                      `docker exec … clab-…` invoked from any file outside tests/,
+#                      the Python tier's own test tree agents/tests/ (its refusal
+#                      fixtures quote the device-action requests the guards refuse),
 #                      testautomation/ and quoted command blocks of Markdown under
 #                      docs/ and specs/ (Markdown elsewhere: its fenced blocks are
 #                      scanned; comment lines are not invocations). The device metric
@@ -270,7 +272,7 @@ GO_EXEC = re.compile(r"exec\.Command(?:Context)?\([^)]*\"(gnmic|gnmi_cli|sr_cli|
 PY_EXEC = re.compile(r"(subprocess\.\w+|os\.system|Popen)\(.*[\[\(,]\s*['\"](gnmic|gnmi_cli|sr_cli|sshpass|ssh)(['\"]|\s)")
 YAML_CMD = re.compile(r"^\s*(?:-\s*)?(?:(?:command|args)\s*:\s*)?\[?\s*['\"]?(gnmic|gnmi_cli|sr_cli|sshpass)['\"]?\s*(?:,|\]|$)")
 def exempt_client(rel):
-    return (rel.startswith(("tests/", "testautomation/", "deploy/observability/gnmic/"))
+    return (rel.startswith(("tests/", "agents/tests/", "testautomation/", "deploy/observability/gnmic/"))
             or ((rel.startswith(("docs/", "specs/"))) and is_md(rel)))
 scanned = 0
 for rel in files:

@@ -15,6 +15,8 @@
 #   * the audit-record hook: store absent → no-op; store present and export failing → stops with
 #     nothing deleted; --discard-audit-record → proceeds, printed and recorded
 #   * --purge-intent-tier is reserved (exit 2, nothing touched)
+#   * the intent tier's generated Secrets (T072) are removed before the cluster, operator-credentials
+#     only after its username (never its password) is captured through evidence_run
 #   * the first-party allocation authority's namespace agentic-netops-allocation: owned → removed
 #     after the Secrets and before the cluster, a second run a no-op; present but unowned (or owned
 #     by another cluster) → the whole teardown refused with nothing deleted; absent → not touched
@@ -245,11 +247,42 @@ check "purge: nothing was called at all" '[[ -z "$(calls)" ]]'
 run_off --bogus
 check "usage: an unknown flag → exit 2" '[[ $rc -eq 2 ]]'
 
+# ------------------------------------------------------------------ the intent tier's generated Secrets
+# (T072; FR-102, data-model.md §22): removed with the other generated Secrets, before the cluster;
+# operator-credentials only after its username — never its password — is in the run's evidence
+OPW='Gen3rated-operator-password-xyz0'
+plant_tier_secrets() { # <owner of operator-credentials>
+  fakes::k8s "$CL" _ namespace agentic-netops-agents "$CL"
+  fakes::k8s "$CL" agentic-netops-agents secret operator-credentials "$1" \
+    "$(jq -cn --arg u "$(printf operator | base64)" --arg p "$(printf '%s' "$OPW" | base64)" '{data: {username: $u, password: $p}}')"
+  fakes::k8s "$CL" agentic-netops-agents secret llm-provider "$CL"
+  fakes::k8s "$CL" agentic-netops-agents secret slim-gateway "$CL"
+  fakes::k8s "$CL" agentic-netops-agents secret clickhouse-auth "$CL"
+}
+setup tier-secrets
+plant_tier_secrets "$CL"
+run_off
+check "tier secrets: exits 0" '[[ $rc -eq 0 ]]'
+check "tier secrets: operator-credentials, llm-provider, slim-gateway, clickhouse-auth deleted before the cluster" \
+  '( for s in operator-credentials llm-provider slim-gateway clickhouse-auth; do calls | grep -q "kubectl .*delete secret $s -n agentic-netops-agents" || exit 1; done ) && [[ "$(deleting_calls | grep -n "delete secret operator-credentials" | cut -d: -f1)" -lt "$(deleting_calls | grep -n "^kind delete" | cut -d: -f1)" ]]'
+UF="$(find "$EVIDENCE_ROOT" -name teardown-operator-username.stdout | head -1)"
+check "tier secrets: the operator username was captured into evidence first" '[[ -n "$UF" ]] && grep -qx "username: operator" "$UF"'
+check "tier secrets: the password is nowhere in the evidence" '! grep -rqF "$OPW" "$EVIDENCE_ROOT"'
+check "tier secrets: …nor in the output" '! grep -qF "$OPW" <<<"$out"'
+run_off
+check "tier secrets, second run: success no-op" '[[ $rc -eq 0 && -z "$(deleting_calls)" ]]'
+
+setup tier-secrets-foreign
+plant_tier_secrets -
+run_off
+check "tier secrets: an unowned operator-credentials is refused and kept" \
+  '[[ $rc -ne 0 && -f "$FAKE_STATE/k8s/$CL/agentic-netops-agents/secret/operator-credentials.json" ]]'
+
 # ------------------------------------------------------------------ static: no image removal anywhere
 check "static: off.sh and its libraries contain no image-removal command" \
   '! grep -nE "docker[\"}]*[[:space:]]+(rmi|image[[:space:]]+(rm|remove|prune)|system[[:space:]]+prune)|_docker[[:space:]]+(rmi|image[[:space:]]+(rm|prune))" \
-     "$ROOT/scripts/off.sh" "$ROOT"/scripts/lib/{docker_net,kind,containerlab,lab_secrets}.sh'
-check "static: off.sh never names .evidence in a removal" '! grep -nE "rm .*(\.evidence|EVIDENCE_(ROOT|DIR))" "$ROOT/scripts/off.sh" "$ROOT"/scripts/lib/{docker_net,kind,containerlab,lab_secrets}.sh'
+     "$ROOT/scripts/off.sh" "$ROOT"/scripts/lib/{docker_net,kind,containerlab,lab_secrets,intent_secrets}.sh'
+check "static: off.sh never names .evidence in a removal" '! grep -nE "rm .*(\.evidence|EVIDENCE_(ROOT|DIR))" "$ROOT/scripts/off.sh" "$ROOT"/scripts/lib/{docker_net,kind,containerlab,lab_secrets,intent_secrets}.sh'
 
 printf '\noff_ownership_test: %d passed, %d failed\n' "$pass" "$fail"
 [[ "$fail" -eq 0 ]]

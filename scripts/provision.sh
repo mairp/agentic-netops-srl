@@ -42,8 +42,15 @@
 #   FabricReady    examples/fabric/ applied — its pool references rewritten to the selected
 #                  authority's group/kind/namespace (gate::authority_pool_ref; names unchanged,
 #                  the example files untouched); every Fabric in it reports Ready
-#   IntentTierReady  (--with-intent-tier) not built yet: the run FAILS naming it — it is never
-#                  silently skipped
+#   IntentTierReady  (--with-intent-tier) its boundary step first (scripts/lib/rbac.sh boundary,
+#                  T073): the safety boundary applied — the tier's namespaces, ServiceAccounts,
+#                  intent-writer, the claim Role the lock file's authority selects, the four
+#                  NetworkPolicies templated from the real management subnet, the admission policy
+#                  deny-tier-force-release, the tier's Secrets — then the denial probes
+#                  (tests/integration/boundary_probes.sh, T066) BEFORE any agent workload exists;
+#                  any denial not observed aborts the phase non-zero. The rest of the tier (its
+#                  workloads, T088, User Story 7) is not built yet: after the boundary step passes
+#                  the run still FAILS naming what is not installed — it is never silently skipped
 #
 # Flags / environment:
 #   --cluster-name <name>   (env CLUSTER_NAME, default agentic-netops; context kind-<name>)
@@ -514,10 +521,23 @@ provision::phase_FabricReady() {
   done
 }
 
+# provision::boundary_step — IntentTierReady's first step (T073): apply the safety boundary and
+# prove it with the denial probes before any agent workload is created (scripts/lib/rbac.sh).
+provision::boundary_step() {
+  # shellcheck source=lib/rbac.sh
+  source "$PROVISION_LIB/rbac.sh"
+  rbac::boundary
+}
+
 provision::phase_IntentTierReady() {
   log::phase IntentTierReady
-  log::error "--with-intent-tier: the IntentTierReady phase is not implemented yet (it arrives with the intent-tier story);" \
-    "the lab is provisioned through FabricReady, but the intent tier you asked for was NOT installed"
+  if ! provision::boundary_step; then
+    log::error "--with-intent-tier: the boundary step failed — no agent workload was created; the intent tier was NOT installed"
+    return 1
+  fi
+  log::error "--with-intent-tier: the safety boundary is applied and proven, but the rest of IntentTierReady — the tier's" \
+    "workloads (the store and collector, slim, the agents and the UI; T088, User Story 7) — is not built yet;" \
+    "the intent tier you asked for was NOT installed"
   return 1
 }
 

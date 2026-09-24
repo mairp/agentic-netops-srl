@@ -47,6 +47,7 @@ TARGETS := \
 	show-rendered-config \
 	test-traffic \
 	test-reverify \
+	test-boundary \
 	test-envtest \
 	test-agents \
 	test-ui \
@@ -169,6 +170,9 @@ test-traffic: ## T065: cross-leaf L2, intra-ip-vrf L3, isolation, MTU boundary; 
 # --- Scheduled re-verification and offline suites (FR-107, FR-020)
 test-reverify: ## T167: scheduled re-verification, maintenance and cannot-run halves (SC-044)
 	bash tests/integration/reverify.sh run
+
+test-boundary: ## T066/T073/T076: the intent tier's denial probes on the lab, no agent deployed (SC-028, SC-029); boundary applied first
+	bash scripts/lib/rbac.sh boundary
 
 test-envtest: ## T025: setup-envtest at the go.mod pin, then go test -tags envtest ./tests/envtest/...
 	scripts/ci/test_envtest.sh

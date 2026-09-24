@@ -1,0 +1,68 @@
+# deny-tier-force-release (T071; FR-103, CD-02, research §Open items 12;
+# contracts/kubernetes-objects.md §"Object inventory" — cluster-scoped, installed with the safety
+# boundary at P1).
+#
+# RBAC cannot tell one annotation from another; admission can. This policy denies any CREATE or
+# UPDATE of networks.fabric.agentic-netops.io, by either of the tier's two API identities, whose
+# object sets, changes or removes the annotation fabric.agentic-netops.io/force-release:
+#   CREATE  (oldObject is null)  the new object must not carry the annotation
+#   UPDATE                       present in both with the same value, or absent from both
+# An object with no annotations at all is handled (has() before any index). Every other user —
+# the operator's cluster tooling, the provider — is not matched (matchConditions), so the
+# break-glass stays the operator's.
+#
+# That the policy API is served at the pinned Kubernetes minor (v1.32.2, admissionregistration.k8s.io/v1,
+# GA from 1.30) was qualified at P0 by T166 (tests/gate/vap_served.sh:
+# force_release_denial_mechanism "ValidatingAdmissionPolicy"), so no provider-webhook fallback ships.
+# It is a tier artefact although it is cluster-scoped: it names the tier's identities and nothing
+# else, so the tier's removal removes it by name with them (NFR-006, AD-35).
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: deny-tier-force-release
+  labels:
+    app.kubernetes.io/part-of: agentic-netops-intent-tier
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+    - apiGroups: [fabric.agentic-netops.io]
+      apiVersions: ["*"]
+      operations: [CREATE, UPDATE]
+      resources: [networks]
+  matchConditions:
+  - name: tier-identity
+    expression: >-
+      request.userInfo.username in [
+      'system:serviceaccount:agentic-netops-agents:intent-deployer',
+      'system:serviceaccount:agentic-netops-agents:intent-allocator']
+  variables:
+  - name: key
+    expression: "'fabric.agentic-netops.io/force-release'"
+  - name: inNew
+    expression: >-
+      has(object.metadata.annotations) && variables.key in object.metadata.annotations
+  - name: inOld
+    expression: >-
+      oldObject != null && has(oldObject.metadata.annotations) &&
+      variables.key in oldObject.metadata.annotations
+  validations:
+  - expression: >-
+      variables.inNew == variables.inOld &&
+      (!variables.inNew ||
+      object.metadata.annotations[variables.key] == oldObject.metadata.annotations[variables.key])
+    messageExpression: >-
+      'the intent tier identity ' + request.userInfo.username +
+      ' may not set, change or remove the annotation fabric.agentic-netops.io/force-release' +
+      ' (FR-103: the force-release break-glass is reserved to the operator)'
+    reason: Forbidden
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: deny-tier-force-release
+  labels:
+    app.kubernetes.io/part-of: agentic-netops-intent-tier
+spec:
+  policyName: deny-tier-force-release
+  validationActions: [Deny]

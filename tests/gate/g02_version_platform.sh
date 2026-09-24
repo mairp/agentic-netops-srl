@@ -8,7 +8,13 @@
 #
 # The observed file carries no timestamp or run id. As corroboration the listening sockets of the
 # node's management namespace (srbase-mgmt) are listed too (docker exec, a device client allowed
-# here under tests/); a node where that listing is unavailable says so.
+# here under tests/); a node where that listing is unavailable says so. Each socket is recorded with
+# its bind address and scope — `loopback` (127.0.0.0/8, ::1: reachable only from inside the node),
+# `any` (0.0.0.0, ::, *) or `specific` — because a loopback-only listener is not a door on the
+# management network while every other one is (live-findings 2026-09-24-loopback-listeners). The
+# union over every device of the listeners NOT bound to loopback is `network_listeners`, the set
+# T066's boundary probe reconciles against the contract's port list; the loopback-only ones are
+# `loopback_listeners`, recorded and never a probe target.
 GATE_HERE="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then exec bash "$GATE_HERE/run_gate.sh" --only G2 "$@"; fi
 # shellcheck source=lib/gate.sh
@@ -51,12 +57,51 @@ g02::ports() {
     | sort_by(.service, .instance, .network_instance // "")' <<<"$j"
 }
 
+# g02::parse_listeners — `ss -Hltun` text on stdin → a JSON array of
+# {transport, port, address, scope}, sorted and unique. The local address column ($5) is
+# `<addr>:<port>`, `[<v6>]:<port>` or `*:<port>`, the address optionally carrying `%<interface>`.
+# scope: loopback (127.0.0.0/8, ::1, ::ffff:127.x), any (*, 0.0.0.0, ::), specific (anything else).
+g02::parse_listeners() {
+  awk 'NF >= 5 { print $1 "\t" $5 }' | jq -R -s -c '
+    split("\n") | map(select(length > 0) | split("\t")
+      | .[0] as $t | .[1] as $local
+      | ($local | capture("^(?<a>.*):(?<p>[0-9]+|\\*)$")) as $m
+      | ($m.a | ltrimstr("[") | rtrimstr("]") | sub("%.*$"; "")) as $addr
+      | {transport: $t, port: ($m.p | tonumber? // $m.p), address: $addr,
+         scope: (if ($addr | test("^(127\\.|::1$|::ffff:127\\.)")) then "loopback"
+                 elif ($addr | IN("*", "0.0.0.0", "::", "")) then "any"
+                 else "specific" end)})
+    | unique | sort_by(.transport, .port, .address)'
+}
+
 g02::listeners() {
   local node="$1" out
   out="$(gate::run "G02.listeners.${node}" -- lab::docker exec "$(lab::container "$node")" \
     ip netns exec srbase-mgmt ss -Hltun 2>/dev/null)" || { echo '"unavailable"'; return 0; }
-  awk '{print $1" "$5}' <<<"$out" | sed -E 's/ .*[:.]([0-9]+)$/ \1/' | sort -u | \
-    jq -R -s -c 'split("\n") | map(select(length > 0) | split(" ") | {transport: .[0], port: (.[1] | tonumber? // .[1])}) | unique'
+  g02::parse_listeners <<<"$out"
+}
+
+# g02::observation <image-release> <nodes-json> — the tracked observation (mgmt-ports.json).
+#   listening           the management services read from state that are enabled or up, by port
+#   network_listeners   every socket of the management namespace NOT bound to loopback, over every
+#                       device — what the boundary probe (T066) reconciles against the contract
+#   loopback_listeners  the loopback-only sockets: recorded, unreachable from the network
+#   listeners_unavailable  the devices whose socket listing could not be read (reconciliation
+#                       refuses an observation with any)
+g02::observation() {
+  jq -n --arg v "$1" --argjson n "$2" '
+    def socks: [$n[] | .mgmt_namespace_listeners | select(type == "array") | .[]];
+    {schema: "agentic-netops.gate.mgmt-ports/v1", image_release: $v,
+     source: "gNMI Get --type state of /system/{grpc-server,json-rpc-server,ssh-server,netconf-server,snmp} on every device, and ss -Hltun in each device'"'"'s srbase-mgmt namespace (G2)",
+     nodes: $n,
+     listening: ([$n[] | .services[] | select((.admin_state == "enable" or .oper_state == "up") and .port != null)
+                  | {transport, port, service}] | group_by([.transport, .port])
+                 | map({transport: .[0].transport, port: .[0].port, services: (map(.service) | unique)})),
+     network_listeners: ([socks[] | select(.scope != "loopback")] | group_by([.transport, .port])
+                 | map({transport: .[0].transport, port: .[0].port, addresses: (map(.address) | unique)})),
+     loopback_listeners: ([socks[] | select(.scope == "loopback")] | group_by([.transport, .port])
+                 | map({transport: .[0].transport, port: .[0].port, addresses: (map(.address) | unique)})),
+     listeners_unavailable: ([$n | to_entries[] | select(.value.mgmt_namespace_listeners | type != "array") | .key] | sort)}'
 }
 
 g02::run() {
@@ -74,14 +119,10 @@ g02::run() {
     gate::item_check "mgmt-ports:${node}" "$rc" "$node management services read from state ($(jq -r 'map("\(.service)/\(.port)") | join(" ")' <<<"$svc"))" ""
   done
   local obs
-  obs="$(jq -n --arg v "$GATE_PINNED_VERSION" --argjson n "$nodes" '
-    {schema: "agentic-netops.gate.mgmt-ports/v1", image_release: $v,
-     source: "gNMI Get --type state of /system/{grpc-server,json-rpc-server,ssh-server,netconf-server,snmp} on every device (G2)",
-     nodes: $n,
-     listening: ([$n[] | .services[] | select(.admin_state == "enable" and .port != null)
-                  | {transport, port, service}] | group_by([.transport, .port])
-                 | map({transport: .[0].transport, port: .[0].port, services: (map(.service) | unique)}))}')"
+  obs="$(g02::observation "$GATE_PINNED_VERSION" "$nodes")"
   gate::observed mgmt-ports.json "$obs" || gate::item_check "observed-file" 1 "mgmt-ports.json refused"
   gate::item_observe listening "$(jq -c .listening <<<"$obs")"
+  gate::item_observe network_listeners "$(jq -c .network_listeners <<<"$obs")"
+  gate::item_observe loopback_listeners "$(jq -c .loopback_listeners <<<"$obs")"
   gate::item_end
 }

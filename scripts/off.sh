@@ -17,7 +17,10 @@
 # Order (data-model.md §2): ownership plan (read-only; any present-but-unowned target refuses the
 # whole run with nothing deleted) → optional evidence capture → audit-record export, whenever the
 # analytics store exists, requested or not, before anything deletes it (a failed export stops here
-# with the store intact unless --discard-audit-record) → containerlab lab → generated Secrets →
+# with the store intact unless --discard-audit-record) → containerlab lab → generated Secrets (the
+# lab's, then the intent tier's: llm-provider, operator-credentials — its `username`, never the
+# `password`, captured through evidence_run first, and a failed capture stops the teardown with the
+# Secret intact (FR-102, data-model.md §22) — slim-gateway, clickhouse-auth) →
 # the first-party allocation authority's namespace agentic-netops-allocation (when present; its
 # ownership label checked in the plan) → Kind cluster → owned Docker management network. No
 # --remove-services is needed or asked for: the cluster goes, and every Network with it (AD-35).
@@ -47,6 +50,8 @@ source "$OFF_ROOT/scripts/lib/kind.sh"
 source "$OFF_ROOT/scripts/lib/containerlab.sh"
 # shellcheck source=lib/lab_secrets.sh
 source "$OFF_ROOT/scripts/lib/lab_secrets.sh"
+# shellcheck source=lib/intent_secrets.sh
+source "$OFF_ROOT/scripts/lib/intent_secrets.sh"
 # The audit-record export arrives with T088 (scripts/lib/intent_tier.sh); sourced when present.
 if [[ -f "$OFF_ROOT/scripts/lib/intent_tier.sh" ]]; then
   # shellcheck source=/dev/null
@@ -205,6 +210,22 @@ off::export_audit_record() {
   return 1
 }
 
+# off::capture_operator_username — data-model.md §22: operator-credentials is removed only AFTER
+# its username (never its password) is in the run's evidence, so SC-042 stays reconcilable once the
+# Secret is gone. Absent Secret → nothing to capture. (The usernames record beside the audit export
+# is T088's; this capture is what off.sh itself guarantees before its own removal.)
+off::capture_operator_username() {
+  intent_secrets::_exists "$INTENT_SECRETS_OPERATOR" || return 0
+  local rc=0
+  evidence_run teardown-operator-username -- intent_secrets::username >/dev/null 2>&1 || rc=$?
+  if [[ "$rc" -ne 0 ]]; then
+    log::error "off.sh: capturing the operator username into evidence failed (exit $rc):" \
+      "${INTENT_SECRETS_NS}/${INTENT_SECRETS_OPERATOR} is not removed un-captured (FR-102, data-model.md §22)"
+    return 1
+  fi
+  log::info "evidence: captured the operator username (never the password) before removing ${INTENT_SECRETS_OPERATOR}"
+}
+
 # ------------------------------------------------------------------ run
 main() {
   off::plan || exit 1
@@ -217,6 +238,8 @@ main() {
   log::phase TeardownSecrets
   if [[ "$HAVE_CLUSTER" == true ]]; then
     lab_secrets::remove || { log::error "off.sh: removing the generated Secrets failed"; exit 1; }
+    off::capture_operator_username || exit 1
+    intent_secrets::remove || { log::error "off.sh: removing the intent tier's generated Secrets failed"; exit 1; }
   else
     log::info "no cluster: no generated Secrets to remove"
   fi

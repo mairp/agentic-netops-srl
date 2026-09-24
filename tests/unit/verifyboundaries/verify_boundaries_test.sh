@@ -67,6 +67,8 @@ expect "$VB" "$FB/engine-image-and-lock" 1 "orchestration: an engine image in a 
 expect "$VB" "$FB/device-client-scripts-lib" 1 "device client: gnmic under scripts/lib/ fails naming that file" \
   "FAIL [device-client] scripts/lib/labready.sh:3:"
 expect "$VB" "$FB/device-client-under-tests" 0 "device client: the same gnmic line under tests/ and in a docs/ fenced block passes"
+expect "$VB" "$FB/device-client-agents-tests" 1 "device client: a refusal fixture under agents/tests/ passes, the tier library invoking gnmic fails" \
+  "FAIL [device-client] agents/common/push.py:5:"
 expect "$VB" "$FB/device-client-ssh-docker" 1 "device client: docker exec clab-… sr_cli and sshpass/ssh to a mgmt address fail" \
   "FAIL [device-client] hack/debug.sh:2:" "FAIL [device-client] hack/debug.sh:3:"
 expect "$VB" "$FB/device-client-readme-fence" 1 "device client: a fenced command block outside docs/ and specs/ fails" \

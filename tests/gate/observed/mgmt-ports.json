@@ -1,52 +1,227 @@
 {
   "image_release": "25.7.1",
-  "listening": [],
+  "listeners_unavailable": [],
+  "listening": [
+    {
+      "port": 22,
+      "services": [
+        "ssh"
+      ],
+      "transport": "tcp"
+    },
+    {
+      "port": 80,
+      "services": [
+        "json-rpc-http"
+      ],
+      "transport": "tcp"
+    },
+    {
+      "port": 443,
+      "services": [
+        "json-rpc-https"
+      ],
+      "transport": "tcp"
+    },
+    {
+      "port": 57400,
+      "services": [
+        "grpc"
+      ],
+      "transport": "tcp"
+    },
+    {
+      "port": 161,
+      "services": [
+        "snmp"
+      ],
+      "transport": "udp"
+    }
+  ],
+  "loopback_listeners": [
+    {
+      "addresses": [
+        "127.0.0.1",
+        "::1"
+      ],
+      "port": 53,
+      "transport": "tcp"
+    },
+    {
+      "addresses": [
+        "127.0.0.1"
+      ],
+      "port": 199,
+      "transport": "tcp"
+    },
+    {
+      "addresses": [
+        "127.0.0.1",
+        "::1"
+      ],
+      "port": 53,
+      "transport": "udp"
+    }
+  ],
+  "network_listeners": [
+    {
+      "addresses": [
+        "0.0.0.0",
+        "::"
+      ],
+      "port": 22,
+      "transport": "tcp"
+    },
+    {
+      "addresses": [
+        "*"
+      ],
+      "port": 80,
+      "transport": "tcp"
+    },
+    {
+      "addresses": [
+        "*"
+      ],
+      "port": 443,
+      "transport": "tcp"
+    },
+    {
+      "addresses": [
+        "0.0.0.0",
+        "::"
+      ],
+      "port": 830,
+      "transport": "tcp"
+    },
+    {
+      "addresses": [
+        "*"
+      ],
+      "port": 50052,
+      "transport": "tcp"
+    },
+    {
+      "addresses": [
+        "*"
+      ],
+      "port": 57400,
+      "transport": "tcp"
+    },
+    {
+      "addresses": [
+        "*"
+      ],
+      "port": 57401,
+      "transport": "tcp"
+    },
+    {
+      "addresses": [
+        "0.0.0.0",
+        "::"
+      ],
+      "port": 161,
+      "transport": "udp"
+    }
+  ],
   "nodes": {
     "leaf01": {
       "mgmt_namespace_listeners": [
         {
+          "address": "0.0.0.0",
           "port": 22,
+          "scope": "any",
           "transport": "tcp"
         },
         {
-          "port": 53,
+          "address": "::",
+          "port": 22,
+          "scope": "any",
           "transport": "tcp"
         },
         {
+          "address": "127.0.0.1",
           "port": 53,
-          "transport": "udp"
+          "scope": "loopback",
+          "transport": "tcp"
         },
         {
+          "address": "::1",
+          "port": 53,
+          "scope": "loopback",
+          "transport": "tcp"
+        },
+        {
+          "address": "*",
           "port": 80,
+          "scope": "any",
           "transport": "tcp"
         },
         {
-          "port": 161,
+          "address": "127.0.0.1",
+          "port": 199,
+          "scope": "loopback",
+          "transport": "tcp"
+        },
+        {
+          "address": "*",
+          "port": 443,
+          "scope": "any",
+          "transport": "tcp"
+        },
+        {
+          "address": "0.0.0.0",
+          "port": 830,
+          "scope": "any",
+          "transport": "tcp"
+        },
+        {
+          "address": "::",
+          "port": 830,
+          "scope": "any",
+          "transport": "tcp"
+        },
+        {
+          "address": "*",
+          "port": 50052,
+          "scope": "any",
+          "transport": "tcp"
+        },
+        {
+          "address": "*",
+          "port": 57400,
+          "scope": "any",
+          "transport": "tcp"
+        },
+        {
+          "address": "*",
+          "port": 57401,
+          "scope": "any",
+          "transport": "tcp"
+        },
+        {
+          "address": "127.0.0.1",
+          "port": 53,
+          "scope": "loopback",
           "transport": "udp"
         },
         {
-          "port": 199,
-          "transport": "tcp"
+          "address": "::1",
+          "port": 53,
+          "scope": "loopback",
+          "transport": "udp"
         },
         {
-          "port": 443,
-          "transport": "tcp"
+          "address": "0.0.0.0",
+          "port": 161,
+          "scope": "any",
+          "transport": "udp"
         },
         {
-          "port": 830,
-          "transport": "tcp"
-        },
-        {
-          "port": 50052,
-          "transport": "tcp"
-        },
-        {
-          "port": 57400,
-          "transport": "tcp"
-        },
-        {
-          "port": 57401,
-          "transport": "tcp"
+          "address": "::",
+          "port": 161,
+          "scope": "any",
+          "transport": "udp"
         }
       ],
       "role": "leaf",
@@ -177,48 +352,100 @@
     "leaf02": {
       "mgmt_namespace_listeners": [
         {
+          "address": "0.0.0.0",
           "port": 22,
+          "scope": "any",
           "transport": "tcp"
         },
         {
-          "port": 53,
+          "address": "::",
+          "port": 22,
+          "scope": "any",
           "transport": "tcp"
         },
         {
+          "address": "127.0.0.1",
           "port": 53,
-          "transport": "udp"
+          "scope": "loopback",
+          "transport": "tcp"
         },
         {
+          "address": "::1",
+          "port": 53,
+          "scope": "loopback",
+          "transport": "tcp"
+        },
+        {
+          "address": "*",
           "port": 80,
+          "scope": "any",
           "transport": "tcp"
         },
         {
-          "port": 161,
+          "address": "127.0.0.1",
+          "port": 199,
+          "scope": "loopback",
+          "transport": "tcp"
+        },
+        {
+          "address": "*",
+          "port": 443,
+          "scope": "any",
+          "transport": "tcp"
+        },
+        {
+          "address": "0.0.0.0",
+          "port": 830,
+          "scope": "any",
+          "transport": "tcp"
+        },
+        {
+          "address": "::",
+          "port": 830,
+          "scope": "any",
+          "transport": "tcp"
+        },
+        {
+          "address": "*",
+          "port": 50052,
+          "scope": "any",
+          "transport": "tcp"
+        },
+        {
+          "address": "*",
+          "port": 57400,
+          "scope": "any",
+          "transport": "tcp"
+        },
+        {
+          "address": "*",
+          "port": 57401,
+          "scope": "any",
+          "transport": "tcp"
+        },
+        {
+          "address": "127.0.0.1",
+          "port": 53,
+          "scope": "loopback",
           "transport": "udp"
         },
         {
-          "port": 199,
-          "transport": "tcp"
+          "address": "::1",
+          "port": 53,
+          "scope": "loopback",
+          "transport": "udp"
         },
         {
-          "port": 443,
-          "transport": "tcp"
+          "address": "0.0.0.0",
+          "port": 161,
+          "scope": "any",
+          "transport": "udp"
         },
         {
-          "port": 830,
-          "transport": "tcp"
-        },
-        {
-          "port": 50052,
-          "transport": "tcp"
-        },
-        {
-          "port": 57400,
-          "transport": "tcp"
-        },
-        {
-          "port": 57401,
-          "transport": "tcp"
+          "address": "::",
+          "port": 161,
+          "scope": "any",
+          "transport": "udp"
         }
       ],
       "role": "leaf",
@@ -349,48 +576,100 @@
     "spine01": {
       "mgmt_namespace_listeners": [
         {
+          "address": "0.0.0.0",
           "port": 22,
+          "scope": "any",
           "transport": "tcp"
         },
         {
-          "port": 53,
+          "address": "::",
+          "port": 22,
+          "scope": "any",
           "transport": "tcp"
         },
         {
+          "address": "127.0.0.1",
           "port": 53,
-          "transport": "udp"
+          "scope": "loopback",
+          "transport": "tcp"
         },
         {
+          "address": "::1",
+          "port": 53,
+          "scope": "loopback",
+          "transport": "tcp"
+        },
+        {
+          "address": "*",
           "port": 80,
+          "scope": "any",
           "transport": "tcp"
         },
         {
-          "port": 161,
+          "address": "127.0.0.1",
+          "port": 199,
+          "scope": "loopback",
+          "transport": "tcp"
+        },
+        {
+          "address": "*",
+          "port": 443,
+          "scope": "any",
+          "transport": "tcp"
+        },
+        {
+          "address": "0.0.0.0",
+          "port": 830,
+          "scope": "any",
+          "transport": "tcp"
+        },
+        {
+          "address": "::",
+          "port": 830,
+          "scope": "any",
+          "transport": "tcp"
+        },
+        {
+          "address": "*",
+          "port": 50052,
+          "scope": "any",
+          "transport": "tcp"
+        },
+        {
+          "address": "*",
+          "port": 57400,
+          "scope": "any",
+          "transport": "tcp"
+        },
+        {
+          "address": "*",
+          "port": 57401,
+          "scope": "any",
+          "transport": "tcp"
+        },
+        {
+          "address": "127.0.0.1",
+          "port": 53,
+          "scope": "loopback",
           "transport": "udp"
         },
         {
-          "port": 199,
-          "transport": "tcp"
+          "address": "::1",
+          "port": 53,
+          "scope": "loopback",
+          "transport": "udp"
         },
         {
-          "port": 443,
-          "transport": "tcp"
+          "address": "0.0.0.0",
+          "port": 161,
+          "scope": "any",
+          "transport": "udp"
         },
         {
-          "port": 830,
-          "transport": "tcp"
-        },
-        {
-          "port": 50052,
-          "transport": "tcp"
-        },
-        {
-          "port": 57400,
-          "transport": "tcp"
-        },
-        {
-          "port": 57401,
-          "transport": "tcp"
+          "address": "::",
+          "port": 161,
+          "scope": "any",
+          "transport": "udp"
         }
       ],
       "role": "spine",
@@ -521,48 +800,100 @@
     "spine02": {
       "mgmt_namespace_listeners": [
         {
+          "address": "0.0.0.0",
           "port": 22,
+          "scope": "any",
           "transport": "tcp"
         },
         {
-          "port": 53,
+          "address": "::",
+          "port": 22,
+          "scope": "any",
           "transport": "tcp"
         },
         {
+          "address": "127.0.0.1",
           "port": 53,
-          "transport": "udp"
+          "scope": "loopback",
+          "transport": "tcp"
         },
         {
+          "address": "::1",
+          "port": 53,
+          "scope": "loopback",
+          "transport": "tcp"
+        },
+        {
+          "address": "*",
           "port": 80,
+          "scope": "any",
           "transport": "tcp"
         },
         {
-          "port": 161,
+          "address": "127.0.0.1",
+          "port": 199,
+          "scope": "loopback",
+          "transport": "tcp"
+        },
+        {
+          "address": "*",
+          "port": 443,
+          "scope": "any",
+          "transport": "tcp"
+        },
+        {
+          "address": "0.0.0.0",
+          "port": 830,
+          "scope": "any",
+          "transport": "tcp"
+        },
+        {
+          "address": "::",
+          "port": 830,
+          "scope": "any",
+          "transport": "tcp"
+        },
+        {
+          "address": "*",
+          "port": 50052,
+          "scope": "any",
+          "transport": "tcp"
+        },
+        {
+          "address": "*",
+          "port": 57400,
+          "scope": "any",
+          "transport": "tcp"
+        },
+        {
+          "address": "*",
+          "port": 57401,
+          "scope": "any",
+          "transport": "tcp"
+        },
+        {
+          "address": "127.0.0.1",
+          "port": 53,
+          "scope": "loopback",
           "transport": "udp"
         },
         {
-          "port": 199,
-          "transport": "tcp"
+          "address": "::1",
+          "port": 53,
+          "scope": "loopback",
+          "transport": "udp"
         },
         {
-          "port": 443,
-          "transport": "tcp"
+          "address": "0.0.0.0",
+          "port": 161,
+          "scope": "any",
+          "transport": "udp"
         },
         {
-          "port": 830,
-          "transport": "tcp"
-        },
-        {
-          "port": 50052,
-          "transport": "tcp"
-        },
-        {
-          "port": 57400,
-          "transport": "tcp"
-        },
-        {
-          "port": 57401,
-          "transport": "tcp"
+          "address": "::",
+          "port": 161,
+          "scope": "any",
+          "transport": "udp"
         }
       ],
       "role": "spine",
@@ -692,5 +1023,5 @@
     }
   },
   "schema": "agentic-netops.gate.mgmt-ports/v1",
-  "source": "gNMI Get --type state of /system/{grpc-server,json-rpc-server,ssh-server,netconf-server,snmp} on every device (G2)"
+  "source": "gNMI Get --type state of /system/{grpc-server,json-rpc-server,ssh-server,netconf-server,snmp} on every device, and ss -Hltun in each device's srbase-mgmt namespace (G2)"
 }

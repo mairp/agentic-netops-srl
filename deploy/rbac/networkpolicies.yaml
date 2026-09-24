@@ -1,0 +1,126 @@
+# The intent tier's NetworkPolicies, in agentic-netops-agents (T070; FR-075, SC-028, SC-029;
+# contracts/kubernetes-objects.md §"Object inventory", §"Identity contract"). Applied by
+# scripts/lib/rbac.sh BEFORE any tier workload exists, and proven by
+# tests/integration/boundary_probes.sh before the tier phase goes on.
+#
+# A TEMPLATE: scripts/lib/rbac.sh substitutes the placeholders at apply time and refuses to apply
+# while any is left (an unsubstituted value is also not a valid CIDR/port, so the API server would
+# refuse it too — the template fails closed):
+#   __MGMT_CIDR__         the real containerlab management subnet, read from the docker network
+#                         (MGMT_NETWORK, default agentic-netops-mgmt) and checked against MGMT_CIDR
+#   __POD_CIDR__          the cluster's pod subnet and
+#   __SERVICE_CIDR__      its service subnet, read from kube-system/kubeadm-config
+#   __APISERVER_CIDRS__   the API server's endpoint address(es) as /32s, read from the `kubernetes`
+#                         EndpointSlice (a flow-list body: `a/32, b/32`)
+#   __APISERVER_PEERS__   the same addresses as NetworkPolicy peers (`{ipBlock: {cidr: a/32}}, …`)
+#   __APISERVER_PORT__    the endpoint port (6443 on kind)
+# rbac.sh refuses an API server endpoint inside the management CIDR: the whole CIDR stays dropped.
+#
+# The pod labels these policies select on (every tier Deployment, T087, carries them):
+#   agentic-netops.io/tier: intent            every tier pod
+#   app.kubernetes.io/name: slim              the transport gateway
+#   agentic-netops.io/identity: intent-deployer | intent-allocator
+#                                             the two pods that hold a cluster API identity
+#
+#   deny-all-by-default   every pod: no ingress, no egress unless a policy below allows it
+#   allow-egress-scoped   every pod: egress to 0.0.0.0/0 EXCEPT the whole management CIDR, the
+#                         cluster's pod and service subnets and the API server's endpoints — with NO
+#                         port list and NO protocol: the management CIDR is unreachable on every port
+#                         and every protocol, TCP and UDP alike. The policy is CIDR-wide, so that rule
+#                         needs no port list and never acquires one; the enumerated device port list
+#                         exists only for the probe of T066. Inside the cluster the tier reaches only
+#                         its own namespace and the cluster DNS (53, UDP and TCP): the pod network is
+#                         excluded because it holds unauthenticated device-configuration endpoints —
+#                         the data server's gRPC API is one — which would otherwise be a path to a
+#                         device that no RBAC rule sees (live-findings 2026-09-24-tier-egress-cluster-paths).
+#                         Destinations local to a node (its own addresses — the API server on kind,
+#                         the node's management address) are delivered on the node's input path, which
+#                         the pinned policy engine does not filter: there, authentication and RBAC are
+#                         the boundary, and no device is local to a node
+#   slim-ingress          the slim gateway: ingress on 46357/TCP from tier-labelled pods only
+#   apiserver-egress-cluster-clients
+#                         the two API identities' pods only: egress to the API server's endpoints
+#                         on its port. The supervisor, mapper and UI hold no token; where the API
+#                         server is node-local (kind) the engine cannot stop them reaching it, and
+#                         without a credential that reach grants nothing
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: deny-all-by-default
+  namespace: agentic-netops-agents
+  labels:
+    app.kubernetes.io/part-of: agentic-netops-intent-tier
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-egress-scoped
+  namespace: agentic-netops-agents
+  labels:
+    app.kubernetes.io/part-of: agentic-netops-intent-tier
+spec:
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+  - to:
+    - ipBlock:
+        cidr: 0.0.0.0/0
+        except: [__MGMT_CIDR__, __POD_CIDR__, __SERVICE_CIDR__, __APISERVER_CIDRS__]
+  - to:
+    - podSelector: {}
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kube-system
+      podSelector:
+        matchLabels:
+          k8s-app: kube-dns
+    ports:
+    - protocol: UDP
+      port: 53
+    - protocol: TCP
+      port: 53
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: slim-ingress
+  namespace: agentic-netops-agents
+  labels:
+    app.kubernetes.io/part-of: agentic-netops-intent-tier
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: slim
+  policyTypes: [Ingress]
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          agentic-netops.io/tier: intent
+    ports:
+    - protocol: TCP
+      port: 46357
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: apiserver-egress-cluster-clients
+  namespace: agentic-netops-agents
+  labels:
+    app.kubernetes.io/part-of: agentic-netops-intent-tier
+spec:
+  podSelector:
+    matchExpressions:
+    - key: agentic-netops.io/identity
+      operator: In
+      values: [intent-deployer, intent-allocator]
+  policyTypes: [Egress]
+  egress:
+  - to: [__APISERVER_PEERS__]
+    ports:
+    - protocol: TCP
+      port: __APISERVER_PORT__

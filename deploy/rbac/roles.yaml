@@ -1,0 +1,56 @@
+# The intent tier's writer Role (T069; FR-075, FR-109, R-16, AD-32; contracts/kubernetes-objects.md
+# §"Identity contract", §"Namespace agentic-netops-intent").
+#
+# intent-writer, in agentic-netops-intent, bound to intent-deployer — and nothing else:
+#   networks.fabric.agentic-netops.io  get, list, watch, create, update, patch, delete
+#                                      (delete for rollback and removal, patch for server-side
+#                                      apply; neither reaches the force-release annotation, which
+#                                      deploy/rbac/deny-tier-force-release.yaml denies at admission)
+#   events (core group)                create — the deployer mirrors the audit events it decides
+#
+# The allocator's Role is NOT in this file. It is the claim Role `kuid-claimer`, one per allocation
+# authority, and the lock file selects which one is applied (T182's seam, kept):
+#   deploy/rbac/claims/kuid/role.yaml         kuid-system: vlanclaims.vlan.be.kuid.dev and
+#                                             genidclaims.genid.be.kuid.dev
+#   deploy/rbac/claims/first-party/role.yaml  agentic-netops-allocation:
+#                                             identifierclaims.fabric.agentic-netops.io
+# both get, list, watch, create, delete — NO update, NO patch (an update re-runs the claim and a
+# changed spec.id moves the allocation, silently releasing the previous entry). scripts/lib/rbac.sh
+# applies the one versions.lock.yaml's allocationAuthority.kind names (gate::authority_kind).
+#
+# The allocator identity holds NO verb on networks in any namespace: the deployer decides which
+# correlation identifiers are still provisional and the allocator deletes what it is told to
+# (AD-32). No ClusterRole or ClusterRoleBinding names either identity. Secrets, ConfigMaps, Pods,
+# pods/exec, Nodes, inv.sdcio.dev, config.sdcio.dev, fabrics, every resource in
+# agentic-netops-system and agentic-netops-services, and the ipam/as groups appear in no rule —
+# tests/integration/boundary_probes.sh attempts each of them as each identity (SC-029).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: intent-writer
+  namespace: agentic-netops-intent
+  labels:
+    app.kubernetes.io/part-of: agentic-netops-intent-tier
+rules:
+- apiGroups: [fabric.agentic-netops.io]
+  resources: [networks]
+  verbs: [get, list, watch, create, update, patch, delete]
+- apiGroups: [""]
+  resources: [events]
+  verbs: [create]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: intent-writer
+  namespace: agentic-netops-intent
+  labels:
+    app.kubernetes.io/part-of: agentic-netops-intent-tier
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: intent-writer
+subjects:
+- kind: ServiceAccount
+  name: intent-deployer
+  namespace: agentic-netops-agents

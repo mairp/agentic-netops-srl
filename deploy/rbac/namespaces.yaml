@@ -1,0 +1,28 @@
+# The intent tier's two namespaces (T068; FR-075, FR-010; contracts/kubernetes-objects.md
+# §"Namespaces"). Both carry the platform's ownership label (scripts/lib/ownership.sh: exact value
+# = the cluster name, the lab's default `agentic-netops`, as deploy/agentic-netops/namespaces.yaml)
+# and the tier label, so the lifecycle scripts touch only what they own and the tier's removal finds
+# them by label as well as by name.
+#
+#   agentic-netops-agents  the tier's workloads — and, applied by scripts/lib/rbac.sh before any of
+#                          them exists, the four NetworkPolicies of deploy/rbac/networkpolicies.yaml
+#   agentic-netops-intent  the Networks the tier submits: the ONLY namespace it may write fabric
+#                          intent into (deploy/rbac/roles.yaml). It holds no Pod, so it needs no
+#                          NetworkPolicy of its own; RBAC is its boundary
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: agentic-netops-agents
+  labels:
+    agentic-netops.io/owned-by: agentic-netops
+    agentic-netops.io/tier: intent
+    app.kubernetes.io/part-of: agentic-netops-intent-tier
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: agentic-netops-intent
+  labels:
+    agentic-netops.io/owned-by: agentic-netops
+    agentic-netops.io/tier: intent
+    app.kubernetes.io/part-of: agentic-netops-intent-tier
