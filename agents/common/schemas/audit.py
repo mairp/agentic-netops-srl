@@ -54,6 +54,10 @@ class AuditEvent(StrictModel):
     resources: list[ResourceRef] = Field(default_factory=list)
     reason: str | None = None
     stage: str | None = None
+    # FR-078 / data-model.md §16: a submission (and a removal) carries the submitted-spec hash; an
+    # out-of-band event carries both hashes while the object still exists.
+    submitted_spec_sha256: str | None = None
+    live_spec_sha256: str | None = None
 
     @model_validator(mode="after")
     def _no_resources_on_refuse_or_decline(self) -> AuditEvent:
@@ -81,6 +85,10 @@ class AuditEvent(StrictModel):
             attrs["audit.reason"] = self.reason
         if self.stage is not None:
             attrs["audit.stage"] = self.stage
+        if self.submitted_spec_sha256 is not None:
+            attrs["audit.submitted_spec_sha256"] = self.submitted_spec_sha256
+        if self.live_spec_sha256 is not None:
+            attrs["audit.live_spec_sha256"] = self.live_spec_sha256
         return f"audit.{self.event_type}", attrs
 
 

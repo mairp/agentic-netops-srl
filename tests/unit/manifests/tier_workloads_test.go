@@ -14,7 +14,11 @@
 //   - the tier collector has exactly one exporter, clickhouse, with no TTL, on every pipeline;
 //   - the four agent images are `<name>:<64 hex>` with imagePullPolicy Never, overridden by the
 //     kustomization's images: block with a 64-hex newTag; third-party images are the lock's pinned refs;
-//   - TRANSPORT_SERVER_ENDPOINT is http://slim.agentic-netops-agents.svc:46357 in every agent.
+//   - TRANSPORT_SERVER_ENDPOINT is http://slim.agentic-netops-agents.svc:46357 in every agent;
+//   - the translator sidecar (T097, contracts/translator-api.md) is the deployer's second container and
+//     nowhere else: intent-translator:<64 hex>, never pulled, listening on 127.0.0.1:8090, its site
+//     inventory from ConfigMap site-inventory keys, exec probes, requests and limits — and no Service
+//     and no NetworkPolicy reaches port 8090; the deployer reaches it at TRANSLATOR_URL on loopback.
 //
 // Each check has a negative control: the same predicate refuses a mutated copy.
 package manifests_test
@@ -39,11 +43,17 @@ const (
 	operatorSecret    = "operator-credentials"
 	slimDataPort      = 46357
 	slimControlPort   = 46358
+	sidecarName       = "intent-translator"
+	sidecarAddr       = "127.0.0.1:8090"
+	translatorURL     = "http://127.0.0.1:8090"
 )
 
 var (
 	agentNames = []string{"supervisor", "mapper", "allocator", "deployer"}
-	hashTag    = regexp.MustCompile(`^[0-9a-f]{64}$`)
+	// localImages are the first-party images built by scripts/lib/image_build.sh: the four agents and
+	// the deployer's translator sidecar.
+	localImages = append(slices.Clone(agentNames), sidecarName)
+	hashTag     = regexp.MustCompile(`^[0-9a-f]{64}$`)
 )
 
 // workload is one pod-bearing object of deploy/agents.
@@ -325,8 +335,12 @@ func agentProblems(o tierObjects, name string) []string {
 	if noToken && (w.pod.AutomountServiceAccountToken == nil || *w.pod.AutomountServiceAccountToken) {
 		msgs = append(msgs, name+": must set automountServiceAccountToken: false")
 	}
-	if len(w.pod.Containers) != 1 {
-		msgs = append(msgs, fmt.Sprintf("%s: %d containers, want 1 (the translator sidecar arrives with US4)", name, len(w.pod.Containers)))
+	wantContainers := 1
+	if name == "deployer" {
+		wantContainers = 2 // the deployer carries the translator sidecar (T097)
+	}
+	if len(w.pod.Containers) != wantContainers {
+		msgs = append(msgs, fmt.Sprintf("%s: %d containers, want %d (only the deployer carries the translator sidecar)", name, len(w.pod.Containers), wantContainers))
 		return msgs
 	}
 	c := w.pod.Containers[0]
@@ -395,8 +409,8 @@ func TestAgentDeployments(t *testing.T) {
 			t.Error(m)
 		}
 	}
-	if strings.Contains(strings.Join(mapValues(o.raw), "\n"), "intent-translator") {
-		t.Error("deploy/agents references intent-translator, which is pending until User Story 4")
+	for _, m := range sidecarProblems(o) {
+		t.Error(m)
 	}
 	// negative controls
 	for _, mutate := range []func(w *workload){
@@ -416,6 +430,139 @@ func TestAgentDeployments(t *testing.T) {
 		mutate(bad.workloads["mapper"])
 		if len(agentProblems(bad, "mapper")) == 0 {
 			t.Error("negative control: a mutated mapper Deployment was accepted")
+		}
+	}
+}
+
+// sidecarProblems: the translator sidecar is the deployer's second container and appears nowhere else;
+// it is loopback-only (no Service, no NetworkPolicy allowance, no containerPort), takes its site
+// inventory from ConfigMap site-inventory keys, has exec probes, and the deployer reaches it at
+// TRANSLATOR_URL on loopback.
+func sidecarProblems(o tierObjects) []string {
+	var msgs []string
+	for wn, w := range o.workloads {
+		for i, c := range allContainers(w.pod) {
+			repo, _, _ := strings.Cut(c.Image, ":")
+			if (c.Name == sidecarName || repo == sidecarName) && (wn != "deployer" || i != len(w.pod.InitContainers)+1) {
+				msgs = append(msgs, fmt.Sprintf("%s: container %s runs the translator; only the deployer's second container may", wn, c.Name))
+			}
+		}
+	}
+	d := o.workloads["deployer"]
+	if d == nil || len(d.pod.Containers) != 2 {
+		return append(msgs, "deployer: the translator sidecar is not its second container")
+	}
+	c := d.pod.Containers[1]
+	if c.Name != sidecarName {
+		msgs = append(msgs, "deployer: second container "+c.Name+", want "+sidecarName)
+	}
+	if repo, tag, _ := strings.Cut(c.Image, ":"); repo != sidecarName || !hashTag.MatchString(tag) {
+		msgs = append(msgs, "deployer/intent-translator: image "+c.Image+", want intent-translator:<64 hex>")
+	}
+	if c.ImagePullPolicy != corev1.PullNever {
+		msgs = append(msgs, "deployer/intent-translator: imagePullPolicy "+string(c.ImagePullPolicy)+", want Never")
+	}
+	if !slices.Equal(c.Args, []string{"--listen", sidecarAddr}) {
+		msgs = append(msgs, fmt.Sprintf("deployer/intent-translator: args %q, want --listen %s (loopback only)", c.Args, sidecarAddr))
+	}
+	if len(c.Ports) != 0 {
+		msgs = append(msgs, "deployer/intent-translator: declares a containerPort; it is pod-local and publishes nothing")
+	}
+	env := map[string]*corev1.EnvVarSource{}
+	for _, e := range c.Env {
+		env[e.Name] = e.ValueFrom
+	}
+	for _, k := range []string{"FABRIC_NODE_MAP", "FABRIC_PORT_MAP", "FABRIC_ASN"} {
+		v := env[k]
+		if v == nil || v.ConfigMapKeyRef == nil || v.ConfigMapKeyRef.Name != "site-inventory" || v.ConfigMapKeyRef.Key != k ||
+			(v.ConfigMapKeyRef.Optional != nil && *v.ConfigMapKeyRef.Optional) {
+			msgs = append(msgs, "deployer/intent-translator: env "+k+" is not configMapKeyRef site-inventory/"+k)
+		}
+	}
+	for _, p := range []*corev1.Probe{c.LivenessProbe, c.ReadinessProbe} {
+		if p == nil || p.Exec == nil || !strings.Contains(strings.Join(p.Exec.Command, " "), translatorURL+"/healthz") {
+			msgs = append(msgs, "deployer/intent-translator: liveness and readiness must be exec probes of "+translatorURL+"/healthz (the kubelet cannot reach loopback)")
+			break
+		}
+	}
+	for _, r := range []corev1.ResourceName{corev1.ResourceCPU, corev1.ResourceMemory} {
+		if q, ok := c.Resources.Requests[r]; !ok || q.IsZero() {
+			msgs = append(msgs, "deployer/intent-translator: no "+string(r)+" request")
+		}
+		if q, ok := c.Resources.Limits[r]; !ok || q.IsZero() {
+			msgs = append(msgs, "deployer/intent-translator: no "+string(r)+" limit")
+		}
+	}
+	if sc := c.SecurityContext; sc == nil || sc.ReadOnlyRootFilesystem == nil || !*sc.ReadOnlyRootFilesystem ||
+		sc.AllowPrivilegeEscalation == nil || *sc.AllowPrivilegeEscalation {
+		msgs = append(msgs, "deployer/intent-translator: want readOnlyRootFilesystem and no privilege escalation")
+	}
+	url := ""
+	for _, e := range d.pod.Containers[0].Env {
+		if e.Name == "TRANSLATOR_URL" {
+			url = e.Value
+		}
+	}
+	if url != translatorURL {
+		msgs = append(msgs, fmt.Sprintf("deployer: TRANSLATOR_URL=%q, want %q", url, translatorURL))
+	}
+	for _, svc := range o.services {
+		for _, p := range svc.Spec.Ports {
+			if p.Port == 8090 || p.TargetPort.IntValue() == 8090 || p.TargetPort.String() == sidecarName {
+				msgs = append(msgs, "Service "+svc.Name+" reaches the translator sidecar's port 8090")
+			}
+		}
+	}
+	for _, np := range o.policies {
+		for _, r := range np.Spec.Ingress {
+			for _, p := range r.Ports {
+				if p.Port != nil && p.Port.IntValue() == 8090 {
+					msgs = append(msgs, "NetworkPolicy "+np.Name+" admits port 8090")
+				}
+			}
+		}
+	}
+	return msgs
+}
+
+func TestTranslatorSidecarNegativeControls(t *testing.T) {
+	o := loadTier(t)
+	if m := sidecarProblems(o); len(m) != 0 {
+		t.Fatalf("the shipped manifests fail: %v", m)
+	}
+	for name, mutate := range map[string]func(o *tierObjects){
+		"sidecar pulled": func(o *tierObjects) {
+			o.workloads["deployer"].pod.Containers[1].ImagePullPolicy = corev1.PullIfNotPresent
+		},
+		"sidecar on all ifaces": func(o *tierObjects) { o.workloads["deployer"].pod.Containers[1].Args = []string{"--listen", ":8090"} },
+		"sidecar env literal": func(o *tierObjects) {
+			o.workloads["deployer"].pod.Containers[1].Env[0] = corev1.EnvVar{Name: "FABRIC_NODE_MAP", Value: "{}"}
+		},
+		"sidecar containerPort": func(o *tierObjects) {
+			o.workloads["deployer"].pod.Containers[1].Ports = []corev1.ContainerPort{{ContainerPort: 8090}}
+		},
+		"sidecar in the mapper": func(o *tierObjects) {
+			o.workloads["mapper"].pod.Containers = append(o.workloads["mapper"].pod.Containers, o.workloads["deployer"].pod.Containers[1])
+		},
+		"no TRANSLATOR_URL": func(o *tierObjects) { o.workloads["deployer"].pod.Containers[0].Env = nil },
+		"a Service to 8090": func(o *tierObjects) {
+			o.services["translator"] = corev1.Service{Spec: corev1.ServiceSpec{Ports: []corev1.ServicePort{{Port: 8090}}}}
+		},
+	} {
+		bad := o
+		bad.workloads = map[string]*workload{}
+		for k, v := range o.workloads {
+			c := *v
+			c.pod = *v.pod.DeepCopy()
+			bad.workloads[k] = &c
+		}
+		bad.services = map[string]corev1.Service{}
+		for k, v := range o.services {
+			bad.services[k] = v
+		}
+		mutate(&bad)
+		if len(sidecarProblems(bad)) == 0 {
+			t.Errorf("negative control %q was accepted", name)
 		}
 	}
 }
@@ -506,7 +653,7 @@ func TestImagesPinned(t *testing.T) {
 		}
 		got[i.Name] = i.NewTag
 	}
-	for _, n := range agentNames {
+	for _, n := range localImages {
 		if !hashTag.MatchString(got[n]) {
 			t.Errorf("kustomization images: %s newTag %q, want 64 hex", n, got[n])
 		}
@@ -538,7 +685,7 @@ func TestImagesPinned(t *testing.T) {
 	for wn, w := range o.workloads {
 		for _, c := range allContainers(w.pod) {
 			repo, tag, _ := strings.Cut(c.Image, ":")
-			agent := slices.Contains(agentNames, repo) && hashTag.MatchString(tag)
+			agent := slices.Contains(localImages, repo) && hashTag.MatchString(tag)
 			if !agent && !slices.Contains(mapValues(want), c.Image) {
 				t.Errorf("%s/%s: image %s is neither <agent>:<64 hex> nor a lock-pinned ref", wn, c.Name, c.Image)
 			}

@@ -8,7 +8,8 @@
 # Mounted read-only: operator-credentials (THIS workload only; re-read on every request, so rotation
 # needs no restart — a whole-Secret volume, never subPath), llm-provider (as a volume, never
 # secretKeyRef/envFrom: the endpoint is re-read from the file on every model call, FR-106, AD-67),
-# slim-gateway + the CA of slim-tls, and the agent-cards ConfigMap (discovery at call time, FR-071).
+# slim-gateway + the CA of slim-tls, the agent-cards ConfigMap (discovery at call time, FR-071) and the
+# supervisor-prompts ConfigMap (T102). The durable table of tier removals shares the checkpoint file.
 # No service-account token: the supervisor holds no cluster permission.
 # Published on the host by Service supervisor, NodePort 30990 (Kind maps 127.0.0.1:19090 only).
 apiVersion: v1
@@ -94,6 +95,9 @@ spec:
           value: "/etc/agentic-netops/agent-cards"
         - name: SUPERVISOR_CHECKPOINT_PATH
           value: "/var/lib/supervisor/checkpoints.sqlite"
+        # The supervisor's prompt texts (T102): ConfigMap supervisor-prompts, mounted read-only below.
+        - name: SUPERVISOR_PROMPTS_DIR
+          value: "/etc/agentic-netops/supervisor-prompts"
         # data-model.md §25 bounds, at their defaults (start-up asserts convergence < deployer call < deadline).
         - name: SUPERVISOR_MAX_ITERATIONS
           value: "3"
@@ -168,6 +172,11 @@ spec:
         - name: fabric-qualification
           mountPath: /etc/agentic-netops/fabric-qualification
           readOnly: true
+        # Confirmation wording and the informational prompt, in construct vocabulary only (T102,
+        # FR-026); byte-equal to the packaged defaults, read on every use.
+        - name: supervisor-prompts
+          mountPath: /etc/agentic-netops/supervisor-prompts
+          readOnly: true
       volumes:
       - name: tmp
         emptyDir:
@@ -205,6 +214,10 @@ spec:
       - name: fabric-qualification
         configMap:
           name: fabric-qualification
+          optional: false
+      - name: supervisor-prompts
+        configMap:
+          name: supervisor-prompts
           optional: false
 ---
 apiVersion: v1

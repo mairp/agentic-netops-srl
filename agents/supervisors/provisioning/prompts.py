@@ -8,16 +8,54 @@ script writes (``SITE_INVENTORY_DIR/inventory.json``, the ``Fabric`` inventory:
 in the device's own naming; nothing is invented. A prompt is offered only when the qualification
 record (``FABRIC_QUALIFICATION_DIR``, one file per flat key, ``qualified``/``unqualified``) shows
 its construct and every gated property it uses as qualified — an absent key is unqualified.
+
+It also loads the supervisor's own prompt texts (T102; FR-026): the informational system prompt and
+the confirmation, decline and refusal wording, one ``prompts/<name>.md`` file each, written in the
+construct vocabulary only. They are read from ``SUPERVISOR_PROMPTS_DIR`` — the read-only mount of
+ConfigMap ``supervisor-prompts``, whose data is byte-equal to the packaged files — and fall back,
+file by file, to the defaults packaged beside this module. Placeholders are ``{name}`` fields,
+filled by :func:`render`; a missing field is an error, never a silently blank phrase.
 """
 
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 INVENTORY_FILE = "inventory.json"
+PROMPTS_ENV = "SUPERVISOR_PROMPTS_DIR"
+PACKAGED_PROMPTS = Path(__file__).resolve().parent / "prompts"
+
+
+def prompts_dir(env: dict[str, str] | None = None) -> Path:
+    """The configured prompt directory (``SUPERVISOR_PROMPTS_DIR``), else the packaged one."""
+    value = (os.environ if env is None else env).get(PROMPTS_ENV, "").strip()
+    return Path(value) if value else PACKAGED_PROMPTS
+
+
+def prompt_names() -> list[str]:
+    """The packaged prompt names (file stems), sorted."""
+    return sorted(p.stem for p in PACKAGED_PROMPTS.glob("*.md"))
+
+
+def load_prompt(name: str, directory: Path | None = None) -> str:
+    """The text of prompt ``name`` (without its trailing newline): from the configured directory
+    when it holds the file, otherwise the packaged default. Read on every use, so an updated
+    ConfigMap needs no restart."""
+    for base in (directory or prompts_dir(), PACKAGED_PROMPTS):
+        try:
+            return (Path(base) / f"{name}.md").read_text(encoding="utf-8").rstrip("\n")
+        except OSError:
+            continue
+    raise FileNotFoundError(f"supervisor prompt {name!r} is neither configured nor packaged")
+
+
+def render(name: str, **fields: Any) -> str:
+    """Prompt ``name`` with its ``{field}`` placeholders filled from ``fields``."""
+    return load_prompt(name).format_map(fields)
 
 
 @dataclass(frozen=True)
@@ -91,4 +129,5 @@ def suggested_prompts(inventory_dir: Path, qualification_dir: Path) -> dict[str,
     return {"prompts": prompts}
 
 
-__all__ = ["load_leaves", "qualified", "suggested_prompts"]
+__all__ = ["PACKAGED_PROMPTS", "PROMPTS_ENV", "load_leaves", "load_prompt", "prompt_names",
+           "prompts_dir", "qualified", "render", "suggested_prompts"]

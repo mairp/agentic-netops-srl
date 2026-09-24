@@ -124,8 +124,8 @@ test-acceptance:
 	$(not_implemented)
 
 # --- Build
-build-migration-cli:
-	$(not_implemented)
+build-migration-cli: ## T096: the translator CLI → bin/migration-translator (quickstart.md §5–§7)
+	go build -o bin/migration-translator ./cmd/migration-translator
 
 # --- Bring-up and readiness waits
 sdc-onboard: ## T036: onboarding manifests (no drift-policy statement) applied; four Targets discovered

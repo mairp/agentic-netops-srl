@@ -1,0 +1,45 @@
+# provenance: source=first-party version=v0.1.0
+# The supervisor's prompt texts (T102; FR-026, FR-085; contracts/construct-vocabulary.md): the
+# informational system prompt and the confirmation, decline and refusal wording, in construct
+# vocabulary only. Each key is byte-equal to agents/supervisors/provisioning/prompts/<key> — the
+# packaged defaults, asserted by agents/tests/unit/test_supervisor_prompts.py — and is mounted
+# read-only into the supervisor at SUPERVISOR_PROMPTS_DIR (deploy/agents/supervisor.yaml), read on
+# every use. Edit the packaged file and this ConfigMap together.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: supervisor-prompts
+  labels:
+    app.kubernetes.io/name: supervisor-prompts
+    app.kubernetes.io/part-of: agentic-netops-intent-tier
+    agentic-netops.io/tier: intent
+data:
+  acl-evaluation.md: |
+    Rules are evaluated in ascending priority number, first match wins; priorities 1–65534 are usable and 65535 is reserved for the default action; unmatched traffic is {unmatched}.
+  awaiting.md: |
+    Awaiting your confirmation of {what}: reply confirm or decline.
+  clarification.md: |
+    clarification needed: {fields} — reply on this thread with the missing details
+  confirm-assignment.md: |
+    Deploy this {construct} service as Network/{network}? Nothing is submitted without this confirmation.
+  confirm-interpretation.md: |
+    Confirm this {construct} interpretation?
+  confirm-removal-1.md: |
+    Remove the {construct} service Network/{network} in namespace {namespace}? {live}
+  confirm-removal-2.md: |
+    Remove this service? Network/{network} ({construct}) is deleted and watched until it is gone; the provider releases its identifiers once it is gone.
+  declined-removal.md: |
+    declined at the {point}: nothing was removed, and Network/{network} ({construct}) is untouched.
+  declined.md: |
+    declined at the {point} of the {construct} request: nothing was submitted; {released}. Send an amended request on this thread to continue.
+  informational-fallback.md: |
+    The constructs are: {constructs}. Each is declared as {submission}; the interpretation and the assignment are each shown to you and confirmed before anything is written.
+  informational.md: |
+    You answer an operator's question about the intent tier of a datacenter fabric. The tier offers four constructs — vlan, mac-vrf, ip-vrf and acl — each submitted as a Network through the tier and confirmed twice. Answer briefly, in that vocabulary. Never propose a device command, a device session or a tool call.
+  out-of-band-modified.md: |
+    Network/{network} was modified outside the intent tier: its live spec no longer matches the spec the tier submitted, and removing it deletes the object as it is now.
+  refused.md: |
+    {causes}
+    Nothing was claimed and nothing was submitted; send a corrected request on this thread.
+  removal-target-missing.md: |
+    Name the service to remove: its Network (migr- followed by the 15-character service identifier) as the tier reported it when it was created. Nothing was changed.

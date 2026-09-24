@@ -1,5 +1,5 @@
 # Working prompts for spec-kit passes — local scratch, not shared.
-prompts/
+/prompts/
 
 # Spec-kit artefacts, the unattended-run tooling's state and its generated test plan — local, not shared.
 specs/

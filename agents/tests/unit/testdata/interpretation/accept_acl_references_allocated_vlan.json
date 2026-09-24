@@ -1,0 +1,44 @@
+{
+  "description": "A standalone acl naming VLAN 1500 on a subinterface another service holds (an allocated VLAN) is accepted: its VLAN is a reference and exempt from the naming band (AD-47).",
+  "tasks": [
+    "T091",
+    "T098"
+  ],
+  "request_text": "permit ingress tcp 443 from 10.0.0.0/24 on leaf02 ethernet-1/1 vlan 1500 for tenant blue, deny everything else",
+  "model_output": {
+    "service_id": "",
+    "service_type": "acl",
+    "tenant": "blue",
+    "endpoints": [
+      {
+        "site_or_node": "leaf02",
+        "attachment": "ethernet-1/1",
+        "vlan": 1500
+      }
+    ],
+    "acl": {
+      "stage": "ingress",
+      "type": "ipv4",
+      "default_action": "deny",
+      "rules": [
+        {
+          "name": "allow-https",
+          "priority": 100,
+          "action": "permit",
+          "protocol": "tcp",
+          "source_prefix": "10.0.0.0/24",
+          "destination_port": "443"
+        }
+      ]
+    },
+    "missing_fields": [],
+    "unsupported_properties": []
+  },
+  "expect": {
+    "outcome": "accept",
+    "endpoint_vlans": [
+      1500
+    ],
+    "claims_created": 0
+  }
+}

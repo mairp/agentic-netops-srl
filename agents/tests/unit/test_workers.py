@@ -169,9 +169,20 @@ async def test_registration_retries_with_backoff_until_it_succeeds(tmp_path: Pat
     assert sleeps.calls == [1.0, 2.0]
 
 
-@pytest.mark.parametrize("worker", list(WORKERS))
-async def test_stage_request_is_a_terminal_failure_until_user_story_4(
-        worker: str, tmp_path: Path) -> None:
+_STAGE_ANSWERS = {
+    # User Story 4 wired the mapper's and the allocator's stage logic (T098, T099): a stage
+    # request reaches the real handler, which answers from its own inputs — here, inputs that
+    # carry no site inventory and no interpretation — never the pre-US4 stub.
+    "mapper": ({"text": "x", "operation": "create"},
+               "worker failed: mapper — site inventory unreadable at "),
+    "allocator": ({"operation": "create"},
+                  "worker failed: allocator — payload.interpretation is not a valid "
+                  "Interpretation"),
+}
+
+
+@pytest.mark.parametrize("worker", ["mapper", "allocator"])
+async def test_stage_request_reaches_the_stage_logic(worker: str, tmp_path: Path) -> None:
     server = importlib.import_module(f"provisioning.{worker}.server")
     gateway = t.InMemoryGateway("gw", "pw")
     cards = tmp_path / "cards"
@@ -182,13 +193,91 @@ async def test_stage_request_is_a_terminal_failure_until_user_story_4(
     app = server.create_app(settings=settings, sleep=Sleeps(),
                             backend_factory=lambda: gateway.connect(("gw", "pw"),
                                                                     identity=WORKERS[worker][0]))
+    payload, expected = _STAGE_ANSWERS[worker]
     async with app.router.lifespan_context(app):
         await _settle(app, lambda: app.state.worker.registered)
         client = t.TransportClient(settings, gateway.connect(("gw", "pw"), identity="a/b/c"),
                                    sleep=Sleeps())
         assert await client.health() == {worker: "ok"}
         with pytest.raises(WorkerFailedError) as caught:
-            await client.call(WORKERS[worker][1], {"text": "x"}, expect=None, marker=None,
+            await client.call(WORKERS[worker][1], payload, expect=None, marker=None,
                               correlation_id=CID, thread_id="t-1")
-    assert str(caught.value) == (
-        f"worker failed: {worker} — stage logic not implemented until User Story 4")
+        if worker == "allocator":  # releasing nothing is a success, answered over the transport
+            released = await client.call(WORKERS[worker][1],
+                                         {"operation": "release", "correlation_ids": []},
+                                         expect=None, marker=None, correlation_id=CID,
+                                         thread_id="t-1")
+            assert released.data == {"released": [], "correlation_ids": []}
+    assert str(caught.value).startswith(expected), str(caught.value)
+    assert "not implemented" not in str(caught.value)
+
+
+async def test_the_deployer_answers_a_stage_request_with_its_stage_logic(tmp_path: Path) -> None:
+    """User Story 4 wired the deployer's handler (T100): a create without the second
+    confirmation is refused by the submission stage itself — a DeploymentReport, not the stub —
+    and an unknown operation is an out-of-contract terminal failure."""
+    from common.schemas.stream import DeploymentReport
+
+    server = importlib.import_module("provisioning.deployer.server")
+    gateway = t.InMemoryGateway("gw", "pw")
+    cards = tmp_path / "cards"
+    cards.mkdir()
+    (cards / "deployer.json").write_text(json.dumps(_card("deployer")))
+    settings = load_settings({"AGENT_COMPONENT": "deployer", "AGENT_CARDS_DIR": str(cards),
+                              **_inputs(tmp_path)})
+    app = server.create_app(settings=settings, sleep=Sleeps(),
+                            backend_factory=lambda: gateway.connect(
+                                ("gw", "pw"), identity=WORKERS["deployer"][0]))
+    async with app.router.lifespan_context(app):
+        await _settle(app, lambda: app.state.worker.registered)
+        client = t.TransportClient(settings, gateway.connect(("gw", "pw"), identity="a/b/c"),
+                                   sleep=Sleeps())
+        result = await client.call(WORKERS["deployer"][1], {"text": "x"},
+                                   expect=DeploymentReport, marker=None, correlation_id=CID,
+                                   thread_id="t-1")
+        assert result.data.status == "FAILED" and result.data.submitted is False
+        assert "second confirmation" in (result.data.message or "")
+        with pytest.raises(WorkerFailedError) as caught:
+            await client.call(WORKERS["deployer"][1], {"operation": "apply"}, expect=None,
+                              marker=None, correlation_id=CID, thread_id="t-1")
+    assert "out-of-contract request: operation 'apply'" in str(caught.value)
+
+
+async def test_a_lost_registration_is_noticed_and_made_again(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture) -> None:
+    """The gateway can lose a worker's subscription (a restarted gateway; a departing pod of the
+    same card id taking the shared subscription with it — observed live in phase 7): the
+    watchdog re-proves the route, reports it lost on /v1/health and registers again."""
+    from provisioning.mapper.server import create_app
+
+    monkeypatch.setenv("SLIM_REGISTRATION_CHECK_SECONDS", "0.01")
+    topic = WORKERS["mapper"][0]
+    gateway = t.InMemoryGateway("gw", "pw")
+    connections: list[Any] = []
+
+    def factory() -> Any:
+        connections.append(gateway.connect(("gw", "pw"), identity=topic))
+        return connections[-1]
+
+    settings = load_settings({"AGENT_COMPONENT": "mapper", **_inputs(tmp_path)})
+    app = create_app(settings=settings, sleep=Sleeps(), backend_factory=factory)
+    async with app.router.lifespan_context(app):
+        await _settle(app, lambda: app.state.worker.registered)
+        gateway.stop(topic)  # the route disappears under the registered worker
+        for _ in range(500):
+            if not app.state.worker.registered:
+                break
+            await asyncio.sleep(0.005)
+        assert not app.state.worker.registered
+        assert "transport registration lost" in caplog.text
+        response = await _get(app, "/v1/health")
+        assert response.status_code == 503
+        gateway.start(topic)
+        for _ in range(500):
+            if app.state.worker.registered:
+                break
+            await asyncio.sleep(0.005)
+        assert app.state.worker.registered
+        assert len(connections) >= 2  # a new connection registered the card id again
+        assert (await _get(app, "/v1/health")).status_code == 200

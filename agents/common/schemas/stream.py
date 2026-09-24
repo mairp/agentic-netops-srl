@@ -117,16 +117,34 @@ class ProgressEvent(StrictModel):
     reason: str | None = None
 
 
-class DeploymentReport(StrictModel):
-    """The deployer's answer to a submission or removal request.
+ServiceState = Literal["converged", "progressing", "unknown", "failed", "removing", "absent"]
 
-    ``status``: ``COMPLETED`` (observed converged — or, for a removal, observed gone),
-    ``PROVISIONING`` (a removal still ``Deleting`` at the bound, or — with ``watch: continue`` —
-    a watch that goes on in the next call), ``FAILED`` (with ``message``). ``STATUS_UNKNOWN`` is
-    the supervisor's to conclude, never reported as success.
+
+class ReleaseRefusal(StrictModel):
+    """A correlation id the release gate refused: its ``Network`` exists (FR-109, AD-32)."""
+
+    correlation_id: CorrelationId
+    network: str = Field(min_length=1)
+
+
+class DeploymentReport(StrictModel):
+    """The deployer's answer (T100): submission, removal, status query or release gate.
+
+    ``status``: ``COMPLETED`` (observed converged — or, for a removal, observed gone; for
+    ``status`` and ``release_gate``, the informational answer was produced), ``PROVISIONING`` (a
+    removal still ``Deleting`` at the bound, or — with ``watch: continue`` — a watch that goes on
+    in the next call), ``FAILED`` (with ``message``). ``STATUS_UNKNOWN`` is the supervisor's to
+    conclude, never reported as success.
+
+    Additive fields (T100): ``state`` — the live service's state on a ``status`` answer;
+    ``releasable``/``refused`` — the release gate; ``live`` — the live object's state;
+    ``retryable``/``dependency`` — a dependency failure (the cluster API, the admission webhook
+    among it: NFR-010, AD-52) after which nothing was applied and the thread stays resumable;
+    ``rolled_back``/``survivors`` — a rollback's outcome (R-21); ``causes`` — the complete causes
+    of a refusal (the translator's 422, the pre-flight).
     """
 
-    operation: Literal["create", "remove"] = "create"
+    operation: Literal["create", "remove", "status", "release_gate"] = "create"
     status: StatusLiteral
     resources: list[ResourceRef] = Field(default_factory=list)
     progress: list[ProgressEvent] = Field(default_factory=list)
@@ -134,6 +152,15 @@ class DeploymentReport(StrictModel):
     watch: Literal["done", "continue"] = "done"
     out_of_band: OutOfBand | None = None
     submitted: bool = True
+    state: ServiceState | None = None
+    releasable: list[CorrelationId] | None = None
+    refused: list[ReleaseRefusal] | None = None
+    live: dict[str, Any] | None = None
+    retryable: bool = False
+    dependency: str | None = None
+    rolled_back: list[str] | None = None
+    survivors: list[str] | None = None
+    causes: list[str] | None = None
 
     @model_validator(mode="after")
     def _removal_never_configured(self) -> DeploymentReport:
@@ -158,7 +185,9 @@ __all__ = [
     "FinalChunk",
     "ProgressChunk",
     "ProgressEvent",
+    "ReleaseRefusal",
     "ResourceName",
+    "ServiceState",
     "Stage",
     "StageChunk",
     "StatusChunk",

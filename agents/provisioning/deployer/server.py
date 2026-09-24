@@ -1,7 +1,8 @@
-"""The deployer's server shell (T084): ``python -m provisioning.deployer.server``.
+"""The deployer's server (T084, T100): ``python -m provisioning.deployer.server``.
 
 FastAPI on its port (settings: AGENT_COMPONENT=deployer), ``GET /health``, ``GET /v1/health``,
-and the registration on SLIM under the card id; stage logic arrives with User Story 4.
+the registration on SLIM under the card id, and the stage handler of
+:mod:`provisioning.deployer.agent` (create, remove, status, release_gate).
 """
 
 from __future__ import annotations
@@ -10,16 +11,21 @@ from typing import Any
 
 from fastapi import FastAPI
 
+from provisioning.deployer.agent import make_handler
 from provisioning.deployer.card import card
-from provisioning.worker import create_worker_app, run
+from provisioning.worker import create_worker_app, run, worker_settings
 
 
 def create_app(**kwargs: Any) -> FastAPI:
+    if "handler" not in kwargs:
+        settings = kwargs.get("settings") or worker_settings("deployer")
+        kwargs["settings"] = settings
+        kwargs["handler"] = make_handler(settings)
     return create_worker_app(card(), **kwargs)
 
 
 def main() -> None:
-    run(card())
+    run(card(), handler_factory=make_handler)
 
 
 if __name__ == "__main__":

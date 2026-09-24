@@ -1,0 +1,21 @@
+[
+  {
+    "serviceId": "9d1f3b5c7e8a0b2",
+    "type": "vlan",
+    "tenant": "acme",
+    "endpoints": [
+      {"node": "leaf01", "attachment": "ethernet-1/1", "vlan": 100}
+    ]
+  },
+  {
+    "serviceId": "0e2a4c6d8f9b1c3",
+    "type": "mac-vrf",
+    "tenant": "globex",
+    "routeTargets": {"importRT": ["target:65000:10041"], "exportRT": ["target:65000:10041"]},
+    "l2vni": 10041,
+    "endpoints": [
+      {"node": "leaf01", "attachment": "ethernet-1/1", "vlan": 100},
+      {"node": "leaf02", "attachment": "ethernet-1/1", "vlan": 100}
+    ]
+  }
+]

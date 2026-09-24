@@ -14,7 +14,8 @@ from typing import Any, Literal, TypedDict
 Decided = Literal["confirm", "decline"]
 Operation = Literal["create", "remove"]
 Awaiting = Literal["confirmation_1", "confirmation_2"]
-PendingStage = Literal["mapper", "allocator", "deployer"]
+PendingStage = Literal["mapper", "allocator", "deployer", "lookup"]
+TurnKind = Literal["create", "remove", "status"]
 
 
 class Decision(TypedDict):
@@ -52,12 +53,22 @@ class ServiceRequestState(TypedDict, total=False):
     awaiting: Awaiting | None
     submission_key: str | None
     converged: bool
+    # a removal's target (Network name) and its construct as the live object or the thread knows it
+    target: str | None
+    target_construct: str | None
+    # claims may exist under this thread's correlation id and have not been released since
+    allocated: bool
+    decline_point: str | None
+    # the services this thread created: [{"network": "migr-<sid>", "construct": "<construct>"}]
+    created: list[dict[str, str]]
     active_seconds: float  # request time consumed so far, confirmation time excluded
     # this request turn
     new_thread: bool
     turn_text: str
     turn_principal: str
     turn_class: str | None
+    turn_kind: TurnKind | None
+    turn_target: str | None
     turn_consumed: bool
     turn_done: bool
     turn_started: float

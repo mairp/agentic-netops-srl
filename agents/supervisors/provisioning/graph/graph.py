@@ -35,6 +35,7 @@ from common.transport import TransportClient
 from config.settings import Settings, assert_bounds
 from supervisors.provisioning.graph import nodes
 from supervisors.provisioning.graph.nodes import SupervisorContext
+from supervisors.provisioning.graph.registry import TierRegistry
 from supervisors.provisioning.graph.state import ServiceRequestState
 
 log = logging.getLogger("agentic_netops.supervisor")
@@ -49,7 +50,9 @@ NODES: dict[str, Callable[..., Any]] = {
     "bounded_exit": nodes.bounded_exit,
     "mapper": nodes.mapper,
     "allocator": nodes.allocator,
+    "lookup": nodes.lookup,
     "deployer": nodes.deployer,
+    "release": nodes.release,
 }
 
 
@@ -68,11 +71,13 @@ def build_graph() -> StateGraph:
     graph.add_conditional_edges("guard", nodes.route_after_guard, ["supervisor", END])
     graph.add_conditional_edges(
         "supervisor", nodes.route_from_supervisor,
-        ["mapper", "allocator", "deployer", "decide", "await", "inform", "bounded_exit", END])
-    graph.add_conditional_edges("decide", nodes.route_after_decide, ["supervisor", END])
-    for worker in ("mapper", "allocator", "deployer"):
+        ["mapper", "allocator", "lookup", "deployer", "decide", "await", "inform",
+         "bounded_exit", END])
+    graph.add_conditional_edges("decide", nodes.route_after_decide,
+                                ["supervisor", "release", END])
+    for worker in ("mapper", "allocator", "lookup", "deployer"):
         graph.add_edge(worker, "supervisor")
-    for terminal in ("await", "inform", "bounded_exit"):
+    for terminal in ("await", "inform", "bounded_exit", "release"):
         graph.add_edge(terminal, END)
     return graph
 
@@ -93,6 +98,7 @@ class Supervisor:
         self.threads_minted = 0
         self._conn: Any = None
         self._graph: Any = None
+        self.registry: TierRegistry | None = None
         self._open_lock = asyncio.Lock()
         self._thread_locks: dict[str, asyncio.Lock] = {}
 
@@ -113,6 +119,9 @@ class Supervisor:
                 self._conn = await aiosqlite.connect(str(self.checkpoint_path))
                 saver = AsyncSqliteSaver(self._conn)
                 await saver.setup()
+                registry = TierRegistry(self._conn)
+                await registry.setup()
+                self.registry = registry
                 self._graph = build_graph().compile(checkpointer=saver)
             return self._graph
 
@@ -121,6 +130,7 @@ class Supervisor:
             await self._conn.close()
         self._conn = None
         self._graph = None
+        self.registry = None
 
     # ------------------------------------------------------------------------------ queries
 
@@ -166,7 +176,7 @@ class Supervisor:
                               attributes={"thread_id": thread_id, "principal": principal},
                               attach=False) as span:
                 context = SupervisorContext(self.settings, self.client(), self.llm, self.clock,
-                                            span.span)
+                                            span.span, self.registry)
                 turn_input = {"thread_id": thread_id, "correlation_id": span.correlation_id,
                               "turn_text": text, "turn_principal": principal, "new_thread": new}
                 try:
@@ -197,7 +207,7 @@ class Supervisor:
         with request_span("supervisor.diagnostic", correlation_id=state["correlation_id"],
                           attach=False) as span:
             runtime = Runtime(context=SupervisorContext(self.settings, self.client(), self.llm,
-                                                        self.clock, span.span),
+                                                        self.clock, span.span, self.registry),
                               stream_writer=chunks.append)
             await NODES[node](state, runtime)
         return chunks

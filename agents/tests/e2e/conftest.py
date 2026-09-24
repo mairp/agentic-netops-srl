@@ -35,6 +35,13 @@ WORKERS = ("mapper", "allocator", "deployer")
 
 
 
+def pytest_addoption(parser: pytest.Parser) -> None:
+    parser.addoption("--audit-export", action="store", default=None,
+                     help="T103 file-source mode: reconcile the audit stream from this exported "
+                          "audit-export-<attempt>.ndjson.gz and the usernames record beside it, "
+                          "touching neither the store nor the cluster")
+
+
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
     if os.environ.get("AGENTIC_NETOPS_E2E") == "1":
         return

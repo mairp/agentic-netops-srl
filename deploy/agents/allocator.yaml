@@ -18,6 +18,10 @@ metadata:
     agentic-netops.io/identity: intent-allocator
 spec:
   replicas: 1
+  # Recreate: the old pod's SLIM connection is gone before the new one registers the same card id —
+  # a rolling update let the departing pod take the shared subscription with it (observed, phase 7).
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app.kubernetes.io/name: allocator
@@ -66,6 +70,33 @@ spec:
           value: "/etc/agentic-netops/site-inventory"
         - name: FABRIC_QUALIFICATION_DIR
           value: "/etc/agentic-netops/fabric-qualification"
+        # The allocation authority (AD-74, data-model.md §23): ConfigMap allocation-authority, written by the
+        # tier phase from versions.lock.yaml allocationAuthority.kind and the Fabric. Per key rather than a
+        # whole-ConfigMap import, so the container's environment is exactly what is named here.
+        - name: ALLOCATION_AUTHORITY
+          valueFrom:
+            configMapKeyRef:
+              name: allocation-authority
+              key: ALLOCATION_AUTHORITY
+              optional: false
+        - name: ALLOCATION_NAMESPACE
+          valueFrom:
+            configMapKeyRef:
+              name: allocation-authority
+              key: ALLOCATION_NAMESPACE
+              optional: false
+        - name: VLAN_POOL
+          valueFrom:
+            configMapKeyRef:
+              name: allocation-authority
+              key: VLAN_POOL
+              optional: false
+        - name: VNI_POOL
+          valueFrom:
+            configMapKeyRef:
+              name: allocation-authority
+              key: VNI_POOL
+              optional: false
         ports:
         - name: http
           containerPort: 9091

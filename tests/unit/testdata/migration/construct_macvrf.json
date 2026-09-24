@@ -1,0 +1,11 @@
+{
+  "serviceId": "4b7e19c2a05d3f6",
+  "type": "mac-vrf",
+  "tenant": "acme",
+  "routeTargets": {"importRT": ["target:65000:10021"], "exportRT": ["target:65000:10021"]},
+  "l2vni": 10021,
+  "endpoints": [
+    {"node": "leaf01", "attachment": "ethernet-1/1", "vlan": 100},
+    {"node": "leaf02", "attachment": "ethernet-1/1", "vlan": 100}
+  ]
+}

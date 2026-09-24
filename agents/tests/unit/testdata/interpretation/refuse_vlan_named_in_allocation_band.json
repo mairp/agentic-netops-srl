@@ -1,0 +1,82 @@
+{
+  "description": "A VLAN named from the allocation band 1000–4000 is the allocation authority's to hand out: refused at interpretation, both bands stated (AD-33, AD-41).",
+  "tasks": [
+    "T091",
+    "T098"
+  ],
+  "request_text": {
+    "vlan": "create a vlan {v} on leaf01 ethernet-1/1 for tenant blue",
+    "mac-vrf": "extend vlan {v} as a mac-vrf across leaf01 ethernet-1/1 and leaf02 ethernet-1/1 for tenant blue",
+    "ip-vrf": "an ip-vrf on leaf01 ethernet-1/1 vlan {v} for tenant blue advertising 10.50.0.0/24"
+  },
+  "vlans": [
+    1000,
+    1500,
+    4000
+  ],
+  "model_output": {
+    "vlan": {
+      "service_id": "",
+      "service_type": "vlan",
+      "tenant": "blue",
+      "endpoints": [
+        {
+          "site_or_node": "leaf01",
+          "attachment": "ethernet-1/1",
+          "vlan": null
+        }
+      ],
+      "missing_fields": [],
+      "unsupported_properties": []
+    },
+    "mac-vrf": {
+      "service_id": "",
+      "service_type": "mac-vrf",
+      "tenant": "blue",
+      "endpoints": [
+        {
+          "site_or_node": "leaf01",
+          "attachment": "ethernet-1/1",
+          "vlan": null
+        },
+        {
+          "site_or_node": "leaf02",
+          "attachment": "ethernet-1/1",
+          "vlan": null
+        }
+      ],
+      "missing_fields": [],
+      "unsupported_properties": []
+    },
+    "ip-vrf": {
+      "service_id": "",
+      "service_type": "ip-vrf",
+      "tenant": "blue",
+      "endpoints": [
+        {
+          "site_or_node": "leaf01",
+          "attachment": "ethernet-1/1",
+          "vlan": null
+        }
+      ],
+      "ipv4_prefixes": [
+        "10.50.0.0/24"
+      ],
+      "missing_fields": [],
+      "unsupported_properties": []
+    }
+  },
+  "expect": {
+    "outcome": "refuse",
+    "path": "endpoints[{i}].vlan",
+    "cause_contains": [
+      "100–999",
+      "1000–4000",
+      "allocation authority",
+      "lies in the allocation band 1000–4000"
+    ],
+    "schema_valid": true,
+    "allocator_calls": 0,
+    "claims_created": 0
+  }
+}

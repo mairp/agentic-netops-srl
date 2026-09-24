@@ -13,8 +13,14 @@
 #                            tier is changed and naming the shortfall (NFR-012)
 #   (the boundary step — rbac::boundary, T073: boundary applied, denial probes run)
 #   intent_tier::install     site-inventory (from the Fabric's spec.inventory, roles from
-#                            spec.nodes) → fabric-qualification copied from agentic-netops-system →
-#                            the four agent images built (image_build::build <name> <manifest dir>,
+#                            spec.nodes, fabricASN from spec.overlay: key inventory.json for the agents
+#                            and keys FABRIC_NODE_MAP / FABRIC_PORT_MAP / FABRIC_ASN for the translator
+#                            sidecar, formats in pkg/migration/site.go) → allocation-authority (keys
+#                            ALLOCATION_AUTHORITY, ALLOCATION_NAMESPACE, VLAN_POOL, VNI_POOL from
+#                            versions.lock.yaml allocationAuthority.kind and the Fabric's name) →
+#                            fabric-qualification copied from agentic-netops-system →
+#                            the four agent images and the translator sidecar's built
+#                            (image_build::build <name> <manifest dir>,
 #                            T169: content-hash tag, kind load, kustomization images override,
 #                            image ID into evidence) → the rendered manifests applied in groups:
 #                            workload NetworkPolicies + the analytics store (clickhouse) and the tier
@@ -84,7 +90,7 @@ INTENT_TIER_NETWORKS="networks.fabric.agentic-netops.io"
 INTENT_TIER_CORRELATION_LABEL="agentic-netops.io/correlation-id"
 INTENT_TIER_VAP="deny-tier-force-release"
 INTENT_TIER_CLAIM_ROLE="kuid-claimer"
-INTENT_TIER_IMAGES=(supervisor mapper allocator deployer)     # the ui image has no Deployment until T126
+INTENT_TIER_IMAGES=(supervisor mapper allocator deployer intent-translator)  # intent-translator: the deployer's sidecar (T097); the ui image has no Deployment until T126
 INTENT_TIER_AGENT_WORKLOADS=(supervisor mapper allocator deployer)
 INTENT_TIER_QUIESCE=(supervisor ui deployer)                  # the request-accepting workloads (AD-46)
 INTENT_TIER_STORE=(statefulset/clickhouse deployment/agent-otel-collector)
@@ -204,12 +210,40 @@ intent_tier::site_inventory() {
   fab="$(intent_tier::k get fabrics.fabric.agentic-netops.io -n "$INTENT_TIER_FABRIC_NS" -o json 2>/dev/null)" \
     || { log::error "intent tier: reading the Fabric in ${INTENT_TIER_FABRIC_NS} failed"; return 1; }
   [[ "$(jq '.items | length' <<<"$fab")" -gt 0 ]] || { log::error "intent tier: no Fabric in ${INTENT_TIER_FABRIC_NS}: site-inventory has nothing to be written from"; return 1; }
-  inv="$(jq -c '{nodes: [.items[] | (.spec.nodes // []) as $n | (.spec.inventory // [])[] | . as $e
+  jq -e '.items[0].spec.overlay.fabricASN | type == "number"' <<<"$fab" >/dev/null \
+    || { log::error "intent tier: the Fabric $(jq -r '.items[0].metadata.name' <<<"$fab") has no spec.overlay.fabricASN: every route target is rendered from it"; return 1; }
+  inv="$(jq -c '{fabricASN: .items[0].spec.overlay.fabricASN,
+      nodes: [.items[] | (.spec.nodes // []) as $n | (.spec.inventory // [])[] | . as $e
       | {name: .node, role: (first($n[] | select(.name == $e.node) | .role) // "unknown"),
          accessPorts: (.accessPorts // []), untaggedAccessPorts: (.untaggedAccessPorts // [])}]}' <<<"$fab")"
-  jq -n --arg ns "$INTENT_TIER_AGENTS_NS" --argjson l "$(intent_tier::_labels_json)" --arg inv "$inv" \
+  # The translator sidecar's three keys (pkg/migration/site.go): node → role, node → access ports, the ASN.
+  jq -n --arg ns "$INTENT_TIER_AGENTS_NS" --argjson l "$(intent_tier::_labels_json)" --argjson inv "$inv" \
     '{apiVersion: "v1", kind: "ConfigMap", metadata: {name: "site-inventory", namespace: $ns, labels: $l},
-      data: {"inventory.json": $inv}}' | intent_tier::_apply "ConfigMap ${INTENT_TIER_AGENTS_NS}/site-inventory ($(jq '.nodes | length' <<<"$inv") node(s), from the Fabric's spec.inventory)"
+      data: {"inventory.json": ($inv | tojson),
+             "FABRIC_NODE_MAP": ([$inv.nodes[] | {(.name): .role}] | add // {} | tojson),
+             "FABRIC_PORT_MAP": ([$inv.nodes[] | {(.name): .accessPorts}] | add // {} | tojson),
+             "FABRIC_ASN": ($inv.fabricASN | tostring)}}' \
+    | intent_tier::_apply "ConfigMap ${INTENT_TIER_AGENTS_NS}/site-inventory ($(jq '.nodes | length' <<<"$inv") node(s), fabricASN $(jq '.fabricASN' <<<"$inv"), from the Fabric's spec.inventory)"
+}
+
+# intent_tier::allocation_authority — ConfigMap allocation-authority: which authority the allocator
+# claims from (versions.lock.yaml allocationAuthority.kind, via gate::authority_kind), where its claims
+# live, and the Fabric's two pools (<fabric>-vlan, <fabric>-vni). The allocator takes it by envFrom.
+intent_tier::allocation_authority() {
+  local kind ns fab name
+  kind="$(gate::authority_kind)" || { log::error "intent tier: the allocation authority kind could not be read from versions.lock.yaml"; return 1; }
+  case "$kind" in
+    first-party) ns="agentic-netops-allocation" ;;
+    kuid) ns="kuid-system" ;;
+  esac
+  fab="$(intent_tier::k get fabrics.fabric.agentic-netops.io -n "$INTENT_TIER_FABRIC_NS" -o json 2>/dev/null)" \
+    || { log::error "intent tier: reading the Fabric in ${INTENT_TIER_FABRIC_NS} failed"; return 1; }
+  name="$(jq -r '.items[0].metadata.name // ""' <<<"$fab")"
+  [[ -n "$name" ]] || { log::error "intent tier: no Fabric in ${INTENT_TIER_FABRIC_NS}: allocation-authority has no pools to name"; return 1; }
+  jq -n --arg ns "$INTENT_TIER_AGENTS_NS" --argjson l "$(intent_tier::_labels_json)" --arg kind "$kind" --arg cns "$ns" --arg f "$name" \
+    '{apiVersion: "v1", kind: "ConfigMap", metadata: {name: "allocation-authority", namespace: $ns, labels: $l},
+      data: {ALLOCATION_AUTHORITY: $kind, ALLOCATION_NAMESPACE: $cns, VLAN_POOL: ($f + "-vlan"), VNI_POOL: ($f + "-vni")}}' \
+    | intent_tier::_apply "ConfigMap ${INTENT_TIER_AGENTS_NS}/allocation-authority (${kind} in ${ns}; pools ${name}-vlan, ${name}-vni)"
 }
 
 intent_tier::copy_qualification() {
@@ -339,6 +373,7 @@ intent_tier::capture_username() {
 intent_tier::install() {
   intent_tier::defaults || return 1
   intent_tier::site_inventory || return 1
+  intent_tier::allocation_authority || return 1
   intent_tier::copy_qualification || return 1
   intent_tier::build_images || return 1
   intent_tier::deploy_workloads || return 1

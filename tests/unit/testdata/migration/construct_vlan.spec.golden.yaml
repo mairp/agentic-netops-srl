@@ -1,0 +1,12 @@
+spec:
+  description: Service 1a2b3c4d5e6f701 (vlan)
+  vlans:
+  - name: vlan-1a2b3c4d5e6f701
+    vlan: 100
+  attachments:
+  - node: leaf01
+    attachment: ethernet-1/1
+    vlan: 100
+  - node: leaf02
+    attachment: ethernet-1/1
+    vlan: 100

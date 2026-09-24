@@ -38,7 +38,7 @@ pytestmark = pytest.mark.usefixtures("fresh_telemetry")
 
 PROMPT = ("Extend vlan 100 as a mac-vrf across leaf01 ethernet-1/1 and leaf02 ethernet-1/1 "
           "for tenant blue")
-REMOVAL = "Remove the mac-vrf of tenant blue on leaf01 ethernet-1/1 and leaf02 ethernet-1/1"
+REMOVAL = "Remove the mac-vrf migr-3f2b9c0d1e4a5b6 of tenant blue"
 
 
 class Rig:
@@ -144,7 +144,8 @@ async def test_decline_ends_cleanly_and_submits_nothing(rig: Rig, at: str,
     chunks = await rig.turn("decline", thread_id)
     assert finals(chunks)[-1]["status"] == "FAILED"
     assert "declined" in finals(chunks)[-1]["message"]
-    assert rig.workers.requests["deployer"] == []
+    # Nothing submitted: the deployer is only asked its read-only release gate (T101).
+    assert [r.operation for r in rig.workers.requests["deployer"]] == ["release_gate"]
     stage = "mapper" if at == "confirmation_1" else "allocator"
     assert stage_count(stage, "declined") == 1
     declines = [a for n, a in span_events(fresh_telemetry) if n == "audit.decline"]
@@ -375,7 +376,8 @@ async def test_a_removal_ending_provisioning_is_in_progress(rig: Rig) -> None:
     thread_id = await rig.to_approved(REMOVAL)
     assert (await rig.supervisor.state(thread_id))["operation"] == "remove"
     chunks = await rig.turn("confirm", thread_id)
-    assert rig.workers.requests["deployer"][0].operation == "remove"
+    # The status read of the first turn, then the removal after the second confirmation (T101).
+    assert [r.operation for r in rig.workers.requests["deployer"]] == ["status", "remove"]
     final = finals(chunks)[-1]
     assert final["status"] == "PROVISIONING"
     assert "removal in progress" in final["message"]

@@ -1,0 +1,63 @@
+// provenance: source=https://github.com/nokia/srlinux-yang-models version=v25.7.1 digest=sha256:4a540cf27c935c6c2b518f79c4dc237294fa356706a4276644c1d586355ebe78
+// Excerpt (T096, FR-099): the network-instance type identities of the pinned SR Linux model, and the
+// leaf that uses them — nothing else. Verbatim lines of the upstream file:
+//   repository  https://github.com/nokia/srlinux-yang-models
+//   tag         v25.7.1
+//   commit      badcf9977fe672437907cdae7daebb27a1361c36
+//   file        srlinux-yang-models/srl_nokia/models/network-instance/srl_nokia-network-instance.yang
+//   sha256      4a540cf27c935c6c2b518f79c4dc237294fa356706a4276644c1d586355ebe78 (the whole upstream file)
+//   lines       1-7, 85-121, 135-139 (the elided lines are marked "// …")
+// Read by pkg/migration/device_names_test.go (TestConstructNamesMatchDeviceModel). It is an excerpt,
+// not a compilable module.
+module srl_nokia-network-instance {
+  yang-version 1.1;
+
+  // namespace
+
+  namespace "urn:nokia.com:srlinux:net-inst:network-instance";
+  prefix srl_nokia-netinst;
+  // …
+  identity ni-type {
+    description
+      "Base type for network instance types.";
+  }
+
+  identity host {
+    base ni-type;
+    if-feature "srl-feat:host-network-instance";
+    description
+      "A special routing instances that refers to the hosts network instance (i.e. the network namespace of PID 1)";
+  }
+
+  identity default {
+    base ni-type;
+    description
+      "A special routing instance which acts as the 'default' routing instance for a network device.";
+  }
+
+  identity ip-vrf {
+    base ni-type;
+    description
+      "A private Layer 3 only routing instance.";
+  }
+
+  identity mac-vrf {
+    if-feature "srl-feat:bridged";
+    base ni-type;
+    description
+      "A private Layer 2 only switching instance.";
+  }
+
+  identity vpws {
+    if-feature "srl-feat:vpws";
+    base ni-type;
+    description
+      "A private Layer 2 point-to-point instance.";
+  }
+  // …
+      leaf type {
+        type identityref {
+          base ni-type;
+        }
+        default "default";
+  // …

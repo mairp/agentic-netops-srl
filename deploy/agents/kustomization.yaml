@@ -21,6 +21,8 @@ resources:
   - mapper.yaml
   - allocator.yaml
   - deployer.yaml
+  - mapper-catalogue.yaml
+  - supervisor-prompts.yaml
 # The worker cards the supervisor discovers at call time (FR-071): one JSON card per file, each equal to
 # `python -m provisioning.<worker>.card` (a unit test asserts it). A fixed name — the supervisor mounts
 # ConfigMap agent-cards — so no suffix hash.
@@ -41,10 +43,12 @@ configMapGenerator:
 # (ErrImageNeverPull) — never `latest`.
 images:
   - name: supervisor
-    newTag: "60f12851016fa4230877ba8cc3b0d0383c18df186940c0853e50d940aebb4b14"
+    newTag: "ccbd5616c436721c27b641db04275f99003eb024f0fbf3c8568df3eb097c576e"
   - name: mapper
-    newTag: "ceb252c833535687a1905ff39ab4904bda7bf8d649e42de6acbc979a5f4bfd3b"
+    newTag: "e3e13eaa9c957ba6a19b6cb75f087201d6d19d897eb8d1a7edf91c1f0589caa5"
   - name: allocator
-    newTag: "3e77b3e05fcfd01d7aaba71217904a2db31b7b2facb681d48af241cc22f1530d"
+    newTag: "b56b8edfa8a8c05c5a011edc7194381fd0d14ce659e3d9ccb53a03e0f82053b4"
   - name: deployer
-    newTag: "62547125674ca45078fddbe37641bd9447a625033f91374988897548dcd39b1d"
+    newTag: "0fdc8ec65bae84edb8bb45e20a2c44cb64528b044fba8b56ac871597b3e45012"
+  - name: intent-translator
+    newTag: "d0baddcfbcf69e74608d70a3a889d50e795622381066f2f523d80997085ccc67"

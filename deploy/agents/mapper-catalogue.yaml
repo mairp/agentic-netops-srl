@@ -1,0 +1,116 @@
+# provenance: source=first-party version=v0.1.0
+# The mapper's construct catalogue (T098; contracts/kubernetes-objects.md, construct-vocabulary.md):
+# the four constructs, their variables and examples, the input-only aliases and the unsupported
+# claims the mapper's prompt and refusals are built from. Mounted read-only into the mapper at
+# MAPPER_CATALOGUE_DIR=/etc/agentic-netops/mapper-catalogue. The value of catalogue.json is
+# byte-identical to agents/provisioning/mapper/catalogue.json, the packaged default (a unit test
+# asserts it): edit both together.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mapper-catalogue
+  namespace: agentic-netops-agents
+  labels:
+    app.kubernetes.io/name: mapper-catalogue
+    app.kubernetes.io/part-of: agentic-netops-intent-tier
+    agentic-netops.io/tier: intent
+data:
+  catalogue.json: |
+    {
+      "schema": "agentic-netops.mapper-catalogue/v1",
+      "constructs": [
+        {
+          "name": "vlan",
+          "description": "a local broadcast domain: a VLAN and the ports in it",
+          "variables": {
+            "tenant": "required",
+            "endpoints[].site_or_node": "required",
+            "endpoints[].attachment": "required",
+            "endpoints[].vlan": "optional; shared by every endpoint; named from 100-999, or omitted and one is allocated",
+            "acl": "optional"
+          },
+          "forbidden": ["l2vni", "l3vni", "route targets", "anycast gateway"],
+          "minimum_endpoints": 1,
+          "examples": [
+            "create a vlan 120 on leaf01 ethernet-1/1 for tenant acme",
+            "a local vlan on leaf01 ethernet-1/2 and leaf01 ethernet-1/3 for tenant blue"
+          ]
+        },
+        {
+          "name": "mac-vrf",
+          "description": "a VLAN extended over the fabric by an L2VNI with EVPN route targets",
+          "variables": {
+            "tenant": "required",
+            "endpoints[].site_or_node": "required",
+            "endpoints[].attachment": "required",
+            "endpoints[].vlan": "optional; shared by every endpoint; named from 100-999, or omitted and one is allocated",
+            "anycast_gateway": "optional; ipv4 and/or ipv6 address with prefix length; makes the mac-vrf route",
+            "acl": "optional"
+          },
+          "forbidden": ["l3vni without an anycast gateway", "route targets (derived)"],
+          "minimum_endpoints": 2,
+          "minimum_endpoints_with_gateway": 1,
+          "examples": [
+            "extend vlan 100 as a mac-vrf across leaf01 ethernet-1/1 and leaf02 ethernet-1/1 for tenant blue",
+            "a mac-vrf with anycast gateway 10.10.0.1/24 on leaf01 ethernet-1/1 for tenant blue"
+          ]
+        },
+        {
+          "name": "ip-vrf",
+          "description": "a routed instance: a VRF with an L3VNI and route targets",
+          "variables": {
+            "tenant": "required",
+            "endpoints[].site_or_node": "required",
+            "endpoints[].attachment": "required",
+            "endpoints[].vlan": "optional per endpoint; named from 100-999 for a tagged routed subinterface; omitted means the untagged subinterface, never allocated",
+            "ipv4_prefixes / ipv6_prefixes": "at least one prefix across both families",
+            "acl": "optional"
+          },
+          "forbidden": ["l2vni", "anycast gateway", "route targets (derived)"],
+          "minimum_endpoints": 1,
+          "examples": [
+            "an ip-vrf on leaf01 ethernet-1/1 vlan 200 for tenant initech advertising 10.50.0.0/24",
+            "route 10.60.0.0/24 for tenant blue on leaf02 ethernet-1/2 untagged"
+          ]
+        },
+        {
+          "name": "acl",
+          "description": "a filter bound to the attachment subinterfaces a service occupies",
+          "variables": {
+            "tenant": "required",
+            "endpoints[].site_or_node": "required",
+            "endpoints[].attachment": "required",
+            "endpoints[].vlan": "optional; names which existing subinterface to bind (a reference, either band)",
+            "acl.stage": "ingress | egress",
+            "acl.type": "ipv4 | ipv6",
+            "acl.rules[]": "name, priority 1-65534 (distinct, ascending first match), action permit|deny, protocol, prefixes, ports",
+            "acl.default_action": "optional permit | deny"
+          },
+          "forbidden": ["l2vni", "l3vni", "route targets", "anycast gateway"],
+          "minimum_endpoints": 1,
+          "examples": [
+            "permit ingress tcp 443 from 10.0.0.0/24 on leaf01 ethernet-1/1 vlan 100 for tenant acme, deny everything else"
+          ]
+        }
+      ],
+      "aliases": {
+        "l2vni": {"construct": "mac-vrf"},
+        "l3vni": {"construct": "ip-vrf"},
+        "accesslist": {"construct": "acl"},
+        "vpls": {"construct": "mac-vrf", "source_service_type": "VPLS"},
+        "vpws": {"construct": "mac-vrf", "source_service_type": "VPWS"},
+        "eline": {"construct": "mac-vrf", "source_service_type": "VPWS"},
+        "l3vpn": {"construct": "ip-vrf", "source_service_type": "L3VPN"},
+        "l2l3irb": {"construct": "mac-vrf", "source_service_type": "L2L3-IRB"},
+        "irb": {"construct": "mac-vrf", "source_service_type": "L2L3-IRB"}
+      },
+      "unsupported_claims": [
+        {"name": "traffic engineering", "patterns": ["traffic[- ]engineering", "\\bte[- ](?:policy|path|tunnel)\\b", "\\bsr-te\\b"]},
+        {"name": "pseudowire OAM", "patterns": ["pseudo-?wire oam", "\\bpw[- ]oam\\b"]},
+        {"name": "control word", "patterns": ["control[- ]word"]},
+        {"name": "multicast VPN", "patterns": ["\\bmvpn\\b", "multicast vpn", "\\bmulticast\\b"]},
+        {"name": "complex QoS", "patterns": ["\\bqos\\b", "quality of service", "traffic shaping", "\\bpolicer\\b"]},
+        {"name": "service chaining", "patterns": ["service[- ]chain"]},
+        {"name": "raw device CLI", "patterns": ["\\braw (?:device )?cli\\b", "\\bcli command"]}
+      ]
+    }

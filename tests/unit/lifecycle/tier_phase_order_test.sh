@@ -8,13 +8,16 @@
 #
 #   O1  clickhouse and agent-otel-collector are applied and waited Ready AFTER the denial probes and
 #       BEFORE the first apply of any agent workload (supervisor, mapper, allocator, deployer); slim
-#       between them; the four images built before any agent workload; ui neither built nor applied
+#       between them; the four agent images and the translator sidecar's (intent-translator) built
+#       before any agent workload; ui neither built nor applied
 #   O2  a store that never becomes Ready stops the phase non-zero with no agent workload applied
 #       (and a collector that never becomes Ready likewise)
 #   O3  failing denial probes: nothing of the tier's workloads applied
 #   O4  the preflight: the fabric threshold plus the requests SUMMED from the manifests (never typed:
 #       a fixture change moves the named sum); a shortfall fails before any mutation, naming it
-#   O5  site-inventory written from the Fabric's inventory (roles joined from spec.nodes);
+#   O5  site-inventory written from the Fabric's inventory (roles joined from spec.nodes, fabricASN
+#       from spec.overlay) with the translator sidecar's FABRIC_NODE_MAP / FABRIC_PORT_MAP / FABRIC_ASN;
+#       allocation-authority (the lock's authority kind, its claim namespace, the Fabric's two pools);
 #       fabric-qualification copied from agentic-netops-system
 #   O6  the supervisor published on 127.0.0.1 only: NodePort 30990 asserted, the URL stated; a
 #       different NodePort fails the phase
@@ -110,7 +113,7 @@ setup() { # <case>
   fakes::k8s "$CL" "$AG" secret operator-credentials "$CL" \
     "$(jq -cn --arg u "$(printf operator | base64)" --arg p "$(printf '%s' "$OPW" | base64)" '{data: {username: $u, password: $p}}')"
   tier_fakes::obj "$CL" "$SYS" fabric '{"apiVersion":"fabric.agentic-netops.io/v1alpha1","kind":"Fabric","metadata":{"name":"fabric01","namespace":"agentic-netops-system"},
-    "spec":{"nodes":[{"name":"leaf01","role":"leaf"},{"name":"leaf02","role":"leaf"},{"name":"spine01","role":"spine"}],
+    "spec":{"overlay":{"fabricASN":65000},"nodes":[{"name":"leaf01","role":"leaf"},{"name":"leaf02","role":"leaf"},{"name":"spine01","role":"spine"}],
             "inventory":[{"node":"leaf01","accessPorts":["ethernet-1/1","ethernet-1/2"],"untaggedAccessPorts":["ethernet-1/2"],"fabricPorts":["ethernet-1/49"]},
                          {"node":"leaf02","accessPorts":["ethernet-1/1"],"fabricPorts":["ethernet-1/49"]},
                          {"node":"spine01","accessPorts":[],"fabricPorts":["ethernet-1/1"]}]}}'
@@ -154,15 +157,19 @@ check "O1 …both waited Ready BEFORE the first apply of any agent workload" 'lt
 check "O1 slim (the transport) comes after the store is Ready and before the agents" 'lt "$w_ch" "$a_slim" && lt "$a_slim" "$a_agent"'
 check "O1 every agent workload is applied (supervisor, mapper, allocator, deployer)" \
   '[[ "$(grep -cE "$AGENT_APPLY" "$FAKE_STATE/calls.log")" -eq 4 ]]'
-check "O1 the four images are built through image_build::build <name> <kustomization dir> before any agent workload" \
-  '[[ "$(grep -c "^BUILD .* $MAN$" "$FAKE_STATE/calls.log")" -eq 4 ]] && lt "$(line_of "^BUILD deployer")" "$a_agent" && lt "$p" "$(line_of "^BUILD")"'
+check "O1 the four agent images and the translator sidecar's are built through image_build::build <name> <kustomization dir> before any agent workload" \
+  '[[ "$(grep -c "^BUILD .* $MAN$" "$FAKE_STATE/calls.log")" -eq 5 ]] && grep -q "^BUILD intent-translator $MAN$" "$FAKE_STATE/calls.log" && lt "$(line_of "^BUILD deployer")" "$a_agent" && lt "$(line_of "^BUILD intent-translator")" "$a_agent" && lt "$p" "$(line_of "^BUILD")"'
 check "O1 ui is neither built nor applied (no Deployment until T126)" '! grep -qE "^BUILD ui|APPLY Deployment/ui" "$FAKE_STATE/calls.log"'
 check "O1 the agents are waited Ready" 'grep -qE "rollout status deployment/supervisor" "$FAKE_STATE/calls.log" && grep -qE "rollout status deployment/deployer" "$FAKE_STATE/calls.log"'
 
 # ================================================================== O5 — site inventory, qualification
 check "O5 site-inventory is applied after the probes" 'lt "$p" "$(line_of "^APPLY ConfigMap/site-inventory$")"'
 check "O5 site-inventory inventory.json is derived from the Fabric's spec.inventory with roles from spec.nodes" \
-  '[[ "$(cm site-inventory inventory.json | jq -cS .)" == "$(jq -cS . <<<"{\"nodes\":[{\"name\":\"leaf01\",\"role\":\"leaf\",\"accessPorts\":[\"ethernet-1/1\",\"ethernet-1/2\"],\"untaggedAccessPorts\":[\"ethernet-1/2\"]},{\"name\":\"leaf02\",\"role\":\"leaf\",\"accessPorts\":[\"ethernet-1/1\"],\"untaggedAccessPorts\":[]},{\"name\":\"spine01\",\"role\":\"spine\",\"accessPorts\":[],\"untaggedAccessPorts\":[]}]}")" ]]'
+  '[[ "$(cm site-inventory inventory.json | jq -cS .)" == "$(jq -cS . <<<"{\"fabricASN\":65000,\"nodes\":[{\"name\":\"leaf01\",\"role\":\"leaf\",\"accessPorts\":[\"ethernet-1/1\",\"ethernet-1/2\"],\"untaggedAccessPorts\":[\"ethernet-1/2\"]},{\"name\":\"leaf02\",\"role\":\"leaf\",\"accessPorts\":[\"ethernet-1/1\"],\"untaggedAccessPorts\":[]},{\"name\":\"spine01\",\"role\":\"spine\",\"accessPorts\":[],\"untaggedAccessPorts\":[]}]}")" ]]'
+check "O5 site-inventory carries the translator sidecar's FABRIC_NODE_MAP (node → role), FABRIC_PORT_MAP (node → access ports) and FABRIC_ASN" \
+  '[[ "$(cm site-inventory FABRIC_NODE_MAP | jq -cS .)" == "{\"leaf01\":\"leaf\",\"leaf02\":\"leaf\",\"spine01\":\"spine\"}" && "$(cm site-inventory FABRIC_PORT_MAP | jq -cS .)" == "{\"leaf01\":[\"ethernet-1/1\",\"ethernet-1/2\"],\"leaf02\":[\"ethernet-1/1\"],\"spine01\":[]}" && "$(cm site-inventory FABRIC_ASN)" == "65000" ]]'
+check "O5 allocation-authority names the lock's authority, its claim namespace and the Fabric's two pools, before any agent workload" \
+  '[[ "$(jq -cS .data "$FAKE_STATE/k8s/$CL/$AG/configmap/allocation-authority.json")" == "$(jq -cS . <<<"{\"ALLOCATION_AUTHORITY\":\"$(yq -r .allocationAuthority.kind "$ROOT/versions.lock.yaml")\",\"ALLOCATION_NAMESPACE\":\"$( [[ "$(yq -r .allocationAuthority.kind "$ROOT/versions.lock.yaml")" == kuid ]] && echo kuid-system || echo agentic-netops-allocation)\",\"VLAN_POOL\":\"fabric01-vlan\",\"VNI_POOL\":\"fabric01-vni\"}")" ]] && lt "$(line_of "^APPLY ConfigMap/allocation-authority$")" "$a_agent"'
 check "O5 fabric-qualification is copied from agentic-netops-system into agentic-netops-agents, data unchanged" \
   '[[ "$(jq -cS .data "$FAKE_STATE/k8s/$CL/$AG/configmap/fabric-qualification.json")" == "$(jq -cS .data "$FAKE_STATE/k8s/$CL/$SYS/configmap/fabric-qualification.json")" ]]'
 

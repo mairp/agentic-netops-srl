@@ -1,0 +1,9 @@
+{
+  "serviceId": "5f7b9d1e3a4c6d8",
+  "type": "vlan",
+  "tenant": "acme",
+  "endpoints": [
+    {"node": "leaf01", "attachment": "ethernet-1/1", "vlan": 50},
+    {"node": "leaf02", "attachment": "ethernet-1/1", "vlan": 50}
+  ]
+}

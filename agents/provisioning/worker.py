@@ -34,6 +34,7 @@ from common.transport import (
     StageMessage,
     Transport,
     WorkerHandler,
+    check_transport_auth,
     reply_failed,
     serve,
 )
@@ -85,6 +86,7 @@ def create_worker_app(card: dict[str, Any], *, settings: Settings | None = None,
     handler = handler or not_implemented_handler(worker)
     factory = backend_factory or (lambda: SlimTransport(settings, parsed.id))
     state = WorkerState()
+    recheck_seconds = float(os.environ.get("SLIM_REGISTRATION_CHECK_SECONDS", "30"))
     inputs = {
         "site-inventory": settings.site_inventory_dir,
         "fabric-qualification": settings.fabric_qualification_dir,
@@ -105,6 +107,8 @@ def create_worker_app(card: dict[str, Any], *, settings: Settings | None = None,
                 state.last_error = None
                 log.info("%s registered on %s at %s as %s", worker, "SLIM",
                          settings.transport_endpoint, parsed.id)
+                if recheck_seconds > 0 and hasattr(backend, "echo_probe"):
+                    app.state.watchdog = asyncio.create_task(watchdog(backend))
                 return
             except TransportAuthenticationError as exc:
                 state.last_error = f"transport authentication refused: {exc}"
@@ -117,6 +121,26 @@ def create_worker_app(card: dict[str, Any], *, settings: Settings | None = None,
             await sleep(delay)
             delay = min(delay * 2, BACKOFF_CAP_SECONDS)
 
+    async def watchdog(backend: Transport) -> None:
+        """Re-prove the registration every ``SLIM_REGISTRATION_CHECK_SECONDS`` (default 30 s):
+        the gateway can lose a subscription — a restarted gateway, or a departing pod of the same
+        card id taking the shared subscription with it — and a worker that no longer receives
+        must say so on ``/v1/health`` and register again, never sit silently unreachable."""
+        while state.registered:
+            await asyncio.sleep(recheck_seconds)
+            try:
+                await check_transport_auth(backend, parsed.topic,
+                                           timeout=settings.transport_auth_check_seconds)
+            except Exception as exc:
+                state.registered = False
+                state.backend = None
+                state.last_error = f"transport registration lost: {exc}"
+                log.warning("%s: %s; registering again", worker, state.last_error)
+                with contextlib.suppress(Exception):
+                    await backend.close()
+                await register_loop()
+                return
+
     @contextlib.asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         task = asyncio.create_task(register_loop())
@@ -127,6 +151,11 @@ def create_worker_app(card: dict[str, Any], *, settings: Settings | None = None,
             task.cancel()
             with contextlib.suppress(asyncio.CancelledError, Exception):
                 await task
+            dog = getattr(app.state, "watchdog", None)
+            if dog is not None:
+                dog.cancel()
+                with contextlib.suppress(asyncio.CancelledError, Exception):
+                    await dog
             if state.backend is not None:
                 with contextlib.suppress(Exception):
                     await state.backend.close()
@@ -166,8 +195,10 @@ def create_worker_app(card: dict[str, Any], *, settings: Settings | None = None,
     return app
 
 
-def run(card: dict[str, Any]) -> None:
-    """The entry point of ``python -m provisioning.<worker>.server``."""
+def run(card: dict[str, Any], *,
+        handler_factory: Callable[[Settings], WorkerHandler] | None = None) -> None:
+    """The entry point of ``python -m provisioning.<worker>.server``; ``handler_factory`` builds
+    the stage handler from the settings (absent: the not-implemented stub)."""
     import uvicorn
 
     worker = Card.from_dict(card).worker
@@ -176,5 +207,7 @@ def run(card: dict[str, Any]) -> None:
     from common.telemetry import init_telemetry
 
     init_telemetry(worker, endpoint=settings.otlp_endpoint)
-    uvicorn.run(create_worker_app(card, settings=settings), host="0.0.0.0",  # noqa: S104
+    handler = handler_factory(settings) if handler_factory is not None else None
+    uvicorn.run(create_worker_app(card, settings=settings, handler=handler),
+                host="0.0.0.0",  # noqa: S104
                 port=settings.port, log_config=None)

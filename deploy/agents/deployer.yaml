@@ -1,8 +1,12 @@
 # provenance: source=first-party version=v0.1.0
 # The deployer worker (T087; C-14 server shell; FR-071, FR-074; contracts/kubernetes-objects.md).
-# One replica; registers on SLIM under card devnet/provisioning/network-deployer. ONLY the deployer
-# container in User Story 7: the translator sidecar (image intent-translator, loopback 8090) arrives
-# with User Story 4 — its image is pending in versions.lock.yaml and is not referenced here.
+# One replica; registers on SLIM under card devnet/provisioning/network-deployer. Two containers: the
+# deployer, and the translator sidecar intent-translator (T097; contracts/translator-api.md) bound to
+# 127.0.0.1:8090 — pod-local only, reached by the deployer at TRANSLATOR_URL, with NO Service and NO
+# NetworkPolicy allowance (the cross-pod policy stays deny-all for it). The sidecar reads the site
+# inventory and the fabric ASN from ConfigMap site-inventory keys FABRIC_NODE_MAP, FABRIC_PORT_MAP and
+# FABRIC_ASN (written by scripts/lib/intent_tier.sh; formats in pkg/migration/site.go); its probes are
+# exec probes (busybox wget against its own loopback), because the kubelet cannot reach 127.0.0.1.
 # Probes: liveness GET /health (trivial) vs readiness GET /v1/health. Mounted read-only: llm-provider
 # (volume only, FR-106, AD-67), slim-gateway + the CA of slim-tls, site-inventory and
 # fabric-qualification. It KEEPS its service-account token: intent-deployer is the service-intent writer
@@ -20,6 +24,10 @@ metadata:
     agentic-netops.io/identity: intent-deployer
 spec:
   replicas: 1
+  # Recreate: the old pod's SLIM connection is gone before the new one registers the same card id —
+  # a rolling update let the departing pod take the shared subscription with it (observed, phase 7).
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app.kubernetes.io/name: deployer
@@ -71,6 +79,9 @@ spec:
         # data-model.md §25: the convergence watch this worker owns.
         - name: DEPLOYER_CONVERGENCE_TIMEOUT_SECONDS
           value: "150"
+        # The translator sidecar in this pod (translator-api.md): loopback, never a Service.
+        - name: TRANSLATOR_URL
+          value: "http://127.0.0.1:8090"
         ports:
         - name: http
           containerPort: 9093
@@ -121,6 +132,54 @@ spec:
         - name: fabric-qualification
           mountPath: /etc/agentic-netops/fabric-qualification
           readOnly: true
+      - name: intent-translator
+        # The same 64-zero sentinel as the deployer's: kustomization.yaml's images: override carries the
+        # content-hash tag scripts/lib/image_build.sh writes (versions.lock.yaml firstPartyImages).
+        image: intent-translator:0000000000000000000000000000000000000000000000000000000000000000
+        imagePullPolicy: Never
+        args: ["--listen", "127.0.0.1:8090"]
+        env:
+        - name: FABRIC_NODE_MAP
+          valueFrom:
+            configMapKeyRef:
+              name: site-inventory
+              key: FABRIC_NODE_MAP
+        - name: FABRIC_PORT_MAP
+          valueFrom:
+            configMapKeyRef:
+              name: site-inventory
+              key: FABRIC_PORT_MAP
+        - name: FABRIC_ASN
+          valueFrom:
+            configMapKeyRef:
+              name: site-inventory
+              key: FABRIC_ASN
+        livenessProbe:
+          exec:
+            command: ["wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8090/healthz"]
+          initialDelaySeconds: 5
+          periodSeconds: 20
+          timeoutSeconds: 5
+          failureThreshold: 6
+        readinessProbe:
+          exec:
+            command: ["wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8090/healthz"]
+          initialDelaySeconds: 2
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        resources:
+          requests:
+            cpu: 10m
+            memory: 32Mi
+          limits:
+            cpu: "200m"
+            memory: 128Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: [ALL]
       volumes:
       - name: tmp
         emptyDir:

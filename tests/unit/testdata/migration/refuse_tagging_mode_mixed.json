@@ -1,0 +1,12 @@
+{
+  "serviceId": "8c0e2a4b6d7f9a1",
+  "type": "ip-vrf",
+  "tenant": "initech",
+  "routeTargets": {"importRT": ["target:65000:10022"], "exportRT": ["target:65000:10022"]},
+  "l3vni": 10022,
+  "addressFamilies": {"ipv4Prefixes": ["10.50.0.0/24"]},
+  "endpoints": [
+    {"node": "leaf01", "attachment": "ethernet-1/1", "vlan": 200, "vrf": "vrf-8c0e2a4b6d7f9a1"},
+    {"node": "leaf01", "attachment": "ethernet-1/1", "vrf": "vrf-8c0e2a4b6d7f9a1"}
+  ]
+}
