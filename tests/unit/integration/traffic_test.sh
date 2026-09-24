@@ -15,7 +15,7 @@ set -euo pipefail
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../../.." && pwd)"
 SUT="$ROOT/tests/integration/traffic.sh"
 T="$(mktemp -d)"
-trap 'rm -rf "$T"' EXIT
+trap '[[ -n "${KEEP:-}" ]] || rm -rf "$T"' EXIT
 pass=0 fail=0
 ok()  { pass=$((pass + 1)); printf 'PASS %s\n' "$1"; }
 bad() { fail=$((fail + 1)); printf 'FAIL %s\n' "$1"; [[ -n "${2:-}" ]] && printf '%s\n' "$2" | tail -n 15 | while IFS= read -r l; do printf '    | %s\n' "$l"; done; return 0; }
@@ -44,6 +44,11 @@ case "$1" in
       *"addr del "*) a="$(echo "${a#* addr del }" | awk '{print $1" "$3}')"; grep -vxF "$a" "$FAKE/addrs.$c" >"$FAKE/tmp" || true; mv "$FAKE/tmp" "$FAKE/addrs.$c" ;;
       "ip addr show dev "*|"ip -6 addr show dev "*) awk -v d="${*##* }" '$2 == d {print "    inet " $1 " scope global"}' "$FAKE/addrs.$c" 2>/dev/null ;;
       *"route show "*) exit 0 ;;
+      "ip -"?" neigh show "*)   # the anycast gateway resolves on the gateway service's subinterface only
+        dst="$5"; dev="$7"
+        case "$dst:$dev" in
+          10.160.0.1:eth1.160|2001:db8:160::1:eth1.160) echo "$dst lladdr ${FAKE_GW_MAC:-00:00:5e:00:01:01} REACHABLE" ;;
+        esac ;;
       *) exit 0 ;;
     esac ;;
 esac
@@ -78,6 +83,8 @@ lim=9320; [[ "$fam" == 6 ]] && lim=9300
 rx=0
 case "$dst" in
   10.120.0.12|2001:db8:120::12|10.130.2.10|2001:db8:130:2::10) rx="$cnt" ;;
+  10.160.0.1|2001:db8:160::1|10.160.0.12|2001:db8:160::12) [[ -z "${FAKE_NO_GW:-}" ]] && rx="$cnt" ;;
+  10.110.0.1|10.199.0.1) [[ -n "${FAKE_GW_EVERYWHERE:-}" ]] && rx="$cnt" ;;
   10.140.2.10|2001:db8:140:2::10)   # unanswered while a host route steers it into lab-ipvrf-a
     grep -E "route (add|del) ${dst}/" "$FAKE/calls" | tail -1 | grep -q "route add" || rx="$cnt" ;;
 esac
@@ -99,7 +106,7 @@ case "$path" in
   "/network-instance[name="*"]/oper-state")
     case "$path" in *lab-macvrf*|*lab-ipvrf-a*|*lab-ipvrf-b*) [[ $leaf == 1 ]] && upd '"up"' || none ;; *) none ;; esac ;;
   "/interface[name=ethernet-1/1]/subinterface[index="*"]/statistics")
-    case "$path" in *index=120*|*index=130*|*index=140*) ;; *) none; exit 0 ;; esac
+    case "$path" in *index=120*|*index=130*|*index=140*|*index=160*) ;; *) none; exit 0 ;; esac
     [[ $leaf == 1 ]] || { none; exit 0; }
     f="$FAKE/ctr.${addr%%:*}"; n=$(( $(cat "$f" 2>/dev/null || echo 100) + 10 )); echo "$n" >"$f"
     upd "{\"in-packets\":\"$n\",\"out-packets\":\"$n\"}" ;;
@@ -190,6 +197,33 @@ if [[ $rc -eq 3 ]] && [[ -z "$(find "$EV" -maxdepth 1 -name 'TR.1.*' 2>/dev/null
 # --- one byte over the boundary getting through: the over-boundary check fails
 reset; run env FAKE_OVER=1 bash "$SUT" _unreach client01 4 10.130.2.10 9321
 [[ $rc -ne 0 ]] && ok "over-boundary payload answered: the TR-mtu-over check fails" || bad "over-boundary must fail (rc=$rc)" "$out"
+# --- the anycast-gateway case (T118, US8 scenario 1): its own mode over lab-macvrf-gateway
+reset; run bash "$SUT" _gwmac client01 160 10.160.0.1 00:00:5e:00:01:01
+[[ $rc -eq 0 && "$out" == *"lladdr: 00:00:5e:00:01:01"* ]] && ok "_gwmac: the gateway resolves to the anycast MAC" || bad "_gwmac anycast MAC" "$out"
+reset; run env FAKE_GW_MAC=aa:bb:cc:00:00:01 bash "$SUT" _gwmac client01 160 10.160.0.1 00:00:5e:00:01:01
+[[ $rc -ne 0 ]] && ok "_gwmac: a gateway answering with another MAC fails" || bad "_gwmac other MAC must fail" "$out"
+reset; run bash "$SUT" _gwmac client01 199 10.199.0.1 00:00:5e:00:01:01
+[[ $rc -ne 0 ]] && ok "_gwmac: no neighbour entry fails" || bad "_gwmac no entry must fail" "$out"
+reset; run env RUNS=1 bash "$SUT" gateway
+if [[ $rc -eq 0 && "$out" == *"traffic suite (gateway) passed: 1 consecutive clean runs"* ]]; then ok "gateway: a clean run"; else bad "gateway: clean run (rc=$rc)" "$out"; fi
+nc_ok=1
+for c in TR-instance TR-gw-reach TR-gw-mac; do
+  n="$(jq -s --arg c "$c" '[.[] | select(.check_id == $c and .kind == "negative_control" and .negative_control_failed == true)] | length' "$EV"/*.json 2>/dev/null || echo 0)"
+  [[ "$n" -ge 1 ]] || { nc_ok=0; echo "    | no failing negative control for $c"; }
+done
+[[ $nc_ok == 1 ]] && ok "gateway: every check has a failing negative control recorded" || bad "gateway: negative controls"
+for c in client01 client02; do
+  for gw in "-4 .*10.160.0.1$" "-6 .*2001:db8:160::1$"; do
+    grep -qE -- "$gw" "$T/fake/pings" || { bad "gateway: $c probe $gw missing"; continue 2; }
+  done
+done
+grep -q "client02 sh /setup.sh 160" "$T/fake/calls" && ok "gateway: probed in both families from both attached ports" || bad "gateway: setup.sh 160 on client02"
+[[ -z "$(find "$EV" -maxdepth 1 -name 'TR.1.TR-gw-*' 2>/dev/null | head -1)" ]] && bad "gateway: no TR-gw pass recorded" || ok "gateway: TR-gw-reach / TR-gw-mac passes recorded"
+reset; run env FAKE_NO_GW=1 RUNS=1 bash "$SUT" gateway
+[[ $rc -eq 1 && "$out" == *"anycast gateway 10.160.0.1 answers"* ]] && ok "gateway: an unanswered gateway fails the suite, named" || bad "gateway: unanswered gateway must fail (rc=$rc)" "$out"
+reset; run env FAKE_GW_EVERYWHERE=1 RUNS=1 bash "$SUT" gateway
+if [[ $rc -eq 3 ]] && [[ -z "$(find "$EV" -maxdepth 1 -name 'TR.1.*' 2>/dev/null)" ]]; then ok "gateway: a gateway answering where no service has one refuses (exit 3), no pass run"; else bad "gateway: answering negative control must refuse (rc=$rc)" "$out"; fi
+
 # shellcheck disable=SC2016 # the literal default assignment is what is searched for
 grep -q "RUNS (3)" "$SUT" && grep -qF ': "${RUNS:=3}"' "$SUT" && ok "the suite's default is three consecutive runs" || bad "RUNS default"
 

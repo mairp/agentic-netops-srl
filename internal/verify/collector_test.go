@@ -372,12 +372,15 @@ func TestCollectorServicesDownCapture(t *testing.T) {
 func TestDecodeTablesMatchCollectorConfig(t *testing.T) {
 	cfg := renderCollectorConfig(t)
 	leaves := map[string][]string{
-		"session-state-to-int": {"session-state"},
-		"oper-state-to-int":    {"oper-state"},
-		"active-to-int":        {"active"},
-		"acl-bool-to-int":      {"programming-complete", "incomplete"},
-		"reason-to-int":        {"oper-down-reason", "not-programmed-reason"},
-		"origin-to-int":        {"route-distinguisher-origin", "export-route-target-origin", "import-route-target-origin"},
+		"session-state-to-int":  {"session-state"},
+		"oper-state-to-int":     {"oper-state"},
+		"active-to-int":         {"active"},
+		"acl-bool-to-int":       {"programming-complete", "incomplete"},
+		"rib-bool-to-int":       {"used-route"},
+		"address-status-to-int": {"status"},
+		"anycast-origin-to-int": {"anycast-gw-mac-origin"},
+		"reason-to-int":         {"oper-down-reason", "not-programmed-reason"},
+		"origin-to-int":         {"route-distinguisher-origin", "export-route-target-origin", "import-route-target-origin"},
 	}
 	proc := regexp.MustCompile(`^      ([a-z-]+):$`)
 	repl := regexp.MustCompile(`replace: \{apply-on: value, old: "\^(.*)\$", new: "(\d+)"\}`)
@@ -416,10 +419,14 @@ func TestDecodeTablesMatchCollectorConfig(t *testing.T) {
 		t.Errorf("table sizes differ: reasons %d rendered / %d decoded, origins %d / %d",
 			seen["reason-to-int"], len(reasons), seen["origin-to-int"], len(origins))
 	}
+	if seen["address-status-to-int"] != len(addressStatuses) || seen["anycast-origin-to-int"] != len(anycastOrigins) {
+		t.Errorf("table sizes differ: address statuses %d rendered / %d decoded, anycast origins %d / %d",
+			seen["address-status-to-int"], len(addressStatuses), seen["anycast-origin-to-int"], len(anycastOrigins))
+	}
 	// the uint64 indexes are converted to integers or never exported
 	for _, v := range []string{`".*destination-index$"`, `".*vtep/index$"`, `".*oper-down-reason$"`, `".*not-programmed-reason$"`,
 		`".*route-distinguisher-origin$"`, `".*route-target-origin$"`, `".*/programming-complete$"`, `".*/statistics/incomplete$"`,
-		`".*/statistics/matched-packets$"`} {
+		`".*/statistics/matched-packets$"`, `".*/used-route$"`, `".*address/status$"`, `".*anycast-gw-mac-origin$"`} {
 		if !strings.Contains(cfg[strings.Index(cfg, "state-as-int:"):], v) {
 			t.Errorf("state-as-int does not convert %s", v)
 		}
@@ -566,5 +573,57 @@ func TestCollectorUnreachableByFreshness(t *testing.T) {
 	dead := &CollectorReader{URL: "http://127.0.0.1:1/metrics"}
 	if _, err := dead.Unreachable(context.Background(), []string{"leaf01"}, 12*time.Second, now); err == nil || !strings.Contains(err.Error(), "could not be read") {
 		t.Errorf("an unreadable collector is an error, got %v", err)
+	}
+}
+
+// gatewayExposition is the anycast-gateway series in the collector's naming (T116): leaf01's
+// view of lab-macvrf-gateway (VLAN 130, L3VNI 10131) as observed live 2026-09-24 on SR Linux
+// 25.7.1 — irb0.130 up, its anycast-gw MAC origin vrid-auto-derived, both anycast addresses
+// preferred (a link-local address beside them), and leaf02's Type-5 routes in the EVPN RIB,
+// one path per spine, the one via 10.0.0.11 used.
+const gatewayExposition = `srl_nokia_interfaces:interface_subinterface_oper_state{interface_name="irb0",subinterface_index="130",source="leaf01",subscription_name="device-state"} 1
+srl_nokia_interfaces:interface_subinterface_anycast_gw_anycast_gw_mac_origin{interface_name="irb0",subinterface_index="130",source="leaf01",subscription_name="device-state"} 2
+srl_nokia_interfaces:interface_subinterface_ipv4_address_status{address_ip_prefix="10.30.0.1/24",interface_name="irb0",subinterface_index="130",source="leaf01",subscription_name="device-state"} 1
+srl_nokia_interfaces:interface_subinterface_ipv6_address_status{address_ip_prefix="2001:db8:30::1/64",interface_name="irb0",subinterface_index="130",source="leaf01",subscription_name="device-state"} 1
+srl_nokia_interfaces:interface_subinterface_ipv6_address_status{address_ip_prefix="fe80::1:1ff:feff:41/64",interface_name="irb0",subinterface_index="130",source="leaf01",subscription_name="device-state"} 1
+srl_nokia_network_instance:network_instance_srl_nokia_rib_bgp:bgp_rib_afi_safi_srl_nokia_rib_bgp_evpn:evpn_rib_in_out_rib_in_post_ip_prefix_route_used_route{afi_safi_afi_safi_name="srl_nokia-common:evpn",ip_prefix_route_ethernet_tag_id="0",ip_prefix_route_ip_prefix="10.30.0.0/24",ip_prefix_route_ip_prefix_length="24",ip_prefix_route_neighbor="10.0.0.11",ip_prefix_route_path_id="0",ip_prefix_route_route_distinguisher="10.0.0.2:10131",network_instance_name="default",source="leaf01",subscription_name="device-state"} 1
+srl_nokia_network_instance:network_instance_srl_nokia_rib_bgp:bgp_rib_afi_safi_srl_nokia_rib_bgp_evpn:evpn_rib_in_out_rib_in_post_ip_prefix_route_used_route{afi_safi_afi_safi_name="srl_nokia-common:evpn",ip_prefix_route_ethernet_tag_id="0",ip_prefix_route_ip_prefix="10.30.0.0/24",ip_prefix_route_ip_prefix_length="24",ip_prefix_route_neighbor="10.0.0.12",ip_prefix_route_path_id="0",ip_prefix_route_route_distinguisher="10.0.0.2:10131",network_instance_name="default",source="leaf01",subscription_name="device-state"} 0
+srl_nokia_network_instance:network_instance_srl_nokia_rib_bgp:bgp_rib_afi_safi_srl_nokia_rib_bgp_evpn:evpn_rib_in_out_rib_in_post_ip_prefix_route_used_route{afi_safi_afi_safi_name="srl_nokia-common:evpn",ip_prefix_route_ethernet_tag_id="0",ip_prefix_route_ip_prefix="2001:db8:30::/64",ip_prefix_route_ip_prefix_length="64",ip_prefix_route_neighbor="10.0.0.11",ip_prefix_route_path_id="0",ip_prefix_route_route_distinguisher="10.0.0.2:10131",network_instance_name="default",source="leaf01",subscription_name="device-state"} 1
+`
+
+// TestCollectorGatewaySeries: every gateway read-back path resolves to its keyed instance
+// through the collector's labels — an ip-prefix key carrying a '/', an IPv6 prefix, the
+// identityref afi-safi key — decoded back to the device's strings; the used-route of every
+// path of a route is read (one true is enough), and a route distinguisher or prefix the RIB
+// does not hold is absent.
+func TestCollectorGatewaySeries(t *testing.T) {
+	samples, err := ParseExposition(strings.NewReader(gatewayExposition))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := MatchState(samples, []string{
+		SubinterfaceOperStatePath("irb0", 130),
+		AnycastGWMACOriginPath("irb0", 130),
+		AddressStatusPath("irb0", 130, "10.30.0.1/24"),
+		AddressStatusPath("irb0", 130, "2001:db8:30::1/64"),
+		Type5UsedRoutePath("10.0.0.2:10131", "10.30.0.0/24"),
+		Type5UsedRoutePath("10.0.0.2:10131", "2001:db8:30::/64"),
+		Type5UsedRoutePath("10.0.0.1:10131", "10.30.0.0/24"), // leaf01's own RD: absent
+		Type5UsedRoutePath("10.0.0.2:10131", "10.31.0.0/24"), // another prefix: absent
+		AddressStatusPath("irb0", 130, "2001:db8:31::1/64"),  // not configured: absent
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string][]string{
+		SubinterfaceOperStatePath("irb0", 130):                   {"up"},
+		AnycastGWMACOriginPath("irb0", 130):                      {AnycastOriginVRIDAutoDerived},
+		AddressStatusPath("irb0", 130, "10.30.0.1/24"):           {AddressStatusPreferred},
+		AddressStatusPath("irb0", 130, "2001:db8:30::1/64"):      {AddressStatusPreferred},
+		Type5UsedRoutePath("10.0.0.2:10131", "10.30.0.0/24"):     {"true", "false"},
+		Type5UsedRoutePath("10.0.0.2:10131", "2001:db8:30::/64"): {"true"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("MatchState:\n got %v\nwant %v", got, want)
 	}
 }

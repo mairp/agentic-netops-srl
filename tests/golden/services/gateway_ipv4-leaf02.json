@@ -2,10 +2,10 @@
   "srl_nokia-acl:acl": {
     "interface": [
       {
-        "interface-id": "ethernet-1/1.300",
+        "interface-id": "ethernet-1/1.310",
         "interface-ref": {
           "interface": "ethernet-1/1",
-          "subinterface": 300
+          "subinterface": 310
         }
       }
     ]
@@ -16,12 +16,12 @@
       "subinterface": [
         {
           "admin-state": "enable",
-          "index": 300,
+          "index": 310,
           "l2-mtu": 9412,
           "srl_nokia-interfaces-vlans:vlan": {
             "encap": {
               "single-tagged": {
-                "vlan-id": 300
+                "vlan-id": 310
               }
             }
           },
@@ -37,13 +37,13 @@
           "anycast-gw": {
             "virtual-router-id": 1
           },
-          "index": 300,
+          "index": 310,
           "ip-mtu": 9348,
           "ipv4": {
             "address": [
               {
                 "anycast-gw": true,
-                "ip-prefix": "10.30.0.1/24"
+                "ip-prefix": "10.31.0.1/24"
               }
             ],
             "admin-state": "enable",
@@ -67,32 +67,6 @@
             "unnumbered": {
               "admin-state": "disable"
             }
-          },
-          "ipv6": {
-            "address": [
-              {
-                "anycast-gw": true,
-                "ip-prefix": "2001:db8:30::1/64"
-              }
-            ],
-            "admin-state": "enable",
-            "srl_nokia-interfaces-nbr:neighbor-discovery": {
-              "host-route": {
-                "populate": [
-                  {
-                    "route-type": "dynamic"
-                  }
-                ]
-              },
-              "learn-unsolicited": "global",
-              "srl_nokia-interfaces-nbr-evpn:evpn": {
-                "advertise": [
-                  {
-                    "route-type": "dynamic"
-                  }
-                ]
-              }
-            }
           }
         }
       ]
@@ -101,13 +75,13 @@
   "srl_nokia-network-instance:network-instance": [
     {
       "admin-state": "enable",
-      "description": "Service 4b7e19c2a05d3f6 (mac-vrf)",
+      "description": "Service gw4 (mac-vrf)",
       "interface": [
         {
-          "name": "irb0.300"
+          "name": "irb0.310"
         }
       ],
-      "name": "ipvrf-4b7e19c2a05d3f6",
+      "name": "ipvrf-gw4",
       "protocols": {
         "bgp-evpn": {
           "srl_nokia-bgp-evpn:bgp-instance": [
@@ -115,9 +89,9 @@
               "admin-state": "enable",
               "ecmp": 8,
               "encapsulation-type": "vxlan",
-              "evi": 10301,
+              "evi": 10311,
               "id": 1,
-              "vxlan-interface": "vxlan0.10301"
+              "vxlan-interface": "vxlan0.10311"
             }
           ]
         },
@@ -126,8 +100,8 @@
             {
               "id": 1,
               "route-target": {
-                "export-rt": "target:65000:10301",
-                "import-rt": "target:65000:10301"
+                "export-rt": "target:65000:10311",
+                "import-rt": "target:65000:10311"
               }
             }
           ]
@@ -136,7 +110,7 @@
       "type": "srl_nokia-network-instance:ip-vrf",
       "vxlan-interface": [
         {
-          "name": "vxlan0.10301"
+          "name": "vxlan0.10311"
         }
       ]
     },
@@ -145,16 +119,16 @@
       "bridge-table": {
         "protect-anycast-gw-mac": true
       },
-      "description": "Service 4b7e19c2a05d3f6 (mac-vrf)",
+      "description": "Service gw4 (mac-vrf)",
       "interface": [
         {
-          "name": "ethernet-1/1.300"
+          "name": "ethernet-1/1.310"
         },
         {
-          "name": "irb0.300"
+          "name": "irb0.310"
         }
       ],
-      "name": "macvrf-4b7e19c2a05d3f6",
+      "name": "macvrf-gw4",
       "protocols": {
         "bgp-evpn": {
           "srl_nokia-bgp-evpn:bgp-instance": [
@@ -162,9 +136,9 @@
               "admin-state": "enable",
               "ecmp": 8,
               "encapsulation-type": "vxlan",
-              "evi": 10300,
+              "evi": 10310,
               "id": 1,
-              "vxlan-interface": "vxlan0.10300"
+              "vxlan-interface": "vxlan0.10310"
             }
           ]
         },
@@ -173,8 +147,8 @@
             {
               "id": 1,
               "route-target": {
-                "export-rt": "target:65000:10300",
-                "import-rt": "target:65000:10300"
+                "export-rt": "target:65000:10310",
+                "import-rt": "target:65000:10310"
               }
             }
           ]
@@ -183,7 +157,7 @@
       "type": "srl_nokia-network-instance:mac-vrf",
       "vxlan-interface": [
         {
-          "name": "vxlan0.10300"
+          "name": "vxlan0.10310"
         }
       ]
     }
@@ -196,16 +170,16 @@
           "egress": {
             "source-ip": "use-system-ipv4-address"
           },
-          "index": 10300,
+          "index": 10310,
           "ingress": {
-            "vni": 10300
+            "vni": 10310
           },
           "type": "srl_nokia-interfaces:bridged"
         },
         {
-          "index": 10301,
+          "index": 10311,
           "ingress": {
-            "vni": 10301
+            "vni": 10311
           },
           "type": "srl_nokia-interfaces:routed"
         }

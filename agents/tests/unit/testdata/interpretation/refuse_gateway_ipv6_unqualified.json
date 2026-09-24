@@ -1,0 +1,74 @@
+{
+  "description": "A mac-vrf whose anycast gateway declares IPv6, against a fabric qualification record that does not show the IPv6 anycast gateway as qualified (mac-vrf.anycast-gateway-ipv6 unqualified, everything else qualified): refused at interpretation naming the unqualified property; the allocator stage is never reached and no claim is made (CR-010, FR-097, AD-58). Against a record that does qualify it, the same interpretation is accepted: VLAN 130 is named (no VLAN claim), one L2VNI and one L3VNI are claimed, and both declared families are carried.",
+  "tasks": [
+    "T115",
+    "T117"
+  ],
+  "request_text": "a mac-vrf for tenant acme on leaf01 ethernet-1/1 and leaf02 ethernet-1/1 vlan 130 with anycast gateway 10.30.0.1/24 and 2001:db8:30::1/64",
+  "model_output": {
+    "service_id": "",
+    "service_type": "mac-vrf",
+    "tenant": "acme",
+    "endpoints": [
+      {
+        "site_or_node": "leaf01",
+        "attachment": "ethernet-1/1",
+        "vlan": 130
+      },
+      {
+        "site_or_node": "leaf02",
+        "attachment": "ethernet-1/1",
+        "vlan": 130
+      }
+    ],
+    "anycast_gateway": {
+      "ipv4": "10.30.0.1/24",
+      "ipv6": "2001:db8:30::1/64"
+    },
+    "missing_fields": [],
+    "unsupported_properties": []
+  },
+  "qualification": {
+    "qualified": [
+      "vlan",
+      "vlan.bridged-subinterface",
+      "mac-vrf",
+      "mac-vrf.anycast-gateway-ipv4",
+      "ip-vrf",
+      "ip-vrf.evpn-type5-ipv4",
+      "ip-vrf.evpn-type5-ipv6",
+      "acl",
+      "acl.ingress-ipv4",
+      "acl.ingress-ipv6",
+      "acl.egress"
+    ],
+    "unqualified": [
+      "mac-vrf.anycast-gateway-ipv6"
+    ]
+  },
+  "expect": {
+    "outcome": "refuse",
+    "property": "anycast_gateway.ipv6",
+    "qualification_key": "mac-vrf.anycast-gateway-ipv6",
+    "cause_contains": [
+      "anycast_gateway.ipv6: the IPv6 anycast gateway is not shown as qualified",
+      "(mac-vrf.anycast-gateway-ipv6)",
+      "records it as 'unqualified'",
+      "refused before anything is claimed"
+    ],
+    "missing_fields": [],
+    "allocator_calls": 0,
+    "claims_created": 0
+  },
+  "negative_control": {
+    "description": "the same interpretation against a record that shows mac-vrf.anycast-gateway-ipv6 qualified",
+    "outcome": "accept",
+    "vlan_claims_created": 0,
+    "l2vni_claims_created": 1,
+    "l3vni_claims_created": 1,
+    "anycast_gateway": {
+      "gatewayIPv4": "10.30.0.1/24",
+      "gatewayIPv6": "2001:db8:30::1/64"
+    }
+  }
+}

@@ -386,7 +386,9 @@ func TestServiceReasonPrecedence(t *testing.T) {
 var aggregateFragments = []string{"received-routes", "active-routes", "route-summary", "statistics", "total-", "-count", "multicast-limit", "current-usage"}
 
 // ownKeys are the key fragments that name this service's own objects on node
-// n (or, for a spanning mac-vrf, the remote VTEPs of this service).
+// n (or, for a spanning mac-vrf, the remote VTEPs of this service; for a
+// spanning gateway, the other leaves' Type-5 routes in the EVPN RIB keyed by
+// their route distinguisher for this service's routed EVI — gateway.go).
 func ownKeys(in ServiceInput, node string) []string {
 	var keys []string
 	n := in.Model.Node(node)
@@ -396,12 +398,20 @@ func ownKeys(in ServiceInput, node string) []string {
 	for _, s := range n.Subinterfaces {
 		keys = append(keys, "/interface[name="+s.Port+"]/subinterface[index="+itoa(s.Index)+"]/")
 	}
+	for _, irb := range n.IRB {
+		keys = append(keys, "/interface[name=irb0]/subinterface[index="+itoa(irb.Index)+"]/")
+	}
 	for _, vx := range n.VXLANInterfaces {
 		keys = append(keys, "/tunnel-interface[name=vxlan0]/vxlan-interface[index="+itoa(vx.Index)+"]/")
 	}
 	for other, lb := range in.Loopbacks {
 		if other != node && in.Model.Node(other) != nil {
 			keys = append(keys, "/tunnel/vxlan-tunnel/vtep[address="+vtepAddress(lb)+"]/")
+			for _, vx := range n.VXLANInterfaces {
+				if vx.Type == model.Routed && len(n.IRB) > 0 {
+					keys = append(keys, EVPNIPPrefixRoutePath+"[route-distinguisher="+vtepAddress(lb)+":"+itoa(vx.VNI)+"][ip-prefix=")
+				}
+			}
 		}
 	}
 	return keys
@@ -440,7 +450,7 @@ func assertKeyed(t *testing.T, in ServiceInput, r *svcReader) {
 			if !own {
 				t.Errorf("%s: path %s is not keyed to this service's own objects (%v)", node, p, keys)
 			}
-			if strings.Contains(p, "network-instance[name=default]") {
+			if strings.Contains(p, "network-instance[name=default]") && !strings.HasPrefix(p, EVPNIPPrefixRoutePath+"[route-distinguisher=") {
 				t.Errorf("%s: the default instance is read: %s", node, p)
 			}
 		}

@@ -10,6 +10,16 @@ the default when nothing is mounted, and a unit test asserts it equals the Confi
 for byte, so the two can never drift.
 
 The catalogue never widens the vocabulary: a construct outside the four is refused on load.
+
+The anycast gateway is a **property** of ``mac-vrf`` (T117; construct-vocabulary.md §3,
+kuid-claim-profiles.md §2-§4, data-model.md §8/§10; FR-032, FR-097, CR-002, CR-010), described by
+the ``mac-vrf`` entry's ``properties.anycast_gateway`` block — never a fifth construct: it makes
+the ``mac-vrf`` route through a routed instance with an L3VNI; only the declared address families
+are configured (an unrequested family is never added); no gateway means no routed instance and no
+L3 identifier. Each family carries its qualification-record key
+(``mac-vrf.anycast-gateway-ipv4|ipv6``), read through :meth:`Catalogue.gateway_families`; a
+catalogue whose gateway block is missing, sits on another construct, or names another family or
+key is refused on load.
 """
 
 from __future__ import annotations
@@ -25,6 +35,9 @@ DEFAULT_CATALOGUE_DIR = Path("/etc/agentic-netops/mapper-catalogue")
 PACKAGED = Path(__file__).resolve().parent / CATALOGUE_KEY
 CONSTRUCTS = ("vlan", "mac-vrf", "ip-vrf", "acl")
 SOURCE_TYPES = ("VPLS", "VPWS", "L3VPN", "L2L3-IRB")
+GATEWAY_PROPERTY = "anycast_gateway"
+GATEWAY_CONSTRUCT = "mac-vrf"
+GATEWAY_FAMILIES = ("ipv4", "ipv6")
 
 
 class CatalogueError(ValueError):
@@ -54,6 +67,19 @@ class Catalogue:
                 return c
         raise KeyError(name)
 
+    def gateway(self) -> dict[str, Any]:
+        """The gateway property block of the ``mac-vrf`` entry (validated on load)."""
+        return self.construct(GATEWAY_CONSTRUCT)["properties"][GATEWAY_PROPERTY]
+
+    def gateway_families(self) -> dict[str, str]:
+        """``{family: qualification-record key}`` of the gateway, in the fixed family order."""
+        families = self.gateway()["families"]
+        return {fam: str(families[fam]) for fam in GATEWAY_FAMILIES}
+
+    def gateway_qualification_key(self, family: str) -> str:
+        """The qualification-record key of one gateway address family. Raises KeyError."""
+        return self.gateway_families()[family]
+
     def fold(self, name: str) -> tuple[str, str | None] | None:
         """Name resolution of construct-vocabulary.md §2: ``(construct, source type)``."""
         key = re.sub(r"[-_ .+]", "", name.lower())
@@ -79,6 +105,7 @@ def parse(text: str, *, source: str) -> Catalogue:
         raise CatalogueError(
             f"mapper catalogue {source} must list exactly the four constructs "
             f"{', '.join(CONSTRUCTS)}, in that order")
+    _check_gateway(constructs, source)
     aliases = raw.get("aliases") or {}
     if not isinstance(aliases, dict):
         raise CatalogueError(f"mapper catalogue {source}: aliases is not an object")
@@ -97,6 +124,28 @@ def parse(text: str, *, source: str) -> Catalogue:
     return Catalogue(raw, source, tuple(constructs), dict(aliases), tuple(unsupported))
 
 
+def _check_gateway(constructs: list[Any], source: str) -> None:
+    """The gateway is a property of ``mac-vrf`` and of nothing else, one key per family."""
+    for c in constructs:
+        props = c.get("properties") or {}
+        if not isinstance(props, dict):
+            raise CatalogueError(f"mapper catalogue {source}: {c['name']}.properties is not an "
+                                 "object")
+        if GATEWAY_PROPERTY in props and c["name"] != GATEWAY_CONSTRUCT:
+            raise CatalogueError(f"mapper catalogue {source}: {GATEWAY_PROPERTY} is a property of "
+                                 f"{GATEWAY_CONSTRUCT} only, not of {c['name']}")
+    macvrf = next(c for c in constructs if c["name"] == GATEWAY_CONSTRUCT)
+    gateway = (macvrf.get("properties") or {}).get(GATEWAY_PROPERTY)
+    families = gateway.get("families") if isinstance(gateway, dict) else None
+    expected = {fam: f"{GATEWAY_CONSTRUCT}.anycast-gateway-{fam}" for fam in GATEWAY_FAMILIES}
+    if not isinstance(gateway, dict) or gateway.get("belongs_to") != GATEWAY_CONSTRUCT or (
+            families != expected):
+        raise CatalogueError(
+            f"mapper catalogue {source}: {GATEWAY_CONSTRUCT}.properties.{GATEWAY_PROPERTY} must "
+            f"belong to {GATEWAY_CONSTRUCT} and name the families "
+            f"{', '.join(f'{k} ({v})' for k, v in expected.items())}")
+
+
 def load(directory: Path | None = None) -> Catalogue:
     """The mounted catalogue (``<directory>/catalogue.json``) when present, else the packaged
     default. A mounted catalogue that cannot be parsed is an error, never a silent fallback."""
@@ -111,5 +160,6 @@ def load(directory: Path | None = None) -> Catalogue:
     return parse(PACKAGED.read_text(encoding="utf-8"), source=str(PACKAGED))
 
 
-__all__ = ["CATALOGUE_KEY", "CONSTRUCTS", "DEFAULT_CATALOGUE_DIR", "PACKAGED", "Catalogue",
-           "CatalogueError", "UnsupportedClaim", "load", "parse"]
+__all__ = ["CATALOGUE_KEY", "CONSTRUCTS", "DEFAULT_CATALOGUE_DIR", "GATEWAY_CONSTRUCT",
+           "GATEWAY_FAMILIES", "GATEWAY_PROPERTY", "PACKAGED", "Catalogue", "CatalogueError",
+           "UnsupportedClaim", "load", "parse"]

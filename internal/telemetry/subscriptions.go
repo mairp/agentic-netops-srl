@@ -86,6 +86,15 @@ func Subscriptions() []Subscription {
 			"/acl/acl-filter[name=*][type=*]/entry[sequence-id=*]/tcam-entries",
 			"/acl/datapath-programming",
 		}},
+		// the anycast-gateway read-back (T116, internal/verify/gateway.go): the IRB
+		// subinterface's anycast-gw MAC origin, each anycast address's status, and the
+		// EVPN RIB's IP-prefix (Type-5) routes keyed by route distinguisher and prefix
+		{Name: "srl-anycast-gw", Mode: Sample, SampleInterval: slow, Paths: []string{
+			"/interface[name=*]/subinterface[index=*]/anycast-gw/anycast-gw-mac-origin",
+			"/interface[name=*]/subinterface[index=*]/ipv4/address[ip-prefix=*]/status",
+			"/interface[name=*]/subinterface[index=*]/ipv6/address[ip-prefix=*]/status",
+			"/network-instance[name=default]/bgp-rib/afi-safi[afi-safi-name=evpn]/evpn/rib-in-out/rib-in-post/ip-prefix-route[route-distinguisher=*][ethernet-tag-id=*][ip-prefix-length=*][ip-prefix=*][neighbor=*][path-id=*]/used-route",
+		}},
 		{Name: "srl-platform", Mode: Sample, SampleInterval: slow, Paths: []string{
 			"/platform/control[slot=*]/cpu[index=all]/total",
 			"/platform/control[slot=*]/memory",

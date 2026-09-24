@@ -1,0 +1,32 @@
+spec:
+  description: Service 2c4e6a8b0d1f3a5 (mac-vrf)
+  bridgeDomains:
+  - name: bd-2c4e6a8b0d1f3a5
+    vlan: 170
+    l2vni: 10170
+    evpn:
+      routeTargets:
+        import:
+        - "target:65000:10170"
+        export:
+        - "target:65000:10170"
+    irb:
+      vrf: vrf-2c4e6a8b0d1f3a5
+      gatewayIPv4: 10.170.0.1/24
+  routers:
+  - name: vrf-2c4e6a8b0d1f3a5
+    routeTargets:
+      import:
+      - "target:65000:10171"
+      export:
+      - "target:65000:10171"
+    l3vni: 10171
+    prefixes:
+    - 10.170.0.0/24
+  attachments:
+  - node: leaf01
+    attachment: ethernet-1/1
+    vlan: 170
+  - node: leaf02
+    attachment: ethernet-1/1
+    vlan: 170

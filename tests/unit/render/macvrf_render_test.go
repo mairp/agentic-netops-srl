@@ -61,9 +61,9 @@ func TestMACVRFConstruct(t *testing.T) {
 
 // TestMACVRFGatewayConstruct: a mac-vrf with an anycast gateway renders
 // irb0.<vlan> in both the mac-vrf and the ip-vrf, the anycast-gw container
-// with virtual-router-id 1, each declared family's address anycast (IPv4
-// primary), unsolicited learning, host-route population and EVPN
-// advertisement, an explicit ip-mtu, protect-anycast-gw-mac on the mac-vrf,
+// with virtual-router-id 1, each declared family's address anycast (never
+// `primary` — gateway_render_test.go), unsolicited learning, host-route
+// population and EVPN advertisement, an explicit ip-mtu, protect-anycast-gw-mac on the mac-vrf,
 // and the routed L3VNI vxlan-interface with its own EVPN instance — and never
 // irb0's own admin-state (AD-68).
 func TestMACVRFGatewayConstruct(t *testing.T) {
@@ -76,7 +76,9 @@ func TestMACVRFGatewayConstruct(t *testing.T) {
 		want(t, f, irb+"/ip-mtu", "9348")
 		want(t, f, irb+"/ipv4/admin-state", `"enable"`)
 		want(t, f, irb+"/ipv4/address[ip-prefix=10.30.0.1/24]/anycast-gw", "true")
-		want(t, f, irb+"/ipv4/address[ip-prefix=10.30.0.1/24]/primary", "[null]")
+		if _, ok := f[irb+"/ipv4/address[ip-prefix=10.30.0.1/24]/primary"]; ok {
+			t.Errorf("%s: primary is not rendered (live finding 2026-09-24-irb-primary)", node)
+		}
 		want(t, f, irb+"/ipv4/arp/learn-unsolicited", "true")
 		want(t, f, irb+"/ipv4/arp/host-route/populate[route-type=dynamic]", "{}")
 		want(t, f, irb+"/ipv4/arp/evpn/advertise[route-type=dynamic]", "{}")

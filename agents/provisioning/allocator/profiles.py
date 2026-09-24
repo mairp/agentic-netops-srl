@@ -16,6 +16,12 @@ Every claim is named by the provider's one adoption scheme ``<intent-namespace>.
 — role ``vlan-<entry>`` (entry = the ``vlans[]`` entry ``vlan-<sid>`` or the ``bridgeDomains[]``
 entry ``bd-<sid>``), ``l2vni-bd-<sid>`` or ``l3vni-vrf-<sid>`` — and labelled in
 ``metadata.labels`` with the thread's correlation identifier and the tier.
+
+The anycast gateway is a property of ``mac-vrf`` (T117; FR-032, CR-002): the L3VNI is claimed
+**only** when a gateway declares at least one address family, and the normalized intent carries
+``l3vni`` and ``anycastGateway`` only then — a gateway-less ``mac-vrf`` proposes no routed instance
+and claims no L3 identifier. ``anycastGateway`` carries exactly the declared families
+(``gatewayIPv4`` / ``gatewayIPv6``); an unrequested family is never added.
 """
 
 from __future__ import annotations
@@ -82,6 +88,20 @@ def named_vlan(interp: Interpretation) -> int | None:
     return named[0] if named else None
 
 
+def gateway_families(interp: Interpretation) -> dict[str, str]:
+    """The declared gateway families as the normalized intent spells them, in a fixed order —
+    empty for a gateway-less ``mac-vrf`` (and for every other construct)."""
+    gw = interp.anycast_gateway
+    if interp.service_type != "mac-vrf" or gw is None:
+        return {}
+    out: dict[str, str] = {}
+    if gw.ipv4:
+        out["gatewayIPv4"] = gw.ipv4
+    if gw.ipv6:
+        out["gatewayIPv6"] = gw.ipv6
+    return out
+
+
 def check(interp: Interpretation) -> None:
     """What the allocator refuses to allocate from, whatever the mapper did."""
     if interp.missing_fields or interp.unsupported_properties:
@@ -98,6 +118,9 @@ def check(interp: Interpretation) -> None:
                 "named VLAN is never claimed")
     if interp.service_type in ("vlan", "mac-vrf"):
         named_vlan(interp)
+    if interp.anycast_gateway is not None and not gateway_families(interp):
+        raise ProfileError("anycast_gateway: the gateway declares no address family; a gateway "
+                           "is claimed for only with at least one declared family")
 
 
 def plan(interp: Interpretation) -> list[PlannedClaim]:
@@ -116,7 +139,7 @@ def plan(interp: Interpretation) -> list[PlannedClaim]:
                                            claim_name(sid, f"vlan-{entries['bridgeDomains']}")))
             claims.append(PlannedClaim(VNI, FIELD_L2VNI,
                                        claim_name(sid, f"l2vni-{entries['bridgeDomains']}")))
-            if interp.anycast_gateway is not None:
+            if gateway_families(interp):  # the L3VNI only with a declared gateway
                 claims.append(PlannedClaim(VNI, FIELD_L3VNI,
                                            claim_name(sid, f"l3vni-{entries['routers']}")))
         case "ip-vrf":
@@ -190,14 +213,10 @@ def build(interp: Interpretation, values: dict[str, int],
             raise ProfileError("no fabricASN: route targets cannot be derived")
         body["routeTargets"] = route_targets(fabric_asn, values[FIELD_L2VNI])
         body["l2vni"] = values[FIELD_L2VNI]
-        if interp.anycast_gateway is not None:
+        gateway = gateway_families(interp)
+        if gateway:  # no gateway: no l3vni, no anycastGateway, no routed instance
             body["l3vni"] = values[FIELD_L3VNI]
-            gw: dict[str, Any] = {}
-            if interp.anycast_gateway.ipv4:
-                gw["gatewayIPv4"] = interp.anycast_gateway.ipv4
-            if interp.anycast_gateway.ipv6:
-                gw["gatewayIPv6"] = interp.anycast_gateway.ipv6
-            body["anycastGateway"] = gw
+            body["anycastGateway"] = gateway
     elif kind == "ip-vrf":
         if fabric_asn is None:
             raise ProfileError("no fabricASN: route targets cannot be derived")
@@ -218,4 +237,5 @@ def build(interp: Interpretation, values: dict[str, int],
 
 __all__ = ["ALLOCATION_BAND", "CORRELATION_LABEL", "INTENT_NAMESPACE", "NAMING_BAND", "TIER",
            "TIER_LABEL", "PlannedClaim", "ProfileError", "build", "check", "claim_name",
-           "entry_names", "labels", "named_vlan", "network_name", "plan", "route_targets"]
+           "entry_names", "gateway_families", "labels", "named_vlan", "network_name", "plan",
+           "route_targets"]

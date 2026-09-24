@@ -54,7 +54,6 @@ func WriteEntries() []WriteEntry {
 		// --- irb0 anycast gateway ---
 		w("/interface[name=*]/subinterface[index=*]/anycast-gw/virtual-router-id", svcOnly, gateway),
 		w("/interface[name=*]/subinterface[index=*]/ipv4/address[ip-prefix=*]/anycast-gw", svcOnly, gateway),
-		w("/interface[name=*]/subinterface[index=*]/ipv4/address[ip-prefix=*]/primary", svcOnly, gateway),
 		w("/interface[name=*]/subinterface[index=*]/ipv4/arp/learn-unsolicited", svcOnly, gateway),
 		w("/interface[name=*]/subinterface[index=*]/ipv4/arp/host-route/populate[route-type=*]", svcOnly, gateway),
 		w("/interface[name=*]/subinterface[index=*]/ipv4/arp/evpn/advertise[route-type=*]", svcOnly, gateway),

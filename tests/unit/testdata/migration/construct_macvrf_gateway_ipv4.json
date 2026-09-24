@@ -1,0 +1,13 @@
+{
+  "serviceId": "2c4e6a8b0d1f3a5",
+  "type": "mac-vrf",
+  "tenant": "acme",
+  "routeTargets": {"importRT": ["target:65000:10170"], "exportRT": ["target:65000:10170"]},
+  "l2vni": 10170,
+  "l3vni": 10171,
+  "anycastGateway": {"gatewayIPv4": "10.170.0.1/24"},
+  "endpoints": [
+    {"node": "leaf01", "attachment": "ethernet-1/1", "vlan": 170},
+    {"node": "leaf02", "attachment": "ethernet-1/1", "vlan": 170}
+  ]
+}

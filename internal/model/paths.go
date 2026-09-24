@@ -162,7 +162,6 @@ func (n *ServiceNode) WritePaths() []string {
 			for _, a := range irb.IPv4 {
 				addr := sub + "/ipv4" + elem("address", "ip-prefix", a)
 				w.add(addr, "anycast-gw")
-				w.add(addr, "primary")
 			}
 			w.add(sub, "ipv4/arp/learn-unsolicited")
 			w.add(sub, "ipv4/arp/host-route"+elem("populate", "route-type", "dynamic"))

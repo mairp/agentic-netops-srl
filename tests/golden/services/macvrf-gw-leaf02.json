@@ -43,10 +43,7 @@
             "address": [
               {
                 "anycast-gw": true,
-                "ip-prefix": "10.30.0.1/24",
-                "primary": [
-                  null
-                ]
+                "ip-prefix": "10.30.0.1/24"
               }
             ],
             "admin-state": "enable",

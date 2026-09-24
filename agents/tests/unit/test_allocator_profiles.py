@@ -189,6 +189,56 @@ async def test_macvrf_with_a_gateway_also_claims_the_l3vni(kube: FakeKube,
     assert_claims_well_formed(kube)
 
 
+# ---- the gateway, a property of mac-vrf: the L3VNI only with a declared gateway (T117) ---------
+
+
+def l3vni_claims(kube: FakeKube) -> list[dict[str, Any]]:
+    return [o for o in kube.vni_claims() if ".l3vni-" in o["metadata"]["name"]]
+
+
+@pytest.mark.parametrize("vlan", [None, 130])
+async def test_a_gatewayless_macvrf_claims_no_l3_identifier(kube: FakeKube, inventory_dir: Path,
+                                                            vlan: int | None) -> None:
+    body = interpretation("mac-vrf", vlan=vlan)
+    assert "anycast_gateway" not in body
+    out = data_of(await create(allocator(kube, inventory_dir), body))
+    roles = sorted(o["metadata"]["name"].rsplit(".", 1)[1] for o in kube.claims())
+    expected = [f"l2vni-bd-{SID}"] + ([f"vlan-bd-{SID}"] if vlan is None else [])
+    assert roles == sorted(expected)
+    assert l3vni_claims(kube) == [] and len(kube.vlan_claims()) == (1 if vlan is None else 0)
+    assert "l3vni" not in out and "anycastGateway" not in out
+    assert profiles.gateway_families(Interpretation.parse(body)) == {}
+    assert [c.field for c in profiles.plan(Interpretation.parse(body))] == (
+        ["vlan", "l2vni"] if vlan is None else ["l2vni"])
+
+
+@pytest.mark.parametrize(("gateway", "expected"), [
+    ({"ipv4": "10.31.0.1/24"}, {"gatewayIPv4": "10.31.0.1/24"}),
+    ({"ipv6": "2001:db8:31::1/64"}, {"gatewayIPv6": "2001:db8:31::1/64"}),
+    ({"ipv4": "10.30.0.1/24", "ipv6": None}, {"gatewayIPv4": "10.30.0.1/24"}),
+    ({"ipv4": "10.30.0.1/24", "ipv6": "2001:db8:30::1/64"},
+     {"gatewayIPv4": "10.30.0.1/24", "gatewayIPv6": "2001:db8:30::1/64"}),
+], ids=["ipv4-only", "ipv6-only", "ipv6-null", "both"])
+async def test_a_gateway_claims_one_l3vni_and_carries_only_its_declared_families(
+        kube: FakeKube, inventory_dir: Path, gateway: dict[str, Any],
+        expected: dict[str, str]) -> None:
+    body = interpretation("mac-vrf", vlan=130, anycast_gateway=gateway)
+    out = data_of(await create(allocator(kube, inventory_dir), body))
+    assert kube.vlan_claims() == []  # VLAN 130 is named
+    assert len(l3vni_claims(kube)) == 1 and len(kube.vni_claims()) == 2
+    assert out["anycastGateway"] == expected  # an unrequested family is never added
+    assert 10000 <= out["l3vni"] <= 20000 and out["l3vni"] != out["l2vni"]
+    assert_claims_well_formed(kube)
+
+
+async def test_a_gateway_declaring_no_family_is_never_allocated(kube: FakeKube,
+                                                                inventory_dir: Path) -> None:
+    body = interpretation("mac-vrf", vlan=130, anycast_gateway={"ipv4": None, "ipv6": None})
+    reason = failure(await create(allocator(kube, inventory_dir), body))
+    assert "anycast_gateway" in reason and "no address family" in reason
+    assert kube.creates() == 0
+
+
 @pytest.mark.parametrize("vlan", [None, 200])
 async def test_ipvrf_claims_an_l3vni_and_never_a_vlan(kube: FakeKube, inventory_dir: Path,
                                                       vlan: int | None) -> None:

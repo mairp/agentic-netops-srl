@@ -8,6 +8,7 @@ package migration
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -75,6 +76,7 @@ func TestConstructGoldens(t *testing.T) {
 				}
 			}
 		}},
+		// A mac-vrf with NO anycast gateway emits no routers[] and no irb (T115; FR-032).
 		{"macvrf", func(t *testing.T, n Network, y string) {
 			if len(n.Spec.BridgeDomains) != 1 || len(n.Spec.Routers) != 0 || len(n.Spec.VLANs) != 0 {
 				t.Fatalf("macvrf: want exactly one bridge domain and no routers/vlans, got %+v", n.Spec)
@@ -84,8 +86,27 @@ func TestConstructGoldens(t *testing.T) {
 			if bd.Name != "bd-4b7e19c2a05d3f6" || bd.L2VNI != 10021 || bd.EVPN == nil || !reflect.DeepEqual(bd.EVPN.RouteTargets, want) || bd.IRB != nil {
 				t.Errorf("macvrf: bridge domain %+v, want bd-<sid> L2VNI 10021 with derived route targets and no irb", bd)
 			}
-			if strings.Contains(y, "routers:") {
-				t.Error("macvrf: emitted routers")
+			if strings.Contains(y, "routers:") || strings.Contains(y, "irb:") || strings.Contains(y, "l3vni") {
+				t.Error("macvrf: a mac-vrf without a gateway emitted routers, an irb or an L3VNI")
+			}
+		}},
+		// T115/T116 (FR-032, CR-002): the gateway is a property of the mac-vrf — the bridge domain,
+		// its irb pointing at the router, and the router whose prefixes are the masked gateway
+		// subnets of the declared families. No fifth construct: no vlans[], no attachment vrf.
+		// (A gateway on an ip-vrf is refused naming mac-vrf: refuse_wrong_var_gateway_on_ipvrf,
+		// refusal_test.go.)
+		{"macvrf_gateway", func(t *testing.T, n Network, y string) {
+			checkGateway(t, n, "7e1c3a5b9d2f4a6", 10160, 10161, "10.160.0.1/24", "2001:db8:160::1/64",
+				[]string{"10.160.0.0/24", "2001:db8:160::/64"})
+		}},
+		// A gateway declaring IPv4 only: nothing IPv6 anywhere in the emitted spec.
+		{"macvrf_gateway_ipv4", func(t *testing.T, n Network, y string) {
+			checkGateway(t, n, "2c4e6a8b0d1f3a5", 10170, 10171, "10.170.0.1/24", "", []string{"10.170.0.0/24"})
+			spec := n.Spec.YAML()
+			for _, v6 := range []string{"gatewayIPv6", "::", "2001:"} {
+				if strings.Contains(spec, v6) || strings.Contains(string(n.JSON()), v6) {
+					t.Errorf("macvrf_gateway_ipv4: an IPv4-only gateway emitted %q:\n%s", v6, spec)
+				}
 			}
 		}},
 		{"ipvrf", func(t *testing.T, n Network, y string) {
@@ -125,6 +146,33 @@ func TestConstructGoldens(t *testing.T) {
 	}
 }
 
+// checkGateway asserts the emitted shape of a mac-vrf with an anycast gateway (T115).
+func checkGateway(t *testing.T, n Network, sid string, l2vni, l3vni int64, v4, v6 string, prefixes []string) {
+	t.Helper()
+	if len(n.Spec.BridgeDomains) != 1 || len(n.Spec.Routers) != 1 || len(n.Spec.VLANs) != 0 || len(n.Spec.AccessLists) != 0 {
+		t.Fatalf("gateway: want one bridge domain and one router, got %+v", n.Spec)
+	}
+	bd, r := n.Spec.BridgeDomains[0], n.Spec.Routers[0]
+	rt := func(v int64) *RouteTargets {
+		s := fmt.Sprintf("target:65000:%d", v)
+		return &RouteTargets{Import: []string{s}, Export: []string{s}}
+	}
+	if bd.Name != "bd-"+sid || bd.L2VNI != l2vni || bd.EVPN == nil || !reflect.DeepEqual(bd.EVPN.RouteTargets, rt(l2vni)) {
+		t.Errorf("gateway: bridge domain %+v", bd)
+	}
+	if r.Name != "vrf-"+sid || r.L3VNI != l3vni || !reflect.DeepEqual(r.RouteTargets, rt(l3vni)) || !reflect.DeepEqual(r.Prefixes, prefixes) {
+		t.Errorf("gateway: router %+v, want vrf-%s L3VNI %d prefixes %v", r, sid, l3vni, prefixes)
+	}
+	if want := (&IRB{VRF: r.Name, GatewayIPv4: v4, GatewayIPv6: v6}); !reflect.DeepEqual(bd.IRB, want) {
+		t.Errorf("gateway: irb %+v, want %+v", bd.IRB, want)
+	}
+	for _, a := range n.Spec.Attachments {
+		if a.VRF != "" {
+			t.Errorf("gateway: attachment %+v names a vrf; the bridged attachment is no member of the router", a)
+		}
+	}
+}
+
 // No emitted type has a route-distinguisher field (RD-09).
 func TestNoRouteDistinguisherField(t *testing.T) {
 	for _, typ := range []reflect.Type{reflect.TypeOf(Network{}), reflect.TypeOf(NetworkSpec{}), reflect.TypeOf(Router{}),
@@ -140,7 +188,7 @@ func TestNoRouteDistinguisherField(t *testing.T) {
 }
 
 func TestDeterministicBytesAndKeyOrder(t *testing.T) {
-	for _, c := range []string{"vlan", "macvrf", "ipvrf", "macvrf_allocated_vlan"} {
+	for _, c := range []string{"vlan", "macvrf", "ipvrf", "macvrf_allocated_vlan", "macvrf_gateway", "macvrf_gateway_ipv4"} {
 		data := read(t, "construct_"+c+".json")
 		a := mustTranslate(t, data, labOptions(t))
 		b := mustTranslate(t, data, labOptions(t))
@@ -298,7 +346,7 @@ func itoa(v int64) string { b, _ := json.Marshal(v); return string(b) }
 
 // The emitted object is exactly the Network API type: strict decoding accepts every key.
 func TestEmittedDecodesStrictlyIntoNetwork(t *testing.T) {
-	for _, c := range []string{"vlan", "macvrf", "ipvrf", "macvrf_allocated_vlan"} {
+	for _, c := range []string{"vlan", "macvrf", "ipvrf", "macvrf_allocated_vlan", "macvrf_gateway", "macvrf_gateway_ipv4"} {
 		res := mustTranslate(t, read(t, "construct_"+c+".json"), labOptions(t))
 		var fromYAML fabricv1.Network
 		if err := yaml.UnmarshalStrict([]byte(res.YAML), &fromYAML); err != nil {
@@ -420,7 +468,7 @@ func TestScalarQuoting(t *testing.T) {
 
 // The YAML and JSON forms are one object.
 func TestYAMLEqualsJSON(t *testing.T) {
-	for _, c := range []string{"vlan", "macvrf", "ipvrf"} {
+	for _, c := range []string{"vlan", "macvrf", "ipvrf", "macvrf_gateway", "macvrf_gateway_ipv4"} {
 		n := mustTranslate(t, read(t, "construct_"+c+".json"), labOptions(t)).Manifests[0]
 		j, err := yaml.YAMLToJSON([]byte(n.YAML()))
 		if err != nil {

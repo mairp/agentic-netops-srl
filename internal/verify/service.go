@@ -31,6 +31,10 @@ package verify
 //     EVPN instance and origins, and every prefix it connects or declares in its
 //     own route table — a prefix attached on this leaf as a local route, one
 //     attached only on another leaf as an active bgp-evpn route;
+//   - the anycast gateway of a mac-vrf (gateway.go, T116): irb0.<vlan> up, its
+//     anycast-gw state, each declared anycast address preferred, and per other
+//     leaf and qualified declared family that leaf's EVPN IP-prefix (Type-5)
+//     route for the gateway subnet used, read from the EVPN RIB;
 //   - access lists (acl.go, T108), on every node carrying a filter — a
 //     service's own or a standalone `acl`: the ACL datapath programming gate,
 //     then per entry of THIS filter (name, type, sequence-id) its TCAM cost in
@@ -115,6 +119,14 @@ type ServiceInput struct {
 	// node — the remote VTEPs a spanning service must see. A prefix length, if
 	// carried, is ignored.
 	Loopbacks map[string]string
+	// Qualified reports whether the qualification record
+	// (agentic-netops-system/fabric-qualification, internal/webhook) shows a key
+	// as qualified; the gateway read-back (gateway.go) reads a family's EVPN
+	// Type-5 route only where `ip-vrf.evpn-type5-<family>` is. Nil — no record
+	// given — reads every declared family's: admission refuses a Network the
+	// record does not qualify (FR-097), so nil is the strictest read, never a
+	// weaker one.
+	Qualified func(key string) bool
 	// TargetNamespace is the namespace of the layer's Targets.
 	TargetNamespace string
 	// Nodes carries the written-side input of every node of Model.
@@ -138,13 +150,14 @@ type ServiceResult struct {
 func (r ServiceResult) Passed() bool { return len(r.Missing) == 0 }
 
 // ReasonOf is the Ready=False reason one missing check stands for
-// (data-model.md §18): RoutesMissing for a remote VTEP, multicast destination
-// or remote prefix a spanning service needs and does not have; NotProgrammed
+// (data-model.md §18): RoutesMissing for a remote VTEP, multicast destination,
+// remote prefix or another leaf's gateway Type-5 route a spanning service needs
+// and does not have; NotProgrammed
 // for an object the device reports not programmed (a not-programmed-reason, a
 // zero destination or VTEP index); NotConverged for everything else.
 func ReasonOf(c Check) string {
 	switch c {
-	case CheckRemoteVTEP, CheckMulticastDestination, CheckRemotePrefixRoute:
+	case CheckRemoteVTEP, CheckMulticastDestination, CheckRemotePrefixRoute, CheckType5Route:
 		return status.ReasonRoutesMissing
 	case CheckNotProgrammed:
 		return status.ReasonNotProgrammed
@@ -470,7 +483,8 @@ func leafName(path string) string {
 // ServiceExpectations are the applied-side leaves of every node of the
 // service, by node: the vlan set on every bridged instance, the mac-vrf
 // overlay set on one with a vxlan-interface, the ip-vrf set on every routed
-// instance, and the access-list set (acl.go) on every node carrying a filter.
+// instance, the anycast-gateway set (gateway.go) on every node carrying
+// irb0.<vlan>, and the access-list set (acl.go) on every node carrying a filter.
 // A `vlan` gets the vlan set alone (and its own list's). It fails only on an input the
 // reads cannot be keyed from (a remote leaf with no allocated VTEP address).
 func ServiceExpectations(in ServiceInput) (map[string][]StateExpectation, error) {
@@ -494,6 +508,11 @@ func ServiceExpectations(in ServiceInput) (map[string][]StateExpectation, error)
 				exps = append(exps, ipvrfExpectations(m, n, ni, in.Prefixes[ni.Name])...)
 			}
 		}
+		gw, err := gatewayExpectations(m, n, in)
+		if err != nil {
+			return nil, err
+		}
+		exps = append(exps, gw...)
 		exps = append(exps, aclExpectations(n)...)
 		out[n.Node] = exps
 	}

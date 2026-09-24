@@ -182,7 +182,8 @@ async def test_an_unqualified_property_is_refused_by_name(tmp_path: Path) -> Non
                anycast_gateway={"ipv6": "2001:db8::1/64"},
                acl={"stage": "egress", "type": "ipv4",
                     "rules": [{"name": "r", "priority": 10, "action": "deny"}]})
-    interp = await interpretation(tmp_path, body, site=site)
+    interp = await interpretation(tmp_path, body, site=site,
+                                  text="a mac-vrf with gateway 2001:db8::1/64 and an egress acl")
     assert interp.unsupported_properties == [
         "anycast_gateway.ipv6: the IPv6 anycast gateway is not shown as qualified in the fabric "
         "qualification record (mac-vrf.anycast-gateway-ipv6), which records it as 'unqualified'; "

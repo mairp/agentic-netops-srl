@@ -26,10 +26,22 @@
         "endpoints[].site_or_node": "required",
         "endpoints[].attachment": "required",
         "endpoints[].vlan": "optional; shared by every endpoint; named from 100-999, or omitted and one is allocated",
-        "anycast_gateway": "optional; ipv4 and/or ipv6 address with prefix length; makes the mac-vrf route",
+        "anycast_gateway": "optional; ipv4 and/or ipv6 address with prefix length, only the families the operator wrote; makes the mac-vrf route (a property of the mac-vrf, never another construct)",
         "acl": "optional"
       },
       "forbidden": ["l3vni without an anycast gateway", "route targets (derived)"],
+      "properties": {
+        "anycast_gateway": {
+          "belongs_to": "mac-vrf",
+          "description": "a property of the mac-vrf, never a separate construct: the mac-vrf routes through a routed instance with an L3VNI, and nothing else is asked for",
+          "families": {
+            "ipv4": "mac-vrf.anycast-gateway-ipv4",
+            "ipv6": "mac-vrf.anycast-gateway-ipv6"
+          },
+          "declared_families_only": "only the address families the operator declared are configured; an unrequested family is never added",
+          "absent": "no gateway: no routed instance and no L3 identifier"
+        }
+      },
       "minimum_endpoints": 2,
       "minimum_endpoints_with_gateway": 1,
       "examples": [

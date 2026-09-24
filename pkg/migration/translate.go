@@ -168,10 +168,7 @@ func translate(in *ServiceInput, asn int64) Network {
 		n.Metadata.Annotations[AnnotationLimitedEquivalence] = "vpws-to-mac-vrf"
 	}
 
-	rts := func(vni int64) *RouteTargets {
-		t := fmt.Sprintf("target:%d:%d", asn, vni)
-		return &RouteTargets{Import: []string{t}, Export: []string{t}}
-	}
+	rts := func(vni int64) *RouteTargets { return derivedRouteTargets(asn, vni) }
 	switch in.Type {
 	case ConstructVLAN:
 		n.Spec.VLANs = []NetworkVLAN{{Name: vlanName(sid), VLAN: *in.Endpoints[0].VLAN}}
@@ -184,15 +181,8 @@ func translate(in *ServiceInput, asn int64) Network {
 			EVPN:  &EVPN{RouteTargets: rts(*in.L2VNI)},
 		}
 		if gw := in.AnycastGateway; gw != nil {
-			r := Router{Name: routerName(sid), RouteTargets: rts(*in.L3VNI), L3VNI: *in.L3VNI}
-			bd.IRB = &IRB{VRF: r.Name, GatewayIPv4: gw.GatewayIPv4, GatewayIPv6: gw.GatewayIPv6}
-			// The routed instance advertises the gateway subnets (network-spec.md §6): declared
-			// families only.
-			for _, g := range []string{gw.GatewayIPv4, gw.GatewayIPv6} {
-				if g != "" {
-					r.Prefixes = append(r.Prefixes, netip.MustParsePrefix(g).Masked().String())
-				}
-			}
+			r, irb := gatewayRouter(sid, asn, *in.L3VNI, gw)
+			bd.IRB = irb
 			n.Spec.Routers = []Router{r}
 		}
 		n.Spec.BridgeDomains = []BridgeDomain{bd}
@@ -211,6 +201,28 @@ func translate(in *ServiceInput, asn int64) Network {
 		n.Spec.AccessLists = []AccessList{accessList(sid, in.ACL)}
 	}
 	return n
+}
+
+// derivedRouteTargets is the one route-target form the translator emits: target:<fabricASN>:<vni>,
+// imported and exported.
+func derivedRouteTargets(asn, vni int64) *RouteTargets {
+	t := fmt.Sprintf("target:%d:%d", asn, vni)
+	return &RouteTargets{Import: []string{t}, Export: []string{t}}
+}
+
+// gatewayRouter is the anycast gateway of a mac-vrf (T116; FR-032, CR-002; network-spec.md §6):
+// the routers[] entry vrf-<serviceId> carrying the L3VNI with its derived route targets, and the
+// bridge domain's irb block pointing at it with the gateway addresses as declared. The router
+// advertises the masked gateway subnets. Only the declared address families; never a fifth
+// construct — a gateway naming only IPv4 emits no IPv6 address or prefix, and the reverse.
+func gatewayRouter(sid string, asn, l3vni int64, gw *AnycastGateway) (Router, *IRB) {
+	r := Router{Name: routerName(sid), RouteTargets: derivedRouteTargets(asn, l3vni), L3VNI: l3vni}
+	for _, g := range []string{gw.GatewayIPv4, gw.GatewayIPv6} {
+		if g != "" {
+			r.Prefixes = append(r.Prefixes, netip.MustParsePrefix(g).Masked().String())
+		}
+	}
+	return r, &IRB{VRF: r.Name, GatewayIPv4: gw.GatewayIPv4, GatewayIPv6: gw.GatewayIPv6}
 }
 
 func attachments(eps []Endpoint, vrf string) []Attachment {

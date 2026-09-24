@@ -31,7 +31,9 @@ package verify
 //     processors (gNMIc's OTLP output drops strings) and mapped back here with
 //     the same tables (scripts/lib/device_metrics.sh): session-state,
 //     oper-state, active, the access-list booleans programming-complete and
-//     incomplete (T108), and — for the service read-back (T058) — every
+//     incomplete (T108), the gateway read-back's (T116) EVPN RIB used-route,
+//     interface address status and anycast-gw-mac-origin, and — for the service
+//     read-back (T058) — every
 //     oper-down-reason / not-programmed-reason and the bgp-vpn RD/RT origins
 //     (an enum value neither table knows is exported as 0, decoded
 //     UnrecognisedValue: a reason present, never one dropped as absent);
@@ -366,6 +368,13 @@ var (
 		0: UnrecognisedValue, 1: "auto-derived-from-evi", 2: "auto-derived-from-system-ip:0", 3: "manual", 4: "none",
 		5: "auto-derived-from-esi-bytes-1-6", 6: "from-export-policy", 7: "from-import-policy",
 	}
+	// DEVICE_METRICS_ADDRESS_STATUSES: an interface address's status (T116).
+	addressStatuses = map[int64]string{
+		0: UnrecognisedValue, 1: "preferred", 2: "deprecated", 3: "invalid", 4: "inaccessible", 5: "unknown",
+		6: "tentative", 7: "duplicate", 8: "optimistic",
+	}
+	// DEVICE_METRICS_ANYCAST_ORIGINS: an IRB subinterface's anycast-gw-mac-origin (T116).
+	anycastOrigins = map[int64]string{0: UnrecognisedValue, 1: "configured", 2: "vrid-auto-derived"}
 )
 
 // UnrecognisedValue is the decoded form of an enumerated leaf whose device
@@ -384,8 +393,12 @@ func decodeValue(leaf, v string) string {
 		table = sessionStates
 	case "oper-state":
 		table = operStates
-	case "active", "programming-complete", "incomplete":
+	case "active", "programming-complete", "incomplete", "used-route":
 		table = booleans
+	case "status":
+		table = addressStatuses
+	case "anycast-gw-mac-origin":
+		table = anycastOrigins
 	case "oper-down-reason", "not-programmed-reason":
 		table = reasons
 	case "route-distinguisher-origin", "export-route-target-origin", "import-route-target-origin":

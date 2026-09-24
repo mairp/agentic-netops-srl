@@ -18,6 +18,21 @@
 #               leaves (ingress leaf in-packets, egress leaf out-packets) by at least the number of
 #               probes sent — movement only, NEVER a rate
 #
+# `traffic.sh gateway` is the anycast-gateway reachability case of User Story 8 (T118; FR-032,
+# acceptance scenario 1 "the gateway is reachable from the attached ports"), run on its own over
+# the mac-vrf with an anycast gateway (examples/constructs/macvrf-gateway.yaml, lab-macvrf-gateway,
+# VLAN 160, gateway 10.160.0.1/24 + 2001:db8:160::1/64): on both leaves the bridged AND the routed
+# instance (macvrf-/ipvrf-lab-macvrf-gateway) oper-state up; from EACH attached port (client01 on
+# leaf01, client02 on leaf02) the gateway answers in each declared family — every leaf answers
+# locally, the gateway is distributed — and both clients resolve it to the ONE anycast MAC the
+# fabric-constant virtual-router-id derives (00:00:5e:00:01:01, vrid 1); and the bridged half still
+# carries client01 <-> client02 across the fabric. Its negative controls, recorded failing first:
+#   TR-gw-reach   the gateway answers    (a) a gateway address on lab-vlan's VLAN 110, a service with
+#                                        no gateway  (b) on VLAN 199, no service at all
+#   TR-gw-mac     the anycast MAC        the same two (no neighbour entry resolves)
+#   TR-instance   instance oper-state up (a) spine01 (stock)  (b) an instance that does not exist
+#   TR-reach, TR-counters  as for the main run, for the bridged half's cross-leaf flow
+#
 # Order (NFR-013, SC-040): leftovers::scan first (the suite writes client-side scratch links), the
 # Networks' Ready=True read as a precondition, then EVERY check's negative control — against a
 # stock node and against a service that does not exist — recorded failing through
@@ -38,13 +53,15 @@
 # in the client's network namespace with the host's iputils ping (`-M do`: DF set) — busybox ping,
 # the only one in the endpoint image, cannot set DF. No Network, Fabric or Config is written.
 #
-# Usage: traffic.sh [run|once|negative-controls]      (default: run)
+# Usage: traffic.sh [run|once|negative-controls|gateway]      (default: run)
 #        traffic.sh _instance_up <node> <instance>…                       (the checks, run-captured)
 #        traffic.sh _reach|_unreach <client> <4|6> <dst> <payload>
+#        traffic.sh _gwmac <client> <vlan> <gateway address> <mac>
 #        traffic.sh _counters <node> <iface> <index>
 #        traffic.sh _moved <in-node> <out-node> <iface> <index> <in-before> <out-before> <min>
 # Environment: EVIDENCE_DIR, CLUSTER_NAME, LAB_NAME, SRL_USER, SRL_PASS, RUNS (3), TR_COUNT (3 probes),
-#   TR_WAIT (60 s: the window a passing probe is retried in), TR_NEG_WAIT (10 s: the same window
+#   TR_WAIT (60 s: the window a passing probe is retried in), TR_GW_NETWORK (lab-macvrf-gateway),
+#   TR_GW_VLAN (160), TR_GW4 / TR_GW6 (10.160.0.1 / 2001:db8:160::1), TR_GW_MAC (00:00:5e:00:01:01), TR_NEG_WAIT (10 s: the same window
 #   for a negative control, recorded in its argv), TR_SERVICES_NS (agentic-netops-services),
 #   DOCKER / KUBECTL / GNMIC / NSENTER / PING overrides (tests put fakes on PATH).
 # Exit: 0 every run clean; 1 a check failed (named); 2 usage; 3 refused (leftovers, precondition,
@@ -72,6 +89,9 @@ TR_STOCK_NODE="spine01"
 TR_ABSENT_INSTANCE="macvrf-does-not-exist"
 TR_PORT="ethernet-1/1"   # both clients' access port (lab/topology.clab.yml)
 TR_FAILS=()
+# the anycast-gateway case (`traffic.sh gateway`, T118)
+: "${TR_GW_NETWORK:=lab-macvrf-gateway}" "${TR_GW_VLAN:=160}" "${TR_GW4:=10.160.0.1}" "${TR_GW6:=2001:db8:160::1}"
+: "${TR_GW_MAC:=00:00:5e:00:01:01}"   # 00:00:5e:00:01:<vrid>: the fabric-constant virtual-router-id 1
 
 # The plan: <vlan> <client01 addrs> <client02 addrs>; the gateways are .1 / ::1 of each leaf's prefix
 # (examples/constructs/README.md). The macvrf is one L2 segment, so both clients share its subnet.
@@ -83,6 +103,8 @@ tr::addrs() {   # <client> <vlan>: the client's addresses on eth1.<vlan>
     client02:130) echo "10.130.2.10/24,2001:db8:130:2::10/64" ;;
     client01:140) echo "10.140.1.10/24,2001:db8:140:1::10/64" ;;
     client02:140) echo "10.140.2.10/24,2001:db8:140:2::10/64" ;;
+    client01:"$TR_GW_VLAN") echo "10.${TR_GW_VLAN}.0.11/24,2001:db8:${TR_GW_VLAN}::11/64" ;;
+    client02:"$TR_GW_VLAN") echo "10.${TR_GW_VLAN}.0.12/24,2001:db8:${TR_GW_VLAN}::12/64" ;;
   esac
 }
 # routes <client> <vlan>: "<prefix> <gateway>" per family
@@ -186,6 +208,19 @@ tr::reach() {   # every probe answered, retried within TR_WAIT (ARP/ND, DAD)
 tr::unreach() {  # no probe answered
   TR_RX=0; tr::ping "$@" || return 1
   [[ "$TR_RX" -eq 0 ]]
+}
+
+# tr::gwmac <client> <vlan> <gateway> <mac> — the client resolved the gateway address on eth1.<vlan>
+# (or a scratch link on that VLAN) to the anycast MAC: one probe first so the entry exists
+tr::gwmac() {
+  local c="$1" vlan="$2" gw="$3" want="$4" fam=4 dev got
+  [[ "$gw" == *:* ]] && fam=6
+  dev="eth1.${vlan}"   # the service subinterface, or the negative control's scratch link on that VLAN
+  tr::cexec "$c" ip link show dev "${LAB_SCRATCH_PREFIX}${vlan}" >/dev/null 2>&1 && dev="${LAB_SCRATCH_PREFIX}${vlan}"
+  TR_RX=0; tr::ping "$c" "$fam" "$gw" 56 >/dev/null || true
+  got="$(tr::cexec "$c" ip -"$fam" neigh show "$gw" dev "$dev" 2>/dev/null | grep -oiE 'lladdr [0-9a-f:]{17}' | awk '{print tolower($2)}' | head -1)"
+  echo "$c $dev neighbour $gw lladdr: ${got:-none} (want $want)"
+  [[ -n "$got" && "$got" == "$(tr '[:upper:]' '[:lower:]' <<<"$want")" ]]
 }
 
 # ---------------------------------------------------------------- client plumbing (tests/ only)
@@ -373,6 +408,73 @@ tr::suite() {
   log::info "traffic suite passed: ${runs} consecutive clean runs (evidence: $EVIDENCE_DIR)"
 }
 
+# ---------------------------------------------------------------- the anycast gateway (T118)
+
+tr::gw_negative_controls() {
+  log::phase TrafficGatewayNegativeControls
+  local s="$TR_SCRATCH_STOCK_VLAN" a="$TR_SCRATCH_ABSENT_VLAN" v
+  for v in "$s" "$a"; do
+    tr::scratch_link client01 "$v" "10.${v}.0.11/24"; tr::scratch_link client02 "$v" "10.${v}.0.12/24"
+  done
+  tr::neg TR-instance _instance_up "$TR_STOCK_NODE" "macvrf-${TR_GW_NETWORK}" "ipvrf-${TR_GW_NETWORK}" || return 3
+  tr::neg TR-instance _instance_up leaf01 "$TR_ABSENT_INSTANCE" || return 3
+  tr::neg TR-gw-reach _reach client01 4 "10.${s}.0.1" 56 || return 3   # lab-vlan: no gateway
+  tr::neg TR-gw-reach _reach client01 4 "10.${a}.0.1" 56 || return 3   # no service at all
+  tr::neg TR-gw-mac _gwmac client01 "$s" "10.${s}.0.1" "$TR_GW_MAC" || return 3
+  tr::neg TR-gw-mac _gwmac client01 "$a" "10.${a}.0.1" "$TR_GW_MAC" || return 3
+  # the bridged half's cross-leaf flow (tr::flow): reachability and keyed counters
+  tr::neg TR-reach _reach client01 4 "10.${s}.0.12" 56 || return 3
+  tr::neg TR-reach _reach client01 4 "10.${a}.0.12" 56 || return 3
+  tr::neg TR-counters _moved "$TR_STOCK_NODE" spine02 "$TR_PORT" "$TR_GW_VLAN" 0 0 1 || return 3
+  tr::neg TR-counters _moved leaf01 leaf02 "$TR_PORT" "$a" 0 0 1 || return 3
+  local c; for c in client01 client02; do for v in "$s" "$a"; do tr::remove_scratch "$c" "${LAB_SCRATCH_PREFIX}$v" || return 1; done; done
+}
+
+tr::gw_once() {
+  log::phase "TrafficGatewayRun${TR_RUN}"
+  local n c v=$TR_GW_VLAN
+  for n in leaf01 leaf02; do
+    tr::chk TR-instance "$n: macvrf-${TR_GW_NETWORK} (bridged) and ipvrf-${TR_GW_NETWORK} (routed) oper-state up" \
+      _instance_up "$n" "macvrf-${TR_GW_NETWORK}" "ipvrf-${TR_GW_NETWORK}"
+  done
+  for c in client01 client02; do
+    tr::chk TR-gw-reach "$c: the anycast gateway ${TR_GW4} answers from its attached port (IPv4)" _reach "$c" 4 "$TR_GW4" 56
+    tr::chk TR-gw-reach "$c: the anycast gateway ${TR_GW6} answers from its attached port (IPv6)" _reach "$c" 6 "$TR_GW6" 56
+    tr::chk TR-gw-mac "$c: ${TR_GW4} resolves to the anycast MAC ${TR_GW_MAC}" _gwmac "$c" "$v" "$TR_GW4" "$TR_GW_MAC"
+    tr::chk TR-gw-mac "$c: ${TR_GW6} resolves to the anycast MAC ${TR_GW_MAC}" _gwmac "$c" "$v" "$TR_GW6" "$TR_GW_MAC"
+  done
+  tr::flow "L2 cross-leaf ${TR_GW_NETWORK}" "$v" 4 "10.${v}.0.12" 56
+  tr::flow "L2 cross-leaf ${TR_GW_NETWORK}" "$v" 6 "2001:db8:${v}::12" 56
+}
+
+tr::gw_suite() {
+  local runs="$1" r clean=0
+  evidence::ensure_dir >/dev/null || return 3
+  lab::export_creds || return 3
+  trap tr::cleanup EXIT
+  trap 'exit 130' INT TERM
+  # shellcheck source=../lib/leftovers.sh
+  source "$TR_ROOT/tests/lib/leftovers.sh"
+  if ! leftovers::scan; then
+    log::error "traffic suite (gateway) REFUSED to start: leftovers present (listed above); run leftovers::remove explicitly"
+    return 3
+  fi
+  TR_NETWORKS="$TR_GW_NETWORK" tr::precondition || return 3
+  tr::setup_service client01 "$TR_GW_VLAN" "$(tr::addrs client01 "$TR_GW_VLAN")"
+  tr::setup_service client02 "$TR_GW_VLAN" "$(tr::addrs client02 "$TR_GW_VLAN")"
+  tr::gw_negative_controls || return 3
+  for ((r = 1; r <= runs; r++)); do
+    TR_RUN="$r"; local before=${#TR_FAILS[@]}
+    tr::gw_once
+    if [[ ${#TR_FAILS[@]} -eq "$before" ]]; then clean=$((clean + 1)); log::info "gateway run $r clean"; else log::error "gateway run $r NOT clean"; fi
+  done
+  if [[ ${#TR_FAILS[@]} -gt 0 ]]; then
+    log::error "traffic suite (gateway) FAILED (${clean}/${runs} clean runs): ${TR_FAILS[*]}"
+    return 1
+  fi
+  log::info "traffic suite (gateway) passed: ${runs} consecutive clean runs (evidence: $EVIDENCE_DIR)"
+}
+
 # ---------------------------------------------------------------- dispatch
 
 TR_RUN=0
@@ -382,6 +484,8 @@ case "$cmd" in
   run)               [[ $# -eq 0 ]] || usage; tr::suite "$RUNS" ;;
   once)              [[ $# -eq 0 ]] || usage; tr::suite 1 ;;
   negative-controls) [[ $# -eq 0 ]] || usage; tr::suite 0 ;;
+  gateway)           [[ $# -eq 0 ]] || usage; tr::gw_suite "$RUNS" ;;
+  _gwmac)            [[ $# -eq 4 ]] || usage; tr::gwmac "$@" ;;
   _instance_up)      [[ $# -ge 2 ]] || usage; tr::instance_up "$@" ;;
   _reach)            [[ $# -eq 4 ]] || usage; tr::reach "$@" ;;
   _unreach)          [[ $# -eq 4 ]] || usage; tr::unreach "$@" ;;

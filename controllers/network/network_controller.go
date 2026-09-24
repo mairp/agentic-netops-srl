@@ -37,6 +37,7 @@ import (
 
 	"github.com/go-logr/logr"
 	configv1alpha1 "github.com/sdcio/config-server/apis/config/v1alpha1"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -59,6 +60,7 @@ import (
 	"github.com/mairp/agentic-netops-srl/internal/status"
 	"github.com/mairp/agentic-netops-srl/internal/telemetry"
 	"github.com/mairp/agentic-netops-srl/internal/verify"
+	"github.com/mairp/agentic-netops-srl/internal/webhook"
 	"github.com/mairp/agentic-netops-srl/pkg/kuid"
 	"github.com/mairp/agentic-netops-srl/pkg/register"
 	"github.com/mairp/agentic-netops-srl/pkg/sdc"
@@ -148,6 +150,14 @@ type Reconciler struct {
 	// is Ready; nil trusts the Target alone.
 	Reachability Reachability
 	Telemetry    TelemetryHealth
+	// QualificationReader, when set, reads the qualification record
+	// (agentic-netops-system/fabric-qualification, internal/webhook) uncached — the manager's
+	// API reader, as the admission webhook does — for a service carrying an anycast gateway: its
+	// read-back reads a family's EVPN Type-5 route only where the record qualifies
+	// ip-vrf.evpn-type5-<family> (T116). Nil, or no record, gives the read-back none: it then
+	// reads every declared family's Type-5 — admission already refused what the record does not
+	// qualify (FR-097), so the absence never weakens the read-back.
+	QualificationReader client.Reader
 	// Compat is the compatibility set asserted before rendering; nil skips the Schema and
 	// Target compatibility checks (the Fabric reconciler asserts the same set).
 	Compat   *compat.Set
@@ -673,7 +683,12 @@ func (p *pass) run(ctx context.Context) (ctrl.Result, error) {
 	if err != nil {
 		return p.terminal(p.conds.SetNotAccepted(status.ReasonInvalidIntent, err.Error()))
 	}
-	vin := verify.ServiceInput{Model: m, Prefixes: prefixes, Loopbacks: leafLoopbacks(f), TargetNamespace: st.TargetNamespace}
+	qualified, err := r.qualification(ctx, m)
+	if err != nil {
+		return p.transient(ctx, "qualification record", err)
+	}
+	vin := verify.ServiceInput{Model: m, Prefixes: prefixes, Loopbacks: leafLoopbacks(f), Qualified: qualified,
+		TargetNamespace: st.TargetNamespace}
 	for _, node := range names {
 		name, _ := sdc.ConfigName(n.Name, node)
 		vin.Nodes = append(vin.Nodes, verify.ServiceNodeInput{Node: node, ConfigName: name, Rendered: rendered[node].JSON})
@@ -718,6 +733,34 @@ func (p *pass) run(ctx context.Context) (ctrl.Result, error) {
 	// An invariant missing: converging again, re-read at the reconciliation interval until
 	// it returns.
 	return ctrl.Result{RequeueAfter: st.ReconcileInterval}, nil
+}
+
+// qualification is the qualification record's predicate for the read-back of m: read only for
+// a service carrying an anycast gateway (the only read-back that consults it), and nil — every
+// declared family read — when no reader is wired or the record does not exist.
+func (r *Reconciler) qualification(ctx context.Context, m *model.ServiceModel) (func(string) bool, error) {
+	if r.QualificationReader == nil {
+		return nil, nil
+	}
+	gateway := false
+	for i := range m.Nodes {
+		if len(m.Nodes[i].IRB) > 0 {
+			gateway = true
+			break
+		}
+	}
+	if !gateway {
+		return nil, nil
+	}
+	cm := &corev1.ConfigMap{}
+	err := r.QualificationReader.Get(ctx, client.ObjectKey{Namespace: webhook.QualificationNamespace, Name: webhook.QualificationName}, cm)
+	switch {
+	case apierrors.IsNotFound(err):
+		return nil, nil
+	case err != nil:
+		return nil, fmt.Errorf("reading %s/%s: %w", webhook.QualificationNamespace, webhook.QualificationName, err)
+	}
+	return webhook.QualificationFromConfigMap(cm).Qualified, nil
 }
 
 // wait records a dependency wait: nothing written to any device, Ready=False/NotConverged

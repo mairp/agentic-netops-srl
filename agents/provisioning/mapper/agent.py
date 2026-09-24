@@ -26,8 +26,14 @@ Two halves, in this order:
      attachment points;
    * the declared tagging mode of each port (``untaggedAccessPorts``, CR-003, AD-68): an endpoint
      asking for the other mode is refused listing the ports declared in the mode it asked for;
+   * the anycast gateway, a property of ``mac-vrf`` (T117; FR-032, CR-002): **only the declared
+     address families** — a gateway family whose address the operator never wrote is dropped,
+     never added (addresses compared by value, so ``2001:DB8::1`` and ``2001:db8:0::1`` are the
+     same); when none remains, a gateway the operator asked for is a missing field and one the
+     request never mentions is removed (no routed instance, no L3 identifier);
    * the qualification record: an unqualified construct or gated property refused by name (FR-097)
-     — an egress access list among them, refused by name unless ``acl.egress`` is qualified;
+     — an egress access list among them, refused by name unless ``acl.egress`` is qualified, and
+     each declared gateway family by the key the catalogue gives it (CR-010);
    * an ``acl`` — optional on any construct, required on ``service_type: acl`` — reviewed by
      :mod:`.acl` (T111): the address family folded and a Layer 2 list refused as out of scope,
      priorities distinct and in ``1-65534`` stated with the evaluation order (ascending priority,
@@ -45,6 +51,7 @@ Two halves, in this order:
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import json
 import logging
 import re
@@ -78,6 +85,8 @@ INVENTORY_FILE = "inventory.json"
 QUALIFIED = "qualified"
 ALIAS_CONSTRUCT = {"VPLS": "mac-vrf", "VPWS": "mac-vrf", "L2L3-IRB": "mac-vrf", "L3VPN": "ip-vrf"}
 _PORT = re.compile(r"^(?:ethernet|eth|et|e)[-_ ]?(\d+)\s*[/_-]\s*(\d+)$")
+_ADDRESS_TOKEN = re.compile(r"[0-9A-Fa-f:.]+")
+_GATEWAY_WORDS = re.compile(r"gateway|anycast|\bgw\b|\birb\b|l2l3", re.IGNORECASE)
 
 
 class ModelClient(Protocol):
@@ -276,15 +285,61 @@ def band_refusal(path: str, vlan: int, construct: str) -> str | None:
             f"{ALLOCATION} is the allocation authority's to hand out — {alternative}")
 
 
-def _qualification_needs(interp: Interpretation, construct: str) -> list[tuple[str, str, str]]:
-    """``(path, what, record key)`` for the construct and each gated property the request uses."""
+def _address(value: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
+    try:
+        return ipaddress.ip_address(value)
+    except ValueError:
+        return None
+
+
+def written_addresses(text: str) -> set[ipaddress.IPv4Address | ipaddress.IPv6Address]:
+    """Every IPv4/IPv6 address the operator's text holds, by value (a prefix length, a trailing
+    full stop and the case or compression of an IPv6 address do not matter)."""
+    found = set()
+    for token in _ADDRESS_TOKEN.findall(text):
+        for candidate in (token, token.rstrip("."), token.rstrip(".:")):
+            address = _address(candidate)
+            if address is not None:
+                found.add(address)
+                break
+    return found
+
+
+def declared_gateway(gateway: dict[str, Any] | None, text: str,
+                     families: Iterable[str]) -> dict[str, Any] | None:
+    """The gateway with only the address families the operator wrote (FR-032: an unrequested
+    family is never added). A family whose address is absent from ``text`` is set to null; when
+    none remains, the gateway stays (every family null — a missing field) if the operator asked
+    for one, and is removed if the request never mentions a gateway."""
+    if gateway is None:
+        return None
+    written = written_addresses(text)
+    kept = dict(gateway)
+    for fam in families:
+        value = gateway.get(fam)
+        if not value:
+            continue
+        part = str(value).split("/", 1)[0].strip()
+        address = _address(part)
+        said = (address in written) if address is not None else (
+            part.lower() != PLACEHOLDER and bool(part) and part.lower() in text.lower())
+        if not said:
+            kept[fam] = None
+    if any(kept.get(fam) for fam in families):
+        return kept
+    return kept if _GATEWAY_WORDS.search(text) else None
+
+
+def _qualification_needs(interp: Interpretation, construct: str, catalogue: Catalogue,
+                         gateway: dict[str, Any] | None) -> list[tuple[str, str, str]]:
+    """``(path, what, record key)`` for the construct and each gated property the request uses;
+    the gateway's per-family keys are the catalogue's (``mac-vrf.anycast-gateway-<family>``)."""
     needs = [("service_type", f"the {construct} construct", construct)]
-    gw = interp.anycast_gateway
-    if gw is not None:
-        for fam in ("ipv4", "ipv6"):
-            if getattr(gw, fam):
+    if gateway is not None:
+        for fam, key in catalogue.gateway_families().items():
+            if gateway.get(fam):
                 needs.append((f"anycast_gateway.{fam}", f"the {fam.upper()[:2]}{fam[2:]} anycast "
-                              "gateway", f"mac-vrf.anycast-gateway-{fam}"))
+                              "gateway", key))
     if construct == "ip-vrf":
         for fam, prefixes in (("ipv4", interp.ipv4_prefixes), ("ipv6", interp.ipv6_prefixes)):
             if prefixes:
@@ -415,8 +470,15 @@ def review(interp: Interpretation, *, text: str, inventory: Inventory,
                            f"{_and([str(v) for v in distinct])}; a {construct} is one broadcast "
                            "domain, so every endpoint shares one VLAN")
 
+    # the gateway, a property of mac-vrf: only the families the operator declared (FR-032)
+    gateway = declared_gateway(data.get("anycast_gateway"), text,
+                               catalogue.gateway_families())
+    if gateway is None:
+        data.pop("anycast_gateway", None)
+    else:
+        data["anycast_gateway"] = gateway
+
     # per-construct completeness (construct-vocabulary.md §3)
-    gateway = data.get("anycast_gateway")
     if construct == "mac-vrf":
         if gateway is not None and not (gateway.get("ipv4") or gateway.get("ipv6")):
             missing.append("anycast_gateway.ipv4 or anycast_gateway.ipv6")
@@ -432,7 +494,7 @@ def review(interp: Interpretation, *, text: str, inventory: Inventory,
         unsupported.extend(acl_causes)
 
     # the qualification record (FR-097)
-    for path, what, key in _qualification_needs(interp, construct):
+    for path, what, key in _qualification_needs(interp, construct, catalogue, gateway):
         state = qualification.get(key)
         if state != QUALIFIED:
             said = f"records it as {state!r}" if state else "does not record it"
@@ -553,6 +615,6 @@ class Mapper:
 
 
 __all__ = ["ALLOCATION_BAND", "CONSTRUCTS", "NAMING_BAND", "Inventory", "Mapper",
-           "MapperFailure", "band_refusal", "canonical_port", "content_of", "extract_json",
-           "generate_service_id", "load_inventory", "load_qualification", "review", "summary",
-           "validate_model_output"]
+           "MapperFailure", "band_refusal", "canonical_port", "content_of", "declared_gateway",
+           "extract_json", "generate_service_id", "load_inventory", "load_qualification",
+           "review", "summary", "validate_model_output", "written_addresses"]

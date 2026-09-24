@@ -1,0 +1,36 @@
+# A mac-vrf with an anycast gateway (User Story 8): VLAN 160 (naming band, AD-33) extended over the
+# fabric by L2VNI 10160, and — because it declares a gateway — the routed half: irb0.160 carries
+# the anycast addresses on both leaves and is a member of both the bridged instance and the routed
+# one, which carries L3VNI 10161. There is no fifth construct: the gateway is a property of the
+# mac-vrf (FR-032). Both address families are declared here, so both are configured; a gateway that
+# declares one family configures only that one. Route targets are derived, target:<fabricASN>:<vni>.
+# No claim manifest is shipped: the provider claims the stated VNIs itself (FR-109).
+apiVersion: fabric.agentic-netops.io/v1alpha1
+kind: Network
+metadata:
+  name: lab-macvrf-gateway
+  namespace: agentic-netops-services
+spec:
+  description: lab mac-vrf vlan 160 l2vni 10160 with anycast gateway 10.160.0.1/24 2001:db8:160::1/64 (l3vni 10161)
+  bridgeDomains:
+  - name: bd160
+    vlan: 160
+    l2vni: 10160
+    evpn:
+      routeTargets:
+        import: ["target:65000:10160"]
+        export: ["target:65000:10160"]
+    irb:
+      vrf: vrf160
+      gatewayIPv4: 10.160.0.1/24
+      gatewayIPv6: 2001:db8:160::1/64
+  routers:
+  - name: vrf160
+    l3vni: 10161
+    routeTargets:
+      import: ["target:65000:10161"]
+      export: ["target:65000:10161"]
+    prefixes: ["10.160.0.0/24", "2001:db8:160::/64"]
+  attachments:
+  - {node: leaf01, attachment: ethernet-1/1, vlan: 160}
+  - {node: leaf02, attachment: ethernet-1/1, vlan: 160}

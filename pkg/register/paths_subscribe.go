@@ -79,6 +79,19 @@ func SubscribeEntries() []SubscribeEntry {
 		sub("srl-acl", slow, "/acl/acl-filter[name=*][type=*]/entry[sequence-id=*]/tcam-entries",
 			"acl_acl_filter_entry_tcam_entries", "acl_filter_name", "acl_filter_type", "entry_sequence_id"),
 		sub("srl-acl", slow, "/acl/datapath-programming", "acl_datapath_programming"),
+		// the anycast-gateway read-back (T116, internal/verify/gateway.go): the IRB
+		// subinterface's anycast-gw MAC origin, each anycast address's status, and the
+		// EVPN RIB's IP-prefix (Type-5) routes, read per route distinguisher and prefix
+		sub("srl-anycast-gw", slow, "/interface[name=*]/subinterface[index=*]/anycast-gw/anycast-gw-mac-origin",
+			"interface_subinterface_anycast_gw_anycast_gw_mac_origin", "interface_name", "subinterface_index"),
+		sub("srl-anycast-gw", slow, "/interface[name=*]/subinterface[index=*]/ipv4/address[ip-prefix=*]/status",
+			"interface_subinterface_ipv4_address_status", "interface_name", "subinterface_index", "address_ip_prefix"),
+		sub("srl-anycast-gw", slow, "/interface[name=*]/subinterface[index=*]/ipv6/address[ip-prefix=*]/status",
+			"interface_subinterface_ipv6_address_status", "interface_name", "subinterface_index", "address_ip_prefix"),
+		sub("srl-anycast-gw", slow, "/network-instance[name=default]/bgp-rib/afi-safi[afi-safi-name=evpn]/evpn/rib-in-out/rib-in-post/ip-prefix-route[route-distinguisher=*][ethernet-tag-id=*][ip-prefix-length=*][ip-prefix=*][neighbor=*][path-id=*]/used-route",
+			"network_instance_bgp_rib_afi_safi_evpn_rib_in_out_rib_in_post_ip_prefix_route_used_route",
+			"network_instance_name", "afi_safi_afi_safi_name", "ip_prefix_route_route_distinguisher", "ip_prefix_route_ethernet_tag_id",
+			"ip_prefix_route_ip_prefix_length", "ip_prefix_route_ip_prefix", "ip_prefix_route_neighbor", "ip_prefix_route_path_id"),
 		sub("srl-platform", slow, "/platform/control[slot=*]/cpu[index=all]/total", "platform_control_cpu_total", "control_slot", "cpu_index"),
 		sub("srl-platform", slow, "/platform/control[slot=*]/memory", "platform_control_memory", "control_slot"),
 		sub("srl-apps", slow, "/system/app-management/application[name=*]/state", "system_app_management_application_state", "application_name"),

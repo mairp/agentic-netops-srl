@@ -49,6 +49,7 @@ TARGETS := \
 	show-allocations \
 	show-rendered-config \
 	test-traffic \
+	test-traffic-gateway \
 	test-reverify \
 	test-boundary \
 	test-envtest \
@@ -178,6 +179,9 @@ show-rendered-config: ## T051/T064: the generated fabric Configs, then every ser
 
 test-traffic: ## T065: cross-leaf L2, intra-ip-vrf L3, isolation, MTU boundary; three clean runs (SC-005)
 	bash tests/integration/traffic.sh run
+
+test-traffic-gateway: ## T118: US8 anycast gateway answers from both attached ports, both families, one anycast MAC (lab-macvrf-gateway)
+	bash tests/integration/traffic.sh gateway
 
 # --- Scheduled re-verification and offline suites (FR-107, FR-020)
 test-reverify: ## T167: scheduled re-verification, maintenance and cannot-run halves (SC-044)

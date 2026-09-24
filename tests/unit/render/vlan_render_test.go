@@ -75,6 +75,8 @@ func ipvrfInput() model.ServiceInput {
 func serviceInputs() map[string]model.ServiceInput {
 	return map[string]model.ServiceInput{
 		"vlan": vlanInput(), "macvrf": macvrfInput(), "macvrf-gw": macvrfGWInput(), "ipvrf": ipvrfInput(),
+		// the single-family anycast gateways (gateway_render_test.go, T115)
+		"gateway_ipv4": gatewayIPv4Input(), "gateway_ipv6": gatewayIPv6Input(),
 	}
 }
 
@@ -203,6 +205,7 @@ func TestServiceGoldens(t *testing.T) {
 	for name, in := range aclGoldenInputs(t) { // acl_render_test.go (T104, T113)
 		goldens[name] = in
 	}
+	goldens["gateway_example"] = gatewayExampleInput(t) // gateway_render_test.go (T115)
 	for name, in := range goldens {
 		r := renderService(t, in)
 		for node, rn := range r {
@@ -260,8 +263,11 @@ type g12Service struct {
 // TestServiceGoldensFrozenAgainstG12: the service goldens are frozen (T063) in
 // the identityref form gate item G12 observed from a real device Get
 // (AD-81): every network-instance, subinterface and vxlan-interface type is
-// the observed module-qualified identity, and the empty leaf `primary` is the
-// observed [null].
+// the observed module-qualified identity, and the empty leaf `primary`, WHERE
+// a golden carries it, is the observed [null]. No golden carries it today:
+// irb0's IPv4 address renders no `primary` (live finding 2026-09-24-irb-primary,
+// internal/render/srl/irb.go) — the check keeps validating the form so a
+// primary reintroduced in any other shape fails.
 func TestServiceGoldensFrozenAgainstG12(t *testing.T) {
 	b, err := os.ReadFile(g12Observation)
 	if err != nil {

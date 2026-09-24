@@ -54,7 +54,10 @@ DEVICE_METRICS_GNMI_PORT=57400
 # programming-complete gate per forwarding complex, and per filter entry — keyed by filter name, type
 # and sequence-id — its TCAM cost (single-instance, input-total, output-total) and its statistics
 # (matched-packets readable, incomplete). The read-back filters every read by its own filter's keys;
-# the cpm/system filters are sampled too and are never evidence.
+# the cpm/system filters are sampled too and are never evidence. And the anycast-gateway read-back
+# (T116, internal/verify/gateway.go; live observation 2026-09-24 on SR Linux 25.7.1): an IRB
+# subinterface's anycast-gw MAC origin and each address's status, and the default instance's EVPN
+# RIB IP-prefix (Type-5) routes' used-route, read per route distinguisher and prefix (never a count).
 DEVICE_METRICS_PATHS=(
   "/interface[name=*]/oper-state"
   "/interface[name=*]/subinterface[index=*]/oper-state"
@@ -87,6 +90,10 @@ DEVICE_METRICS_PATHS=(
   "/acl/acl-filter[name=*][type=*]/entry[sequence-id=*]/tcam-entries/forwarding-complex[complex-identifier=*]/output-total"
   "/acl/acl-filter[name=*][type=*]/entry[sequence-id=*]/statistics/matched-packets"
   "/acl/acl-filter[name=*][type=*]/entry[sequence-id=*]/statistics/incomplete"
+  "/interface[name=*]/subinterface[index=*]/anycast-gw/anycast-gw-mac-origin"
+  "/interface[name=*]/subinterface[index=*]/ipv4/address[ip-prefix=*]/status"
+  "/interface[name=*]/subinterface[index=*]/ipv6/address[ip-prefix=*]/status"
+  "/network-instance[name=default]/bgp-rib/afi-safi[afi-safi-name=evpn]/evpn/rib-in-out/rib-in-post/ip-prefix-route[route-distinguisher=*][ethernet-tag-id=*][ip-prefix-length=*][ip-prefix=*][neighbor=*][path-id=*]/used-route"
 )
 
 # The integer encodings of the enumerated string leaves beyond the three state tables below
@@ -119,6 +126,15 @@ DEVICE_METRICS_ORIGINS=(
   1:auto-derived-from-evi 2:auto-derived-from-system-ip:0 3:manual 4:none
   5:auto-derived-from-esi-bytes-1-6 6:from-export-policy 7:from-import-policy
 )
+# an interface address's status (srl_nokia-interfaces-ip, both families; T116)
+DEVICE_METRICS_ADDRESS_STATUSES=(
+  1:preferred 2:deprecated 3:invalid 4:inaccessible 5:unknown 6:tentative 7:duplicate 8:optimistic
+)
+# an IRB subinterface's anycast-gw-mac-origin (T116; the gateway renders no anycast-gw-mac, so
+# the device reports vrid-auto-derived)
+DEVICE_METRICS_ANYCAST_ORIGINS=(
+  1:configured 2:vrid-auto-derived
+)
 
 # device_metrics::_transforms <code:value>… — gNMIc event-strings replace transforms, one per
 # value (anchored; every tabled value is [a-z0-9_:-] only, so none needs regex escaping), then
@@ -142,7 +158,7 @@ device_metrics::_gnmic_config() {
 }
 
 device_metrics::render() {
-  local cidr="${1:-${MGMT_CIDR:-172.25.25.0/24}}" hosts name addr targets="" paths="" p reasons origins
+  local cidr="${1:-${MGMT_CIDR:-172.25.25.0/24}}" hosts name addr targets="" paths="" p reasons origins statuses anycast
   hosts="$(onboarding::hosts "$cidr")" || return 1
   while read -r name addr; do
     [[ -n "$name" ]] && targets+="      ${name}: {address: \"${addr}:${DEVICE_METRICS_GNMI_PORT}\"}"$'\n'
@@ -150,6 +166,8 @@ device_metrics::render() {
   for p in "${DEVICE_METRICS_PATHS[@]}"; do paths+="          - \"${p}\""$'\n'; done
   reasons="$(device_metrics::_transforms "${DEVICE_METRICS_REASONS[@]}")"
   origins="$(device_metrics::_transforms "${DEVICE_METRICS_ORIGINS[@]}")"
+  statuses="$(device_metrics::_transforms "${DEVICE_METRICS_ADDRESS_STATUSES[@]}")"
+  anycast="$(device_metrics::_transforms "${DEVICE_METRICS_ANYCAST_ORIGINS[@]}")"
   cat <<YAML
 apiVersion: v1
 kind: ConfigMap
@@ -179,7 +197,7 @@ ${paths}    outputs:
         strip-leading-underscore: true
         strings-as-attributes: false
         counter-patterns: []
-        event-processors: [session-state-to-int, oper-state-to-int, active-to-int, acl-bool-to-int, reason-to-int, origin-to-int, state-as-int]
+        event-processors: [session-state-to-int, oper-state-to-int, active-to-int, acl-bool-to-int, rib-bool-to-int, reason-to-int, origin-to-int, address-status-to-int, anycast-origin-to-int, state-as-int]
     processors:
       session-state-to-int:
         event-strings:
@@ -211,6 +229,13 @@ ${paths}    outputs:
           transforms:
             - replace: {apply-on: value, old: "^true$", new: "1"}
             - replace: {apply-on: value, old: "^false$", new: "0"}
+      # an EVPN RIB route's used-route (T116: the gateway's Type-5 routes)
+      rib-bool-to-int:
+        event-strings:
+          value-names: [".*/used-route$"]
+          transforms:
+            - replace: {apply-on: value, old: "^true$", new: "1"}
+            - replace: {apply-on: value, old: "^false$", new: "0"}
       reason-to-int:
         event-strings:
           value-names: [".*oper-down-reason$", ".*not-programmed-reason$"]
@@ -221,14 +246,25 @@ ${reasons}
           value-names: [".*route-distinguisher-origin$", ".*route-target-origin$"]
           transforms:
 ${origins}
+      address-status-to-int:
+        event-strings:
+          value-names: [".*address/status$"]
+          transforms:
+${statuses}
+      anycast-origin-to-int:
+        event-strings:
+          value-names: [".*anycast-gw-mac-origin$"]
+          transforms:
+${anycast}
       # gNMIc's otlp output skips every string value, a digit string included (v0.47.0), so the
       # mapped state leaves are converted to integers or they are never exported — and so are the
       # uint64 indexes (the VTEP's and the multicast destination's), which JSON_IETF encodes as
       # strings (RFC 7951 §6.1; observed on 25.7.1) — and an access-list entry's matched-packets
-      # (uint64) with its booleans; its uint16 TCAM counts are converted too, a no-op on a number
+      # (uint64) with its booleans; its uint16 TCAM counts are converted too, a no-op on a number; and
+      # the gateway read-back's used-route, address status and anycast-gw-mac-origin (T116)
       state-as-int:
         event-convert:
-          value-names: [".*session-state$", ".*oper-state$", ".*/active$", ".*oper-down-reason$", ".*not-programmed-reason$", ".*route-distinguisher-origin$", ".*route-target-origin$", ".*destination-index$", ".*vtep/index$", ".*/programming-complete$", ".*/statistics/incomplete$", ".*/statistics/matched-packets$", ".*/single-instance$", ".*/input-total$", ".*/output-total$"]
+          value-names: [".*session-state$", ".*oper-state$", ".*/active$", ".*oper-down-reason$", ".*not-programmed-reason$", ".*route-distinguisher-origin$", ".*route-target-origin$", ".*destination-index$", ".*vtep/index$", ".*/programming-complete$", ".*/statistics/incomplete$", ".*/statistics/matched-packets$", ".*/single-instance$", ".*/input-total$", ".*/output-total$", ".*/used-route$", ".*address/status$", ".*anycast-gw-mac-origin$"]
           type: int
 YAML
 }
