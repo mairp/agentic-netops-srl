@@ -1,0 +1,13 @@
+{
+  "serviceId": "5a8e2c4d6f1b3e7",
+  "type": "acl",
+  "tenant": "acme",
+  "acl": "corp-web-filter",
+  "endpoints": [
+    {
+      "node": "leaf01",
+      "attachment": "ethernet-1/1",
+      "vlan": 100
+    }
+  ]
+}

@@ -1,0 +1,133 @@
+{
+  "srl_nokia-acl:acl": {
+    "acl-filter": [
+      {
+        "description": "tenant1/edge egress",
+        "entry": [
+          {
+            "action": {
+              "accept": {}
+            },
+            "description": "permit-icmpv6",
+            "match": {
+              "ipv6": {
+                "next-header": "icmp6"
+              }
+            },
+            "sequence-id": 100
+          },
+          {
+            "action": {
+              "drop": {}
+            },
+            "description": "drop-high-tcp",
+            "match": {
+              "ipv6": {
+                "destination-ip": {
+                  "prefix": "2001:db8:160::/64"
+                },
+                "next-header": "tcp"
+              },
+              "transport": {
+                "destination-port": {
+                  "range": {
+                    "end": 8100,
+                    "start": 8000
+                  }
+                }
+              }
+            },
+            "sequence-id": 200
+          },
+          {
+            "action": {
+              "drop": {}
+            },
+            "description": "drop-dns-from-lab",
+            "match": {
+              "ipv6": {
+                "next-header": "udp",
+                "source-ip": {
+                  "prefix": "2001:db8:66::/48"
+                }
+              },
+              "transport": {
+                "source-port": {
+                  "operator": "eq",
+                  "value": 53
+                }
+              }
+            },
+            "sequence-id": 300
+          },
+          {
+            "action": {
+              "accept": {}
+            },
+            "description": "permit-nh-58",
+            "match": {
+              "ipv6": {
+                "next-header": 58
+              }
+            },
+            "sequence-id": 400
+          }
+        ],
+        "name": "acl-edge-egress",
+        "statistics-per-entry": true,
+        "subinterface-specific": "output-only",
+        "type": "ipv6"
+      }
+    ],
+    "interface": [
+      {
+        "interface-id": "ethernet-1/1.160",
+        "interface-ref": {
+          "interface": "ethernet-1/1",
+          "subinterface": 160
+        },
+        "output": {
+          "acl-filter": [
+            {
+              "name": "acl-edge-egress",
+              "type": "ipv6"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "srl_nokia-interfaces:interface": [
+    {
+      "name": "ethernet-1/1",
+      "subinterface": [
+        {
+          "admin-state": "enable",
+          "index": 160,
+          "l2-mtu": 9412,
+          "srl_nokia-interfaces-vlans:vlan": {
+            "encap": {
+              "single-tagged": {
+                "vlan-id": 160
+              }
+            }
+          },
+          "type": "srl_nokia-interfaces:bridged"
+        }
+      ]
+    }
+  ],
+  "srl_nokia-network-instance:network-instance": [
+    {
+      "admin-state": "enable",
+      "description": "Service edge (vlan)",
+      "interface": [
+        {
+          "name": "ethernet-1/1.160"
+        }
+      ],
+      "name": "vlan-edge",
+      "type": "srl_nokia-network-instance:mac-vrf"
+    }
+  ]
+}

@@ -585,7 +585,7 @@ func TestDeletionOrderHolderPresent(t *testing.T) {
 	h.converge(macvrfSpec(420, 10420, att("leaf01", "ethernet-1/2", 420)))
 	acl := h.with(nsServices, "del-acl-holder")
 	acl.create(aclSpec(att("leaf01", "ethernet-1/2", 420)))
-	acl.reconcile() // takes the finalizer; its render is User Story 5's
+	acl.reconcile() // takes the finalizer; the fake renderer renders no filter (acl_lifecycle_test.go renders it for real)
 	if !delHasFinalizer(acl) {
 		t.Fatal("the acl object carries no finalizer after its first reconcile")
 	}

@@ -1,0 +1,26 @@
+# A standalone access list (the acl construct): accessLists alone, bound on leaf01 ethernet-1/1
+# VLAN 110 — the subinterface ethernet-1/1.110 that lab-vlan (vlan.yaml) creates. It creates no
+# subinterface, no network-instance and no interface-ref of its own: its Config writes only the
+# filter acl-lab-acl-ingress (type ipv6) and the binding entry
+# /acl/interface[interface-id=ethernet-1/1.110]/input/acl-filter[name=acl-lab-acl-ingress][type=ipv6],
+# beneath the entry whose interface-ref lab-vlan's Config writes (AD-68). The VLAN is a reference to
+# that subinterface and claims nothing (AD-47); it is a naming-band VLAN (100–999, AD-33).
+# Rules are evaluated in ascending priority, first match wins; the declared defaultAction renders
+# the terminal match-all entry at 65535 (FR-041).
+apiVersion: fabric.agentic-netops.io/v1alpha1
+kind: Network
+metadata:
+  name: lab-acl
+  namespace: agentic-netops-services
+spec:
+  description: lab standalone ipv6 access list on lab-vlan's ethernet-1/1.110 (leaf01)
+  accessLists:
+  - name: lab-acl-ingress
+    stage: ingress
+    type: ipv6
+    defaultAction: permit
+    rules:
+    - {name: deny-telnet, priority: 10, action: deny, protocol: tcp, destinationPort: "23"}
+    - {name: deny-icmpv6-from-lab, priority: 20, action: deny, protocol: icmpv6, sourcePrefix: "2001:db8:ff::/48"}
+  attachments:
+  - {node: leaf01, attachment: ethernet-1/1, vlan: 110}

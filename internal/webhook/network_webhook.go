@@ -3,7 +3,8 @@
 // R-40). It holds the cross-object rows of the rule table — attachment resolvability in the
 // port's declared tagging mode (AD-68), one owner per (node, port, vlan), one tagging mode per
 // port across objects (AD-20), access-list binding exclusivity, a standalone list's
-// subinterface, qualification — and nothing same-object, which is CEL in the CRD. There is no
+// subinterface (it must exist at the list's admission, and an owner's UPDATE may not remove it
+// while the list is bound), qualification — and nothing same-object, which is CEL in the CRD. There is no
 // mutating webhook, and no rule arbitrates a VNI or VLAN value: that is the allocation
 // authority's.
 //
@@ -114,7 +115,7 @@ func (v *NetworkValidator) Handle(ctx context.Context, req admission.Request) ad
 		// Fail closed: a rule that cannot be evaluated admits nothing.
 		return admission.Errored(http.StatusInternalServerError, err)
 	}
-	violations := Evaluate(obj, others, inv, v.fabricNamespace(), q)
+	violations := Evaluate(obj, old, others, inv, v.fabricNamespace(), q)
 	if len(violations) == 0 {
 		return admission.Allowed("")
 	}

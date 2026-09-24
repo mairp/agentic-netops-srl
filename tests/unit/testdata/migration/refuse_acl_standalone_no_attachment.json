@@ -1,0 +1,57 @@
+[
+  {
+    "serviceId": "1a4e8c0d2f7b9e3",
+    "type": "ip-vrf",
+    "tenant": "acme",
+    "routeTargets": {
+      "importRT": [
+        "target:65000:10051"
+      ],
+      "exportRT": [
+        "target:65000:10051"
+      ]
+    },
+    "l3vni": 10051,
+    "addressFamilies": {
+      "ipv4Prefixes": [
+        "10.51.0.0/24"
+      ]
+    },
+    "endpoints": [
+      {
+        "node": "leaf01",
+        "attachment": "ethernet-1/1",
+        "vrf": "vrf-1a4e8c0d2f7b9e3"
+      }
+    ]
+  },
+  {
+    "serviceId": "2b5f9d1e3a8c0f4",
+    "type": "acl",
+    "tenant": "acme",
+    "acl": {
+      "name": "web-ingress",
+      "stage": "ingress",
+      "type": "ipv4",
+      "defaultAction": "deny",
+      "rules": [
+        {
+          "name": "allow-https",
+          "priority": 100,
+          "action": "permit",
+          "protocol": "tcp",
+          "sourcePrefix": "10.0.0.0/24",
+          "destinationPort": "443",
+          "description": "operator https allowance"
+        }
+      ]
+    },
+    "endpoints": [
+      {
+        "node": "leaf01",
+        "attachment": "ethernet-1/1",
+        "vlan": 300
+      }
+    ]
+  }
+]

@@ -5,8 +5,10 @@ package srl
 // model (internal/model BuildService) — data-model.md §13, contracts/
 // reconciliation.md Rule 11, FR-029, FR-030, FR-031, FR-017.
 //
-// subinterface.go builds the service-owned subinterfaces of access ports and
-// their /acl/interface interface-ref, vlan.go the bridge domain every `vlan`
+// subinterface.go builds the service-owned subinterfaces of access ports,
+// the access-list renderer (internal/render/srl/acl, T107) the /acl subtree —
+// every filter the node carries, its input/output bindings and the
+// interface-ref of every owned subinterface — vlan.go the bridge domain every `vlan`
 // and `mac-vrf` shares, macvrf.go the EVPN mac-vrf and its anycast gateway
 // (irb0.<vlan>), ipvrf.go the routed instance with its interface-less Type-5
 // EVPN instance, and vxlan_service.go the vxlan-interfaces under the fabric's
@@ -24,10 +26,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"sort"
-	"strings"
 
 	"github.com/mairp/agentic-netops-srl/internal/model"
+	"github.com/mairp/agentic-netops-srl/internal/render/srl/acl"
 	"github.com/mairp/agentic-netops-srl/pkg/register"
 )
 
@@ -41,21 +42,6 @@ const (
 	modBGPVPN            = "srl_nokia-bgp-vpn"
 	modACL               = "srl_nokia-acl"
 )
-
-// UnsupportedError is returned when a service node carries a construct this
-// renderer does not render yet: access-list filters and their input/output
-// bindings are User Story 5's renderer (internal/render/srl/acl). The
-// reconciler maps it to Rendered=False/UnsupportedFeature.
-type UnsupportedError struct {
-	Node string
-	// Filters names every filter the node carries, as `<name>[type=<type>]`.
-	Filters []string
-}
-
-func (e *UnsupportedError) Error() string {
-	return fmt.Sprintf("render service node %s: access list(s) %s cannot be rendered yet: access-list rendering (filters and their input/output bindings) arrives with User Story 5",
-		e.Node, strings.Join(e.Filters, ", "))
-}
 
 // RenderService renders the priority-20 service Config document of every node
 // of m, keyed by node name.
@@ -81,10 +67,12 @@ func RenderService(m *model.ServiceModel) (map[string]*Rendered, error) {
 // service's subinterfaces (bridged or routed, with their VLAN and addresses),
 // irb0.<vlan> with its anycast gateway, the vxlan-interfaces under vxlan0, the
 // mac-vrf / ip-vrf network-instances with their EVPN and BGP-VPN instances and
-// explicit route targets, and the interface-ref of every owned subinterface.
-//
-// A node carrying an access-list filter or a filter binding is refused with an
-// *UnsupportedError. Before returning, every leaf path of the document is
+// explicit route targets, the interface-ref of every owned subinterface, and
+// the access-list filters and bindings the node carries — a service's own list
+// in this same document (FR-036), a standalone `acl` as a document of its own
+// holding only its filters and binding entries (AD-68). An access list the
+// device would refuse, or that would bind nothing, is refused naming it
+// (internal/render/srl/acl). Before returning, every leaf path of the document is
 // checked against the entries the service Config may write (FR-017); an
 // uncovered path is a *register.UncoveredError (Rendered=False/RegisterUncovered).
 func RenderServiceNode(n *model.ServiceNode) (*Rendered, error) {
@@ -126,9 +114,6 @@ func ServiceLeafPaths(n *model.ServiceNode) ([]string, error) {
 }
 
 func serviceTree(n *model.ServiceNode) (container, error) {
-	if err := unsupported(n); err != nil {
-		return nil, err
-	}
 	doc := container{}
 	if ifs := renderServiceInterfaces(n); ifs != nil {
 		doc[modInterfaces+":interface"] = ifs
@@ -147,8 +132,12 @@ func serviceTree(n *model.ServiceNode) (container, error) {
 	if len(nis.entries) > 0 {
 		doc[modNetworkInstance+":network-instance"] = nis
 	}
-	if acl := renderInterfaceRefs(n); acl != nil {
-		doc[modACL+":acl"] = acl
+	a, err := acl.Render(n)
+	if err != nil {
+		return nil, fmt.Errorf("render service node %s: %w", n.Node, err)
+	}
+	if a != nil {
+		doc[modACL+":acl"] = fromACL(a)
 	}
 	if len(doc) == 0 {
 		return nil, fmt.Errorf("render service node %s: nothing to render", n.Node)
@@ -156,26 +145,24 @@ func serviceTree(n *model.ServiceNode) (container, error) {
 	return doc, nil
 }
 
-// unsupported refuses a node carrying access-list filters or bindings (US5).
-func unsupported(n *model.ServiceNode) error {
-	set := map[string]bool{}
-	for _, f := range n.ACLFilters {
-		set[fmt.Sprintf("%s[type=%s]", f.Name, f.Type)] = true
-	}
-	for _, ai := range n.ACLInterfaces {
-		for _, r := range append(append([]model.FilterRef(nil), ai.Input...), ai.Output...) {
-			set[fmt.Sprintf("%s[type=%s]", r.Name, r.Type)] = true
+// fromACL converts the access-list renderer's tree into this package's
+// canonical writer's form (containers, key-sorted lists).
+func fromACL(v any) any {
+	switch x := v.(type) {
+	case acl.Container:
+		c := container{}
+		for k, e := range x {
+			c[k] = fromACL(e)
 		}
+		return c
+	case *acl.List:
+		l := newList(x.Keys...)
+		for _, e := range x.Entries {
+			l.add(fromACL(e).(container))
+		}
+		return l
 	}
-	if len(set) == 0 {
-		return nil
-	}
-	names := make([]string, 0, len(set))
-	for k := range set {
-		names = append(names, k)
-	}
-	sort.Strings(names)
-	return &UnsupportedError{Node: n.Node, Filters: names}
+	return v
 }
 
 // renderServiceNI dispatches on the device's network-instance type.

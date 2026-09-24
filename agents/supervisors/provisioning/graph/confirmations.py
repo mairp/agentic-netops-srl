@@ -74,14 +74,31 @@ def shown_interpretation(wire: dict[str, Any]) -> dict[str, Any]:
     return {k: v for k, v in wire.items() if k != "source_service_type"}
 
 
+def unmatched_statement(default_action: Any) -> str:
+    """What happens to traffic no rule matches, in words (FR-041, T111). With no default action
+    declared the device's own default ACCEPTS it, and the list is never described as restrictive:
+    it acts only on what its rules match. A declared default is the terminal entry at 65535."""
+    if default_action == "deny":
+        return ("dropped by the declared default action, a terminal deny entry at the reserved "
+                "position 65535")
+    if default_action == "permit":
+        return ("accepted by the declared default action, a terminal permit entry at the "
+                "reserved position 65535")
+    return ("accepted by the device's own default, because no default action is declared: the "
+            "list acts only on the traffic its rules match")
+
+
 def interpretation_prompt(wire: dict[str, Any]) -> str:
+    """The first confirmation. When the request carries an access list it states the evaluation
+    order (ascending priority number, first match wins), the usable range 1-65534 and what
+    happens to unmatched traffic (FR-039, FR-041)."""
     prompt = render("confirm-interpretation", construct=wire.get("service_type"))
     acl = wire.get("acl")
     if isinstance(acl, dict):
         default = acl.get("default_action")
-        unmatched = ("accepted by the device's own default" if default is None
-                     else f"{default} by the terminal entry")
-        prompt += " " + render("acl-evaluation", unmatched=unmatched)
+        if default is None and acl.get("unmatched_traffic") in ("permit", "deny"):
+            default = acl.get("unmatched_traffic")
+        prompt += " " + render("acl-evaluation", unmatched=unmatched_statement(default))
     return prompt
 
 
@@ -265,4 +282,5 @@ __all__ = [
     "removal_prompt_1",
     "removal_prompt_2",
     "shown_interpretation",
+    "unmatched_statement",
 ]

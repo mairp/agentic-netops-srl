@@ -1,0 +1,42 @@
+[
+  {
+    "serviceId": "3c6a0e2f4b9d1a5",
+    "type": "vlan",
+    "tenant": "acme",
+    "endpoints": [
+      {
+        "node": "leaf01",
+        "attachment": "ethernet-1/1",
+        "vlan": 100
+      }
+    ]
+  },
+  {
+    "serviceId": "4d7b1f3a5c0e2b6",
+    "type": "acl",
+    "tenant": "acme",
+    "acl": {
+      "name": "web-ingress",
+      "stage": "ingress",
+      "type": "ipv4",
+      "defaultAction": "deny",
+      "rules": [
+        {
+          "name": "allow-https",
+          "priority": 100,
+          "action": "permit",
+          "protocol": "tcp",
+          "sourcePrefix": "10.0.0.0/24",
+          "destinationPort": "443",
+          "description": "operator https allowance"
+        }
+      ]
+    },
+    "endpoints": [
+      {
+        "node": "leaf01",
+        "attachment": "ethernet-1/1"
+      }
+    ]
+  }
+]

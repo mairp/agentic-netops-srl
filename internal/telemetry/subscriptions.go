@@ -77,8 +77,14 @@ func Subscriptions() []Subscription {
 			"/network-instance[name=*]/route-table/ipv6-unicast/statistics",
 			"/network-instance[name=*]/tunnel-table/ipv4/statistics",
 		}},
+		// per-entry counters, per-entry TCAM cost by direction and the datapath
+		// programming gate — the access-list read-back's applied side (T108,
+		// contracts/acl-render-contract.md §4.1, §4.3), every value keyed by
+		// filter name, type and sequence-id
 		{Name: "srl-acl", Mode: Sample, SampleInterval: slow, Paths: []string{
 			"/acl/acl-filter[name=*][type=*]/entry[sequence-id=*]/statistics",
+			"/acl/acl-filter[name=*][type=*]/entry[sequence-id=*]/tcam-entries",
+			"/acl/datapath-programming",
 		}},
 		{Name: "srl-platform", Mode: Sample, SampleInterval: slow, Paths: []string{
 			"/platform/control[slot=*]/cpu[index=all]/total",

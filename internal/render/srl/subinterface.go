@@ -91,30 +91,3 @@ func prefixes(ps []string) *list {
 	}
 	return l
 }
-
-// renderInterfaceRefs builds /acl for a service Config: for every subinterface
-// this Config renders, /acl/interface[interface-id=<port>.<idx>] with its
-// explicit interface-ref {interface, subinterface} — always, filter or none —
-// so that a standalone `acl` binding on the same subinterface shares no leaf
-// with it (AD-68). Filters and input/output bindings are User Story 5's; a node
-// carrying one is refused before this runs (UnsupportedError). It returns nil
-// when no interface-ref is rendered.
-func renderInterfaceRefs(n *model.ServiceNode) container {
-	ifs := newList("interface-id")
-	for _, ai := range n.ACLInterfaces {
-		if ai.Ref == nil {
-			continue
-		}
-		ifs.add(container{
-			"interface-id": ai.InterfaceID,
-			"interface-ref": container{
-				"interface":    ai.Ref.Interface,
-				"subinterface": ai.Ref.Subinterface,
-			},
-		})
-	}
-	if len(ifs.entries) == 0 {
-		return nil
-	}
-	return container{"interface": ifs}
-}

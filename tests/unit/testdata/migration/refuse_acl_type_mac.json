@@ -1,0 +1,25 @@
+{
+  "serviceId": "2d5b9f1a3c8e0b4",
+  "type": "acl",
+  "tenant": "acme",
+  "acl": {
+    "name": "web-ingress",
+    "stage": "ingress",
+    "type": "mac",
+    "defaultAction": "deny",
+    "rules": [
+      {
+        "name": "allow-all",
+        "priority": 100,
+        "action": "permit"
+      }
+    ]
+  },
+  "endpoints": [
+    {
+      "node": "leaf01",
+      "attachment": "ethernet-1/1",
+      "vlan": 100
+    }
+  ]
+}

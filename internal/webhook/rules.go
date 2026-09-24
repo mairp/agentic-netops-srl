@@ -285,6 +285,15 @@ func bindingsOf(n *fabricv1.Network) []binding {
 	return out
 }
 
+// bindingHolderNote is holderNote for a binding: a holder being removed still holds its bindings
+// until it is gone (contracts/acl-render-contract.md §5–§6), and the refusal says so.
+func bindingHolderNote(n *fabricv1.Network) string {
+	if n.DeletionTimestamp == nil {
+		return ""
+	}
+	return fmt.Sprintf(" (%s is being deleted and still holds its bindings until its removal completes: a holder being removed holds them until it is gone — retry once it is)", Key(n))
+}
+
 // CheckBindings is the row "Access-list binding exclusivity": no other Network holds a binding
 // on the same (node, port, subinterface, direction, address family); a Network with a deletion
 // timestamp still holds its bindings, and the refusal says so.
@@ -297,7 +306,7 @@ func CheckBindings(cand *fabricv1.Network, others []fabricv1.Network) []Violatio
 				if h.sub == b.sub && h.stage == b.stage && h.fam == b.fam {
 					out = append(out, Violation{RuleBindingExclusivity, fmt.Sprintf(
 						"access list %s: subinterface %s already carries the %s %s access list %s of Network %s; one list per subinterface, direction and address family%s",
-						b.list, b.sub, b.stage, b.fam, h.list, Key(o), holderNote(o, "bindings"))})
+						b.list, b.sub, b.stage, b.fam, h.list, Key(o), bindingHolderNote(o))})
 				}
 			}
 		}
@@ -336,10 +345,50 @@ func CheckStandaloneSubinterface(cand *fabricv1.Network, others []fabricv1.Netwo
 	return out
 }
 
-// Evaluate runs every cross-object rule on cand against others (every other Network, deleting
-// ones included), the Fabric inventory and the qualification record.
-func Evaluate(cand *fabricv1.Network, others []fabricv1.Network, inv Inventory, fabricNamespace string, q Qualification) []Violation {
+// CheckHeldSubinterfaces is the other half of "Standalone list needs its subinterface", on an
+// UPDATE of an owner: an attachment old carried and cand drops removes that subinterface, so it is
+// refused while another Network's standalone access list is bound there — naming the holder, a
+// holder being removed still holding — because the binding goes first, then the filter, and only
+// then the subinterface (contracts/acl-render-contract.md §5, FR-043). old is nil on a CREATE.
+func CheckHeldSubinterfaces(cand, old *fabricv1.Network, others []fabricv1.Network) []Violation {
+	if old == nil || StandaloneACL(&old.Spec) {
+		return nil
+	}
+	kept := map[subinterface]bool{}
+	if !StandaloneACL(&cand.Spec) {
+		for _, a := range cand.Spec.Attachments {
+			kept[subOf(a)] = true
+		}
+	}
 	var out []Violation
+	for _, a := range old.Spec.Attachments {
+		s := subOf(a)
+		if kept[s] {
+			continue
+		}
+		for i := range others {
+			o := &others[i]
+			if !StandaloneACL(&o.Spec) {
+				continue
+			}
+			for _, b := range bindingsOf(o) {
+				if b.sub == s {
+					out = append(out, Violation{RuleStandaloneNeedsSubi, fmt.Sprintf(
+						"attachment %s cannot be removed: subinterface %s carries the %s %s access list %s of Network %s, and a binding is withdrawn before the subinterface it references — withdraw that list first%s",
+						s, s, b.stage, b.fam, b.list, Key(o), bindingHolderNote(o))})
+				}
+			}
+		}
+	}
+	return out
+}
+
+// Evaluate runs every cross-object rule on cand against others (every other Network, deleting
+// ones included), the Fabric inventory and the qualification record. old is the stored object
+// on an UPDATE, nil on a CREATE.
+func Evaluate(cand, old *fabricv1.Network, others []fabricv1.Network, inv Inventory, fabricNamespace string, q Qualification) []Violation {
+	var out []Violation
+	out = append(out, CheckHeldSubinterfaces(cand, old, others)...)
 	out = append(out, CheckResolvable(cand, inv, fabricNamespace)...)
 	out = append(out, CheckOwner(cand, others)...)
 	out = append(out, CheckTaggingMode(cand, others)...)

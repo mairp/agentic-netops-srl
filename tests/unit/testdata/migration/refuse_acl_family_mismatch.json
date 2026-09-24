@@ -1,0 +1,28 @@
+{
+  "serviceId": "9a2e6c8d0f5b7e1",
+  "type": "acl",
+  "tenant": "acme",
+  "acl": {
+    "name": "web-ingress",
+    "stage": "ingress",
+    "type": "ipv4",
+    "defaultAction": "deny",
+    "rules": [
+      {
+        "name": "allow-v6-mgmt",
+        "priority": 100,
+        "action": "permit",
+        "protocol": "tcp",
+        "sourcePrefix": "2001:db8:ffff::/48",
+        "destinationPort": "22"
+      }
+    ]
+  },
+  "endpoints": [
+    {
+      "node": "leaf01",
+      "attachment": "ethernet-1/1",
+      "vlan": 100
+    }
+  ]
+}

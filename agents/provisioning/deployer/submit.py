@@ -5,11 +5,12 @@ AD-32, AD-33, AD-52).
 The Kubernetes API has no multi-object transaction; this is the contract's substitute, in its
 fixed order:
 
-1. **Pre-flight** — the intent namespace only: a second owner of a (node, port, VLAN)
-   subinterface, or a second access list on a (node, port, subinterface, direction, address
-   family) binding, refused naming the incumbent (a deleting incumbent still holds, and the
-   refusal says so). A holder in ``agentic-netops-services`` is invisible here and is refused by
-   the one-owner webhook at step 4.
+1. **Pre-flight** (:mod:`provisioning.deployer.preflight`) — the intent namespace only: a second
+   owner of a (node, port, VLAN) subinterface, a conflicting tagging mode on a (node, port), a
+   second access list on a (node, port, subinterface, direction, address family) binding, or a
+   mode other than the site inventory declares, refused naming the incumbent (a deleting
+   incumbent still holds, and the refusal says so). A holder in ``agentic-netops-services`` is
+   invisible here and is refused by the cross-object admission rules at step 4.
 2. **Translate** — ``POST {TRANSLATOR_URL}/v1/translate`` on the loopback sidecar; a ``422`` is a
    refusal carrying the translator's complete causes.
 3. **Stamp** — :mod:`provisioning.deployer.stamp`.
@@ -45,6 +46,7 @@ from provisioning.deployer.kube import (
     KubeClient,
     KubeError,
 )
+from provisioning.deployer.preflight import preflight
 from provisioning.deployer.stamp import CORRELATION_LABEL, apply_body, stamp
 
 log = logging.getLogger("agentic_netops.deployer.submit")
@@ -100,65 +102,7 @@ async def with_retry[T](call: Callable[[], Awaitable[T]], *, retries: int, backo
 # --------------------------------------------------------------------------------------------------
 
 
-def _standalone_acl(spec: Mapping[str, Any]) -> bool:
-    return bool(spec.get("accessLists")) and not any(
-        spec.get(k) for k in ("vlans", "bridgeDomains", "routers"))
-
-
-def _sub(node: Any, port: Any, vlan: Any) -> tuple[str, str, int]:
-    return (str(node), str(port), int(vlan or 0))
-
-
-def _describe(sub: tuple[str, str, int]) -> str:
-    node, port, vlan = sub
-    return f"(node {node}, port {port}, VLAN {vlan})" if vlan else \
-        f"(node {node}, port {port}, untagged)"
-
-
-def _holder(obj: Mapping[str, Any], what: str) -> str:
-    meta = obj.get("metadata") or {}
-    key = f"{meta.get('namespace') or ''}/{meta.get('name')}"
-    note = ""
-    if meta.get("deletionTimestamp"):
-        note = (f" — Network {key} is being deleted and still holds its {what} until its "
-                "removal completes")
-    return f"Network {key}{note}"
-
-
-def preflight(intent: Mapping[str, Any], network: str,
-              existing: list[dict[str, Any]]) -> list[str]:
-    """The conflicts the intent namespace shows for ``intent``; empty when there are none."""
-    conflicts: list[str] = []
-    endpoints = [e for e in intent.get("endpoints") or [] if isinstance(e, Mapping)]
-    ours = [_sub(e.get("node"), e.get("attachment"), e.get("vlan")) for e in endpoints]
-    acl = intent.get("acl") if isinstance(intent.get("acl"), Mapping) else None
-    standalone = intent.get("type") == "acl"
-    for obj in existing:
-        meta = obj.get("metadata") or {}
-        if meta.get("name") == network:
-            continue
-        spec = obj.get("spec") or {}
-        theirs = [_sub(a.get("node"), a.get("attachment"), a.get("vlan"))
-                  for a in spec.get("attachments") or [] if isinstance(a, Mapping)]
-        if not standalone and not _standalone_acl(spec):
-            for sub in ours:
-                if sub in theirs:
-                    conflicts.append(f"{_describe(sub)} is already owned by "
-                                     f"{_holder(obj, 'subinterfaces')}: one owner per "
-                                     "(node, port, VLAN)")
-        if acl is not None:
-            for their_acl in spec.get("accessLists") or []:
-                if (their_acl.get("stage"), their_acl.get("type")) != (acl.get("stage"),
-                                                                       acl.get("type")):
-                    continue
-                for sub in ours:
-                    if sub in theirs:
-                        conflicts.append(
-                            f"{_describe(sub)} already carries the {acl.get('stage')} "
-                            f"{acl.get('type')} access list {their_acl.get('name')} of "
-                            f"{_holder(obj, 'access-list bindings')}: one list per "
-                            "subinterface, direction and address family")
-    return conflicts
+# :func:`preflight` lives in :mod:`provisioning.deployer.preflight` (T112) and is re-exported here.
 
 
 # --------------------------------------------------------------------------------------------------

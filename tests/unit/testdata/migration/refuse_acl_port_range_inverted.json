@@ -1,0 +1,27 @@
+{
+  "serviceId": "8d1b5f7a9c4e6b0",
+  "type": "acl",
+  "tenant": "acme",
+  "acl": {
+    "name": "web-ingress",
+    "stage": "ingress",
+    "type": "ipv4",
+    "defaultAction": "deny",
+    "rules": [
+      {
+        "name": "allow-alt-https",
+        "priority": 100,
+        "action": "permit",
+        "protocol": "tcp",
+        "destinationPort": "8443-443"
+      }
+    ]
+  },
+  "endpoints": [
+    {
+      "node": "leaf01",
+      "attachment": "ethernet-1/1",
+      "vlan": 100
+    }
+  ]
+}

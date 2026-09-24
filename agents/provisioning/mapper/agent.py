@@ -26,7 +26,14 @@ Two halves, in this order:
      attachment points;
    * the declared tagging mode of each port (``untaggedAccessPorts``, CR-003, AD-68): an endpoint
      asking for the other mode is refused listing the ports declared in the mode it asked for;
-   * the qualification record: an unqualified construct or gated property refused by name (FR-097);
+   * the qualification record: an unqualified construct or gated property refused by name (FR-097)
+     — an egress access list among them, refused by name unless ``acl.egress`` is qualified;
+   * an ``acl`` — optional on any construct, required on ``service_type: acl`` — reviewed by
+     :mod:`.acl` (T111): the address family folded and a Layer 2 list refused as out of scope,
+     priorities distinct and in ``1-65534`` stated with the evaluation order (ascending priority,
+     first match wins), rule names distinct, the reserved names ``system``/``capture``, prefixes
+     in the list's own family, L4 ports on TCP/UDP only; an ``acl`` endpoint's VLAN held to
+     ``100-4000`` (FR-035 to FR-041);
    * one construct per request; unsupported claims named; missing or ambiguous fields asked for
      by exact path, never defaulted.
 
@@ -54,6 +61,7 @@ from common.guards.redaction import redact
 from common.schemas.interpretation import MARKER, Interpretation
 from common.transport import StageMessage, reply_failed, reply_ok
 from config.settings import Settings
+from provisioning.mapper import acl as acl_mod
 from provisioning.mapper import catalogue as catalogue_mod
 from provisioning.mapper import prompts
 from provisioning.mapper.catalogue import CONSTRUCTS, Catalogue
@@ -215,6 +223,7 @@ def validate_model_output(raw_text: str, service_id: str) -> Interpretation:
     whatever the model wrote there is neither used nor judged. Raises ValueError."""
     data = extract_json(raw_text)
     data["service_id"] = service_id
+    acl_mod.prepare(data)  # the family folded; what the schema cannot carry refused by name
     try:
         return Interpretation.parse(data)
     except ValidationError as exc:
@@ -317,7 +326,10 @@ def review(interp: Interpretation, *, text: str, inventory: Inventory,
     Interpretation; the causes it finds are all collected (all-or-nothing)."""
     data = interp.model_dump(mode="json", exclude_unset=True)
     unsupported: list[str] = []
-    missing: list[str] = list(interp.missing_fields)
+    # an access-list rule's match fields are optional — unstated means "match anything" — so the
+    # model listing one as missing is never a question for the operator (T114 live finding)
+    missing: list[str] = [m for m in interp.missing_fields
+                          if not acl_mod.OPTIONAL_MATCH_PATH.match(m)]
     for entry in interp.unsupported_properties:
         unsupported.append(_one_construct(entry, catalogue) or entry)
 
@@ -369,7 +381,12 @@ def review(interp: Interpretation, *, text: str, inventory: Inventory,
                                    f"its access ports are {_names(node.access_ports)}")
                 node = None
         if construct == "acl":
-            continue  # a reference to another service's subinterface (AD-47)
+            # a reference to another service's subinterface (AD-47): exempt from the naming
+            # band, held to the platform's VLAN space
+            cause = acl_mod.reference_vlan_refusal(vlan_path, vlan) if vlan is not None else None
+            if cause:
+                unsupported.append(cause)
+            continue
         if vlan is not None:
             named_vlans.append(vlan)
             cause = band_refusal(vlan_path, vlan, construct)
@@ -407,6 +424,12 @@ def review(interp: Interpretation, *, text: str, inventory: Inventory,
             missing.append(f"endpoints[{len(endpoints)}]")
     if construct == "ip-vrf" and not (interp.ipv4_prefixes or interp.ipv6_prefixes):
         missing.append("ipv4_prefixes or ipv6_prefixes")
+
+    # the access list (T111; FR-035 to FR-041)
+    if interp.acl is not None:
+        family_refused = any(c.startswith("acl.type:") for c in unsupported)
+        data["acl"], acl_causes = acl_mod.review_acl(interp.acl, family_refused=family_refused)
+        unsupported.extend(acl_causes)
 
     # the qualification record (FR-097)
     for path, what, key in _qualification_needs(interp, construct):

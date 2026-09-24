@@ -1,0 +1,22 @@
+spec:
+  description: Service 6d9b3f5a7c2e4b8 (acl)
+  accessLists:
+  - name: acl-6d9b3f5a7c2e4b8-ingress
+    stage: ingress
+    type: ipv4
+    defaultAction: deny
+    rules:
+    - name: allow-https
+      priority: 100
+      action: permit
+      protocol: tcp
+      sourcePrefix: 10.0.0.0/24
+      destinationPort: "443"
+      description: operator https allowance
+  attachments:
+  - node: leaf01
+    attachment: ethernet-1/1
+    vlan: 1500
+  - node: leaf02
+    attachment: ethernet-1/1
+    vlan: 1500

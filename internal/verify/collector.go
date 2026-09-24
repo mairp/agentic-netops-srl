@@ -30,7 +30,8 @@ package verify
 //   - string states are exported as integers by the collector's event
 //     processors (gNMIc's OTLP output drops strings) and mapped back here with
 //     the same tables (scripts/lib/device_metrics.sh): session-state,
-//     oper-state, active, and — for the service read-back (T058) — every
+//     oper-state, active, the access-list booleans programming-complete and
+//     incomplete (T108), and — for the service read-back (T058) — every
 //     oper-down-reason / not-programmed-reason and the bgp-vpn RD/RT origins
 //     (an enum value neither table knows is exported as 0, decoded
 //     UnrecognisedValue: a reason present, never one dropped as absent);
@@ -383,7 +384,7 @@ func decodeValue(leaf, v string) string {
 		table = sessionStates
 	case "oper-state":
 		table = operStates
-	case "active":
+	case "active", "programming-complete", "incomplete":
 		table = booleans
 	case "oper-down-reason", "not-programmed-reason":
 		table = reasons

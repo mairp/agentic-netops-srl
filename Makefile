@@ -41,6 +41,9 @@ TARGETS := \
 	wait-observability \
 	verify-fabric-control-plane \
 	verify-services \
+	verify-acl \
+	test-acl-conflict \
+	test-acl-enforcement \
 	show-bgp \
 	show-evpn \
 	show-allocations \
@@ -149,6 +152,15 @@ verify-fabric-control-plane: ## T051: sessions + EVPN family, loopbacks, reflect
 
 verify-services: ## T064: SC-004 route half, keyed per service, after its declarative negative control
 	tests/integration/verify_services.sh
+
+verify-acl: ## T114: keyed per-node ACL read-back, running + state, after its negative control (ACL_NETWORKS="<ns>/<name>…")
+	tests/integration/acl_verify.sh $(ACL_NETWORKS)
+
+test-acl-conflict: ## T114: a second list on a held (node, port, subinterface, direction, family) is refused by admission, nothing created (ACL_HOLDER=<ns>/<name>)
+	tests/integration/acl_conflict.sh $(ACL_HOLDER)
+
+test-acl-enforcement: ## T114: SC-041 denied/permitted probes per qualified direction, exactly those entries' counters moved
+	tests/integration/acl_enforcement_probe.sh run
 
 # --- Operator read-outs
 show-bgp: ## T051: BGP sessions per node

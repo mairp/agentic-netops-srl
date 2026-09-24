@@ -370,3 +370,24 @@ def test_chat_transcripts_are_redacted() -> None:
     assert "Zm9v" not in flat
     assert redacted[1]["content"] == "Refused."
     assert find_credentials(flat) == []
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Create a mac-vrf for tenant acme across leaf01 ethernet-1/1 and leaf02 ethernet-1/1"
+        " vlan 310 with an ingress ipv4 access list: rule deny-telnet at priority 200 denies tcp to"
+        " destination port 23",
+        "add an acl on leaf01 ethernet-1/1 vlan 310 that denies telnet traffic",
+        "add an ingress acl on leaf02 ethernet-1/1 vlan 310 with rule allow-ssh"
+        " permits tcp port 22",
+    ],
+)
+def test_a_protocol_an_acl_rule_matches_is_not_a_device_session(text: str) -> None:
+    # T114 live finding: a rule NAME or filter verb carrying ssh/telnet is traffic to match.
+    assert classify(text).request_class is RequestClass.PROVISIONABLE
+
+
+@pytest.mark.parametrize("text", ["deny ssh to leaf01", "telnet to leaf02 and deny-telnet on it"])
+def test_a_session_verb_beside_a_filtered_protocol_is_still_refused(text: str) -> None:
+    assert classify(text).request_class is RequestClass.UNSUPPORTED_OR_UNSAFE

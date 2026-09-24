@@ -30,7 +30,7 @@ refuse "judge: absent condition"                bash -c "source '$LIB'; sv::judg
 expect "judge: VLAN half names 1500 and both bands" bash -c "source '$LIB'; sv::judge_condition Accepted False AllocationConflict 1500 100 999 1000 4000 <<<'$obj'"
 
 got="$(sv::manifest_networks "$ROOT/examples/constructs" | sort | tr '\n' ';')"
-want="agentic-netops-services lab-ipvrf-a;agentic-netops-services lab-ipvrf-b;agentic-netops-services lab-macvrf;agentic-netops-services lab-vlan;"
+want="agentic-netops-services lab-acl;agentic-netops-services lab-ipvrf-a;agentic-netops-services lab-ipvrf-b;agentic-netops-services lab-macvrf;agentic-netops-services lab-macvrf-acl;agentic-netops-services lab-vlan;"
 [[ "$got" == "$want" ]] && ok "manifest_networks: examples/constructs (non-recursive: negative/ excluded)" || bad "manifest_networks: got '$got'"
 got="$(sv::manifest_networks "$ROOT/examples/constructs/negative/vlan-unclaimed-band.yaml")"
 [[ "$got" == "agentic-netops-services lab-vlan-unclaimed" ]] && ok "manifest_networks: negative fixture by its own path" || bad "manifest_networks negative: '$got'"

@@ -1,0 +1,92 @@
+{
+  "srl_nokia-acl:acl": {
+    "acl-filter": [
+      {
+        "description": "tenant1/svc-0042 ingress",
+        "entry": [
+          {
+            "action": {
+              "accept": {}
+            },
+            "description": "permit-https",
+            "match": {
+              "ipv4": {
+                "protocol": "tcp",
+                "source-ip": {
+                  "prefix": "10.0.0.0/24"
+                }
+              },
+              "transport": {
+                "destination-port": {
+                  "operator": "eq",
+                  "value": 443
+                }
+              }
+            },
+            "sequence-id": 100
+          },
+          {
+            "action": {
+              "drop": {}
+            },
+            "description": "default-deny",
+            "sequence-id": 65535
+          }
+        ],
+        "name": "acl-svc-0042-ingress",
+        "statistics-per-entry": true,
+        "type": "ipv4"
+      }
+    ],
+    "interface": [
+      {
+        "input": {
+          "acl-filter": [
+            {
+              "name": "acl-svc-0042-ingress",
+              "type": "ipv4"
+            }
+          ]
+        },
+        "interface-id": "ethernet-1/1.100",
+        "interface-ref": {
+          "interface": "ethernet-1/1",
+          "subinterface": 100
+        }
+      }
+    ]
+  },
+  "srl_nokia-interfaces:interface": [
+    {
+      "name": "ethernet-1/1",
+      "subinterface": [
+        {
+          "admin-state": "enable",
+          "index": 100,
+          "l2-mtu": 9412,
+          "srl_nokia-interfaces-vlans:vlan": {
+            "encap": {
+              "single-tagged": {
+                "vlan-id": 100
+              }
+            }
+          },
+          "type": "srl_nokia-interfaces:bridged"
+        }
+      ]
+    }
+  ],
+  "srl_nokia-network-instance:network-instance": [
+    {
+      "admin-state": "enable",
+      "description": "Service svc-0042 (vlan)",
+      "interface": [
+        {
+          "name": "ethernet-1/1.100"
+        }
+      ],
+      "name": "vlan-svc-0042",
+      "type": "srl_nokia-network-instance:mac-vrf"
+    }
+  ]
+}

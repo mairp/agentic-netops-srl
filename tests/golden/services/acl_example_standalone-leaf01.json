@@ -1,0 +1,67 @@
+{
+  "srl_nokia-acl:acl": {
+    "acl-filter": [
+      {
+        "description": "lab-acl ingress",
+        "entry": [
+          {
+            "action": {
+              "drop": {}
+            },
+            "description": "deny-telnet",
+            "match": {
+              "ipv6": {
+                "next-header": "tcp"
+              },
+              "transport": {
+                "destination-port": {
+                  "operator": "eq",
+                  "value": 23
+                }
+              }
+            },
+            "sequence-id": 10
+          },
+          {
+            "action": {
+              "drop": {}
+            },
+            "description": "deny-icmpv6-from-lab",
+            "match": {
+              "ipv6": {
+                "next-header": "icmp6",
+                "source-ip": {
+                  "prefix": "2001:db8:ff::/48"
+                }
+              }
+            },
+            "sequence-id": 20
+          },
+          {
+            "action": {
+              "accept": {}
+            },
+            "description": "default-permit",
+            "sequence-id": 65535
+          }
+        ],
+        "name": "acl-lab-acl-ingress",
+        "statistics-per-entry": true,
+        "type": "ipv6"
+      }
+    ],
+    "interface": [
+      {
+        "input": {
+          "acl-filter": [
+            {
+              "name": "acl-lab-acl-ingress",
+              "type": "ipv6"
+            }
+          ]
+        },
+        "interface-id": "ethernet-1/1.110"
+      }
+    ]
+  }
+}

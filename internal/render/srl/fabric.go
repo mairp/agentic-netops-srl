@@ -261,6 +261,10 @@ func leafPaths(doc container) ([]string, error) {
 			p := prefix + "/" + stripModule(k)
 			switch x := v.(type) {
 			case container:
+				if len(x) == 0 {
+					out = append(out, p) // a presence container (an access-list action)
+					continue
+				}
 				if err := walk(p, x, nil); err != nil {
 					return err
 				}

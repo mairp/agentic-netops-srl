@@ -1,0 +1,29 @@
+{
+  "serviceId": "4f7d1b3c5e0a2d6",
+  "type": "acl",
+  "tenant": "acme",
+  "acl": {
+    "name": "system",
+    "stage": "ingress",
+    "type": "ipv4",
+    "defaultAction": "deny",
+    "rules": [
+      {
+        "name": "allow-https",
+        "priority": 100,
+        "action": "permit",
+        "protocol": "tcp",
+        "sourcePrefix": "10.0.0.0/24",
+        "destinationPort": "443",
+        "description": "operator https allowance"
+      }
+    ]
+  },
+  "endpoints": [
+    {
+      "node": "leaf01",
+      "attachment": "ethernet-1/1",
+      "vlan": 100
+    }
+  ]
+}

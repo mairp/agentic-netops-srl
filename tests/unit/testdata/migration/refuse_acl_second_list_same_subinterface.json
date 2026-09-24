@@ -1,0 +1,72 @@
+[
+  {
+    "serviceId": "5e8c2a4b6d1f3c7",
+    "type": "mac-vrf",
+    "tenant": "acme",
+    "routeTargets": {
+      "importRT": [
+        "target:65000:10061"
+      ],
+      "exportRT": [
+        "target:65000:10061"
+      ]
+    },
+    "l2vni": 10061,
+    "acl": {
+      "name": "web-ingress",
+      "stage": "ingress",
+      "type": "ipv4",
+      "defaultAction": "deny",
+      "rules": [
+        {
+          "name": "allow-https",
+          "priority": 100,
+          "action": "permit",
+          "protocol": "tcp",
+          "sourcePrefix": "10.0.0.0/24",
+          "destinationPort": "443",
+          "description": "operator https allowance"
+        }
+      ]
+    },
+    "endpoints": [
+      {
+        "node": "leaf01",
+        "attachment": "ethernet-1/1",
+        "vlan": 100
+      },
+      {
+        "node": "leaf02",
+        "attachment": "ethernet-1/1",
+        "vlan": 100
+      }
+    ]
+  },
+  {
+    "serviceId": "6f9d3b5c7e2a4d8",
+    "type": "acl",
+    "tenant": "acme",
+    "acl": {
+      "name": "ssh-block",
+      "stage": "ingress",
+      "type": "ipv4",
+      "defaultAction": "deny",
+      "rules": [
+        {
+          "name": "deny-ssh",
+          "priority": 50,
+          "action": "deny",
+          "protocol": "tcp",
+          "destinationPort": "22"
+        }
+      ]
+    },
+    "endpoints": [
+      {
+        "node": "leaf01",
+        "attachment": "ethernet-1/1",
+        "vlan": 100
+      }
+    ]
+  }
+]

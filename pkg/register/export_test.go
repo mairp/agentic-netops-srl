@@ -6,3 +6,15 @@ var (
 	FabricFixtures  = fabricFixtures
 	ServiceFixtures = serviceFixtures
 )
+
+// CheckWriteWithout is CheckWrite against the register with the entry dropped
+// removed — the guard's negative control.
+func CheckWriteWithout(paths []string, dropped string) error {
+	var entries []WriteEntry
+	for _, e := range WriteEntries() {
+		if e.Path != dropped {
+			entries = append(entries, e)
+		}
+	}
+	return checkWriteAgainst(paths, entries)
+}

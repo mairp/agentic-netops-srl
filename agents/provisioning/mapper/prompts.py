@@ -25,9 +25,11 @@ SCHEMA_SHAPE = """{
   "tenant": "<lower-case RFC 1123 label>",
   "endpoints": [{"site_or_node": "<node>", "attachment": "<port>", "vlan": <integer> | null}],
   "anycast_gateway": null | {"ipv4": "<address/len>" | null, "ipv6": "<address/len>" | null},
-  "acl": null | {"name": null | "<name>", "stage": "ingress" | "egress", "type": "ipv4" | "ipv6",
+  "acl": null | {"name": null | "<name>", "stage": "ingress" | "egress",
+                 "type": "ipv4" | "ipv6" | "<as stated>",
                  "default_action": null | "permit" | "deny",
-                 "rules": [{"name": "<label>", "priority": <1-65534>, "action": "permit" | "deny",
+                 "rules": [{"name": "<label>", "priority": <integer as stated>,
+                            "action": "permit" | "deny",
                             "protocol": "<name>" | <0-255>, "source_prefix": "<prefix>",
                             "destination_prefix": "<prefix>", "source_port": "<n or lo-hi>",
                             "destination_port": "<n or lo-hi>"}]},
@@ -60,7 +62,11 @@ RULES = """Rules:
    "request: one construct per request — you asked for <a> and <b>; send one" in
    unsupported_properties.
 7. Node and port names are the site's own; use the names listed below when the operator
-   clearly meant one of them."""
+   clearly meant one of them.
+8. An access list's type and each rule's priority are copied exactly as the operator stated
+   them (for example "l3", "mac" or 65535) — never corrected, re-numbered or dropped; the
+   platform folds and judges them. default_action is null unless the operator declared what
+   happens to traffic no rule matches."""
 
 
 def instructions(catalogue: Catalogue, inventory: dict[str, Any] | None) -> str:

@@ -58,8 +58,9 @@ func setupNetwork(mgr ctrl.Manager, deps providerDeps) error {
 }
 
 // srlServiceRenderer adapts internal/render/srl's service entry point to the Network
-// reconciler's Renderer input. An *srl.UnsupportedError (access-list rendering, User Story 5)
-// is returned as it is: the reconciler reports it Rendered=False/MappingFailed.
+// reconciler's Renderer input. Access lists — as a property of a service or standalone — are
+// rendered by internal/render/srl/acl inside the same per-node document (T107); a render error
+// is returned as it is and the reconciler reports it Rendered=False/MappingFailed.
 type srlServiceRenderer struct{}
 
 func (srlServiceRenderer) RenderService(m *model.ServiceModel) (map[string]network.Rendered, error) {

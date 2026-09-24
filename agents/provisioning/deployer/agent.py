@@ -46,6 +46,7 @@ from config.settings import Settings
 from provisioning.deployer.conditions import Live, network_ref
 from provisioning.deployer.events import AuditEmitter
 from provisioning.deployer.kube import ClusterUnavailableError, KubeClient, KubeError
+from provisioning.deployer.preflight import load_inventory, preflight
 from provisioning.deployer.stamp import CORRELATION_LABEL, StampError
 from provisioning.deployer.status import read_status
 from provisioning.deployer.submit import (
@@ -54,7 +55,6 @@ from provisioning.deployer.submit import (
     SubmissionError,
     apply_all,
     dry_run_all,
-    preflight,
     release_gate,
     rollback,
     stamp_all,
@@ -69,7 +69,9 @@ OPERATIONS = ("create", "remove", "status", "release_gate")
 DEFAULT_POLL_SECONDS = 2.0
 _CID = re.compile(r"^[0-9a-f]{32}$")
 _NETWORK = re.compile(r"^migr-[a-z0-9]([-a-z0-9]*[a-z0-9])?$")
-_HOLDER = re.compile(r"already owned by Network ([^\s:]+)")
+# The holder an admission refusal names: the one-owner rule ("already owned by Network <ns>/<n>")
+# and the access-list exclusivity rule ("… access list <list> of Network <ns>/<n>; …").
+_HOLDER = re.compile(r"(?:already owned by|access list \S+ of) Network ([^\s:;,()]+)")
 
 
 class OutOfContractError(ValueError):
@@ -192,7 +194,8 @@ class Deployer:
                         "was submitted")
 
         # 1. pre-flight (the intent namespace only)
-        conflicts = preflight(intent, network, await self.kube.list_networks())
+        conflicts = preflight(intent, network, await self.kube.list_networks(),
+                              inventory=load_inventory(self.settings.site_inventory_dir))
         if conflicts:
             return DeploymentReport(
                 operation="create", status="FAILED", submitted=False, causes=conflicts,
@@ -216,7 +219,7 @@ class Deployer:
         except (SubmissionError, StampError) as exc:
             message = getattr(exc, "message", str(exc))
             causes = list(getattr(exc, "causes", []) or [])
-            holders = _HOLDER.findall(message)
+            holders = list(dict.fromkeys(_HOLDER.findall(message)))
             if holders:
                 causes.extend(f"holder: Network {h}" for h in holders)
             return DeploymentReport(

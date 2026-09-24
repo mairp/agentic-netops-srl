@@ -1,0 +1,171 @@
+{
+  "srl_nokia-acl:acl": {
+    "acl-filter": [
+      {
+        "description": "lab-macvrf-acl ingress",
+        "entry": [
+          {
+            "action": {
+              "drop": {}
+            },
+            "description": "deny-telnet",
+            "match": {
+              "ipv4": {
+                "protocol": "tcp"
+              },
+              "transport": {
+                "destination-port": {
+                  "operator": "eq",
+                  "value": 23
+                }
+              }
+            },
+            "sequence-id": 100
+          },
+          {
+            "action": {
+              "drop": {}
+            },
+            "description": "deny-tftp-range",
+            "match": {
+              "ipv4": {
+                "protocol": "udp",
+                "source-ip": {
+                  "prefix": "10.150.0.0/24"
+                }
+              },
+              "transport": {
+                "destination-port": {
+                  "range": {
+                    "end": 70,
+                    "start": 69
+                  }
+                }
+              }
+            },
+            "sequence-id": 200
+          },
+          {
+            "action": {
+              "accept": {}
+            },
+            "description": "permit-icmp",
+            "match": {
+              "ipv4": {
+                "protocol": "icmp"
+              }
+            },
+            "sequence-id": 300
+          },
+          {
+            "action": {
+              "accept": {}
+            },
+            "description": "default-permit",
+            "sequence-id": 65535
+          }
+        ],
+        "name": "acl-lab-macvrf-acl-ingress",
+        "statistics-per-entry": true,
+        "type": "ipv4"
+      }
+    ],
+    "interface": [
+      {
+        "input": {
+          "acl-filter": [
+            {
+              "name": "acl-lab-macvrf-acl-ingress",
+              "type": "ipv4"
+            }
+          ]
+        },
+        "interface-id": "ethernet-1/1.150",
+        "interface-ref": {
+          "interface": "ethernet-1/1",
+          "subinterface": 150
+        }
+      }
+    ]
+  },
+  "srl_nokia-interfaces:interface": [
+    {
+      "name": "ethernet-1/1",
+      "subinterface": [
+        {
+          "admin-state": "enable",
+          "index": 150,
+          "l2-mtu": 9412,
+          "srl_nokia-interfaces-vlans:vlan": {
+            "encap": {
+              "single-tagged": {
+                "vlan-id": 150
+              }
+            }
+          },
+          "type": "srl_nokia-interfaces:bridged"
+        }
+      ]
+    }
+  ],
+  "srl_nokia-network-instance:network-instance": [
+    {
+      "admin-state": "enable",
+      "description": "Service lab-macvrf-acl (mac-vrf)",
+      "interface": [
+        {
+          "name": "ethernet-1/1.150"
+        }
+      ],
+      "name": "macvrf-lab-macvrf-acl",
+      "protocols": {
+        "bgp-evpn": {
+          "srl_nokia-bgp-evpn:bgp-instance": [
+            {
+              "admin-state": "enable",
+              "ecmp": 8,
+              "encapsulation-type": "vxlan",
+              "evi": 10150,
+              "id": 1,
+              "vxlan-interface": "vxlan0.10150"
+            }
+          ]
+        },
+        "srl_nokia-bgp-vpn:bgp-vpn": {
+          "bgp-instance": [
+            {
+              "id": 1,
+              "route-target": {
+                "export-rt": "target:65000:10150",
+                "import-rt": "target:65000:10150"
+              }
+            }
+          ]
+        }
+      },
+      "type": "srl_nokia-network-instance:mac-vrf",
+      "vxlan-interface": [
+        {
+          "name": "vxlan0.10150"
+        }
+      ]
+    }
+  ],
+  "srl_nokia-tunnel-interfaces:tunnel-interface": [
+    {
+      "name": "vxlan0",
+      "vxlan-interface": [
+        {
+          "egress": {
+            "source-ip": "use-system-ipv4-address"
+          },
+          "index": 10150,
+          "ingress": {
+            "vni": 10150
+          },
+          "type": "srl_nokia-interfaces:bridged"
+        }
+      ]
+    }
+  ]
+}

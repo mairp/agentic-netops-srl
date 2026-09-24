@@ -29,6 +29,13 @@
 #   J  a validator that accepts a vxlan-interface type of the wrong kind: the service negative
 #      control PASSES, so the whole run FAILS naming it (NFR-013)
 #   K  a service golden with no fabric golden of its node to layer on FAILS, named
+# A standalone access-list golden (srl_nokia-acl:acl alone, no interface-ref; T107/T113) is validated
+# layered on its node's fabric golden AND on the service golden that owns the subinterface it binds:
+#   L  it PASSES layered on both, the owner named, and the fake saw the owner loaded as its own intent
+#   M  a standalone golden binding a subinterface no service golden of its node owns FAILS, named
+#   N  the egress acl-filter must — spanning two YANG lines, guarded by `not srl_nokia-features:
+#      acl-if-output-shared-tcam-entries`, which G3 requires — is excused and printed; guarded by a
+#      feature G3 does not require it is not, and the golden FAILS
 # shellcheck disable=SC2015,SC2016  # `cond && ok … || bad …` is safe: ok always returns 0; jq in single quotes
 set -uo pipefail
 ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../../.." && pwd)"
@@ -43,7 +50,7 @@ mkdir -p "$VRS_CACHE/sdc-lite-$tag"
 cat >"$VRS_CACHE/sdc-lite-$tag/sdc-lite" <<'FAKE'
 #!/usr/bin/env bash
 # fake sdc-lite: schema load | config load -t T --file F … | config validate -t T
-known='^(ipv4-unicast|ipv6-unicast|evpn|default|mac-vrf|ip-vrf|bridged|routed|local-mirror-dest)$'
+known='^(ipv4-unicast|ipv6-unicast|evpn|default|mac-vrf|ip-vrf|bridged|routed|local-mirror-dest|ipv4|ipv6)$'
 cmd="$1 $2"; shift 2
 t=""; f=""
 while [[ $# -gt 0 ]]; do case "$1" in -t) t="$2"; shift 2 ;; --file) f="$2"; shift 2 ;; *) shift ;; esac; done
@@ -67,6 +74,16 @@ case "$cmd" in
         }
       }
 YANG
+    # the egress acl-filter must of srl_nokia-acl: spanning two lines, guarded under the
+    # srl_nokia-features prefix (T107)
+    y="$HOME/.cache/sdc-lite/schemas/fake/1/srl_nokia-acl.yang"
+    cat >"$y" <<YANG
+          must "/acl/acl-filter[name=current()/name][type=current()/type]/subinterface-specific = 'output-only' or
+                /acl/acl-filter[name=current()/name][type=current()/type]/subinterface-specific = 'input-and-output'" {
+            srl_nokia-ext:if-feature "not srl_nokia-features:${FAKE_SDC_LITE_ACL_FEATURE:-acl-if-output-shared-tcam-entries}";
+            error-message "On the current platform, subinterface-specific must be set to output-only or input-and-output for egress filters.";
+          }
+YANG
     exit 0 ;;
   "config load")
     echo "Target: $t"
@@ -76,7 +93,8 @@ YANG
         [[ "${v##*:}" =~ $known ]] || { echo "Error: identity $v not found, possible values are ipv4-unicast, ipv6-unicast, evpn"; exit 1; }
       done
     fi
-    n="$(find "$HOME/fake" -name "$t.load.*" | wc -l)"; cp "$f" "$HOME/fake/$t.load.$n" ;;
+    n="$(find "$HOME/fake" -name "$t.load.*" | wc -l)"; cp "$f" "$HOME/fake/$t.load.$n"
+    if [[ -n "${FAKE_SDC_LITE_INTENTS:-}" ]]; then echo "$t $(jq -c 'keys' "$f")" >>"$FAKE_SDC_LITE_INTENTS"; fi ;;
   "config validate")
     # the intents of the target, merged (lists concatenated), priority order
     f="$HOME/fake/$t.json"
@@ -98,6 +116,8 @@ YANG
         *) [[ -n "${FAKE_SDC_LITE_ANY_VXLAN_TYPE:-}" ]] || errs+="error path: /tunnel-interface[name=vxlan0]/vxlan-interface[index=3]/type, must-statement [.='srl_nokia-if:bridged' or .='srl_nokia-if:routed'] unsupported type. " ;;
       esac
     done
+    jq -e '[."srl_nokia-acl:acl".interface[]?.output?] | any' "$f" >/dev/null \
+      && errs+="error path: /acl/interface[interface-id=ethernet-1/1.200]/output/acl-filter, must-statement [/acl/acl-filter[name=current()/name][type=current()/type]/subinterface-specific = 'output-only' or /acl/acl-filter[name=current()/name][type=current()/type]/subinterface-specific = 'input-and-output'] On the current platform, subinterface-specific must be set to output-only or input-and-output for egress filters. "
     grep -q '"vt-invalid"' "$f" && errs+="error path: /interface[name=ethernet-1/1]/description, value vt-invalid refused by a pattern "
     [[ -z "$errs" ]] || printf 'Errors:\n%s\n' "$errs"
     exit 0 ;;
@@ -184,6 +204,49 @@ mkdir -p "$TMP/svc-orphan"; cp "$FIX/services/macvrf-leaf01.json" "$TMP/svc-orph
 if SVC="$TMP/svc-orphan" vrs --golden-dir "$FIX/prefixed"; then bad "K a service golden with no fabric golden to layer on passed" "$(cat "$TMP/log")"
 elif grep -q "not valid against the pinned Schema: macvrf-leaf09" "$TMP/log"; then ok "K a service golden with no fabric golden of its node fails, named"
 else bad "K failed for another reason" "$(cat "$TMP/log")"; fi
+
+# L
+mkdir -p "$TMP/svc-acl"
+jq '. + {"srl_nokia-acl:acl": {"interface": [{"interface-id": "ethernet-1/1.200", "interface-ref": {"interface": "ethernet-1/1", "subinterface": 200}}]}}' \
+  "$FIX/services/macvrf-leaf01.json" >"$TMP/svc-acl/macvrf-leaf01.json"
+cat >"$TMP/svc-acl/acl_standalone-leaf01.json" <<'J'
+{"srl_nokia-acl:acl": {"acl-filter": [{"name": "acl-g-ingress", "type": "ipv4", "statistics-per-entry": true,
+  "entry": [{"sequence-id": 10, "action": {"drop": {}}}]}],
+  "interface": [{"interface-id": "ethernet-1/1.200", "input": {"acl-filter": [{"name": "acl-g-ingress", "type": "ipv4"}]}}]}}
+J
+export FAKE_SDC_LITE_INTENTS="$TMP/intents"; : >"$FAKE_SDC_LITE_INTENTS"
+if SVC="$TMP/svc-acl" vrs --golden-dir "$FIX/prefixed"; then
+  if grep -q "PASS acl_standalone-leaf01 (layered on .*prefixed/leaf01.json + .*svc-acl/macvrf-leaf01.json)" "$TMP/log" \
+    && [[ "$(grep -c '^render-acl_standalone-leaf01 ' "$FAKE_SDC_LITE_INTENTS")" == 3 ]]; then
+    ok "L a standalone access list is validated layered on its fabric golden and the owner of its subinterface"
+  else bad "L output does not name the owner layer, or the owner was not loaded" "$(cat "$TMP/log"; cat "$FAKE_SDC_LITE_INTENTS")"; fi
+else bad "L a standalone access list with its owner failed" "$(cat "$TMP/log")"; fi
+unset FAKE_SDC_LITE_INTENTS
+
+# M
+mkdir -p "$TMP/svc-acl-orphan"; cp "$TMP/svc-acl/acl_standalone-leaf01.json" "$FIX/services/macvrf-leaf01.json" "$TMP/svc-acl-orphan/"
+if SVC="$TMP/svc-acl-orphan" vrs --golden-dir "$FIX/prefixed"; then bad "M a standalone access list with no owner passed" "$(cat "$TMP/log")"
+elif grep -q "not valid against the pinned Schema: acl_standalone-leaf01" "$TMP/log" && grep -q "binds ethernet-1/1.200, which no service golden of leaf01 owns" "$TMP/log"; then
+  ok "M a standalone access list binding a subinterface no golden owns fails, named"
+else bad "M failed for another reason" "$(cat "$TMP/log")"; fi
+
+# N
+jq '."srl_nokia-acl:acl".interface[0] |= (.output = .input | del(.input))
+    | ."srl_nokia-acl:acl"."acl-filter"[0]."subinterface-specific" = "output-only"' \
+  "$TMP/svc-acl/acl_standalone-leaf01.json" >"$TMP/svc-acl/acl_egress-leaf01.json"
+rm -f "$TMP/svc-acl/acl_standalone-leaf01.json"
+jq '."srl_nokia-acl:acl" += {"acl-filter": input."srl_nokia-acl:acl"."acl-filter"} | ."srl_nokia-acl:acl".interface[0] += {output: {"acl-filter": [{"name": "acl-g-ingress", "type": "ipv4"}]}}' \
+  "$TMP/svc-acl/macvrf-leaf01.json" "$TMP/svc-acl/acl_egress-leaf01.json" >"$TMP/svc-acl/macvrfacl-leaf01.json"
+rm -f "$TMP/svc-acl/acl_egress-leaf01.json"
+if SVC="$TMP/svc-acl" vrs --golden-dir "$FIX/prefixed"; then
+  if grep -q "PASS macvrfacl-leaf01 (layered on" "$TMP/log" \
+    && grep -q "subinterface-specific = 'input-and-output'\] On the current platform.* — guarded by srl_nokia-ext:if-feature \"not srl_nokia-feat:acl-if-output-shared-tcam-entries\"; G3 requires acl-if-output-shared-tcam-entries" "$TMP/log"; then
+    ok "N the two-line egress acl-filter must guarded by a G3-required feature is excused, printed"
+  else bad "N output does not show the excused egress must" "$(cat "$TMP/log")"; fi
+else bad "N an egress golden failed" "$(cat "$TMP/log")"; fi
+if FAKE_SDC_LITE_ACL_FEATURE=srv6 SVC="$TMP/svc-acl" vrs --golden-dir "$FIX/prefixed"; then bad "N a must guarded by a feature G3 does not require was excused" "$(cat "$TMP/log")"
+elif grep -q "not valid against the pinned Schema: macvrfacl-leaf01" "$TMP/log"; then ok "N the egress must guarded by a feature G3 does not require is not excused: that golden fails, named"
+else bad "N failed for another reason" "$(cat "$TMP/log")"; fi
 
 # F — the fake refuses a copy that lost a module-prefixed key; A passing already shows it kept them,
 # and the normalisation is checked directly on a key that LOOKS like an identityref value

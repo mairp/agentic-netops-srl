@@ -72,8 +72,13 @@ func SubscribeEntries() []SubscribeEntry {
 			"network_instance_route_table_ipv6_unicast_statistics", "network_instance_name"),
 		sub("srl-route-table", slow, "/network-instance[name=*]/tunnel-table/ipv4/statistics",
 			"network_instance_tunnel_table_ipv4_statistics", "network_instance_name"),
+		// the access-list read-back (T108): matched-packets / incomplete (A5),
+		// the per-entry TCAM cost by direction (A1–A3) and the programming gate (G1)
 		sub("srl-acl", slow, "/acl/acl-filter[name=*][type=*]/entry[sequence-id=*]/statistics",
 			"acl_acl_filter_entry_statistics", "acl_filter_name", "acl_filter_type", "entry_sequence_id"),
+		sub("srl-acl", slow, "/acl/acl-filter[name=*][type=*]/entry[sequence-id=*]/tcam-entries",
+			"acl_acl_filter_entry_tcam_entries", "acl_filter_name", "acl_filter_type", "entry_sequence_id"),
+		sub("srl-acl", slow, "/acl/datapath-programming", "acl_datapath_programming"),
 		sub("srl-platform", slow, "/platform/control[slot=*]/cpu[index=all]/total", "platform_control_cpu_total", "control_slot", "cpu_index"),
 		sub("srl-platform", slow, "/platform/control[slot=*]/memory", "platform_control_memory", "control_slot"),
 		sub("srl-apps", slow, "/system/app-management/application[name=*]/state", "system_app_management_application_state", "application_name"),

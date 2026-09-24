@@ -103,9 +103,16 @@ func healthy(t *testing.T, r *svcReader, in ServiceInput) {
 	}
 	for node, es := range exps {
 		for _, e := range es {
-			if e.Expect == ExpectNonZero {
+			switch e.Expect {
+			case ExpectNonZero:
 				r.set(node, e.Path, "103476342702")
-			} else {
+			case ExpectAnyPositive: // an access-list entry's TCAM cost
+				r.set(node, e.Path, "2")
+			case ExpectAllZero, ExpectPresent: // the other direction's total; a quiet counter
+				r.set(node, e.Path, "0")
+			case ExpectNotEqual: // statistics incomplete
+				r.set(node, e.Path, "false")
+			default:
 				r.set(node, e.Path, e.Want)
 			}
 		}

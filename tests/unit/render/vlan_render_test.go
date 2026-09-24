@@ -105,11 +105,13 @@ var serviceListKeys = map[string][]string{
 	"interface": {"name"}, "subinterface": {"index"}, "address": {"ip-prefix"},
 	"network-instance": {"name"}, "tunnel-interface": {"name"}, "vxlan-interface": {"index"},
 	"bgp-instance": {"id"}, "populate": {"route-type"}, "advertise": {"route-type"},
+	"acl-filter": {"name", "type"}, "entry": {"sequence-id"},
 }
 
 // flattenService returns path -> JSON value of every leaf and leaf-list, plus
-// every key-only list entry (value "{}"). Node names lose their module
-// qualifier. A list the service render has no business emitting fails.
+// every key-only list entry and every empty presence container (value "{}").
+// Node names lose their module qualifier. A list the service render has no
+// business emitting fails.
 func flattenService(t *testing.T, doc []byte) map[string]string {
 	t.Helper()
 	dec := json.NewDecoder(bytes.NewReader(doc))
@@ -132,6 +134,10 @@ func flattenService(t *testing.T, doc []byte) map[string]string {
 			p := prefix + "/" + name
 			switch x := v.(type) {
 			case map[string]any:
+				if len(x) == 0 {
+					out[p] = "{}" // a presence container (an access-list action)
+					continue
+				}
 				walk(p, x, nil)
 			case []any:
 				if len(x) > 0 {
@@ -193,7 +199,11 @@ func sortedKeys(m map[string]string) []string {
 
 func TestServiceGoldens(t *testing.T) {
 	wantFiles := map[string]bool{}
-	for name, in := range serviceInputs() {
+	goldens := serviceInputs()
+	for name, in := range aclGoldenInputs(t) { // acl_render_test.go (T104, T113)
+		goldens[name] = in
+	}
+	for name, in := range goldens {
 		r := renderService(t, in)
 		for node, rn := range r {
 			file := name + "-" + node + ".json"
@@ -425,8 +435,8 @@ func TestServiceWritesNoPortLevelLeaf(t *testing.T) {
 
 // TestServiceInterfaceRefOnEverySubinterface: every subinterface a service
 // renders on an access port brings /acl/interface[interface-id=<port>.<idx>]/
-// interface-ref {interface, subinterface}, filter or none; and no other acl
-// leaf is rendered (filters are User Story 5's) (FR-015, AD-68).
+// interface-ref {interface, subinterface}, filter or none; and a service
+// carrying no access list renders no other acl leaf (FR-015, AD-68).
 func TestServiceInterfaceRefOnEverySubinterface(t *testing.T) {
 	for name, in := range serviceInputs() {
 		for node, r := range renderService(t, in) {
@@ -527,43 +537,6 @@ func TestServiceRegisterRefusesFabricLeaf(t *testing.T) {
 		if !errors.As(err, &ue) || len(ue.Paths) != 1 || ue.Paths[0] != p {
 			t.Errorf("%s: not refused as uncovered for a service Config: %v", p, err)
 		}
-	}
-}
-
-// TestServiceAccessListsUnsupported: a service carrying an access list is
-// refused with the typed *srl.UnsupportedError naming the filter — the
-// filters and their bindings are User Story 5's renderer.
-func TestServiceAccessListsUnsupported(t *testing.T) {
-	in := vlanInput()
-	accept := model.ActionAccept
-	in.AccessLists = []model.AccessList{{Stage: model.StageIngress, Family: model.FamilyIPv4, DefaultAction: &accept,
-		Rules:    []model.ACLRule{{Name: "deny-telnet", Priority: 10, Action: model.ActionDrop, Protocol: "tcp", DestinationPort: &model.PortMatch{Lo: 23}}},
-		Bindings: []model.ACLBinding{{Node: "leaf01", Port: "ethernet-1/1", VLAN: 110}}}}
-	m, err := model.BuildService(in)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, err = srl.RenderService(m)
-	var ue *srl.UnsupportedError
-	if !errors.As(err, &ue) {
-		t.Fatalf("an access list was not refused as unsupported: %v", err)
-	}
-	if ue.Node != "leaf01" || !slices.Equal(ue.Filters, []string{"acl-web-ingress[type=ipv4]"}) ||
-		!strings.Contains(err.Error(), "acl-web-ingress") || !strings.Contains(err.Error(), "User Story 5") {
-		t.Errorf("unsupported error does not name the node, the filter and US5: %+v %v", ue, err)
-	}
-	// leaf02 carries no filter and renders.
-	if _, err := srl.RenderServiceNode(m.Node("leaf02")); err != nil {
-		t.Errorf("leaf02 carries no access list: %v", err)
-	}
-	// A binding alone (no filter on the node) is refused too.
-	n := *m.Node("leaf01")
-	n.ACLFilters = nil
-	if _, err := srl.RenderServiceNode(&n); !errors.As(err, &ue) {
-		t.Errorf("a filter binding without its filter was not refused: %v", err)
-	}
-	if _, err := srl.ServiceLeafPaths(&n); !errors.As(err, &ue) {
-		t.Errorf("ServiceLeafPaths accepted a filter binding: %v", err)
 	}
 }
 

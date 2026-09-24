@@ -89,6 +89,9 @@ func strictDecode(b []byte, v any) (cause string, malformed bool) {
 		return fmt.Sprintf("input: not valid JSON at offset %d: %s", syn.Offset, syn.Error()), true
 	case errors.Is(err, io.ErrUnexpectedEOF):
 		return "input: not valid JSON: unexpected end of input", true
+	case errors.As(err, &typ) && typ.Field == "acl" && typ.Value == "string":
+		// An access list named instead of declared: a reference to a list held elsewhere.
+		return aclReferenceCause(b), false
 	case errors.As(err, &typ):
 		path := jsonPath(typ.Field)
 		return fmt.Sprintf("%s: expected %s, got JSON %s", path, jsonKind(typ.Type.Kind().String()), typ.Value), false
@@ -133,4 +136,21 @@ func jsonKind(goKind string) string {
 		return "a boolean"
 	}
 	return goKind
+}
+
+// aclReferenceCause is the refusal of an access list given by name (a JSON string) rather than
+// declared inline (FR-040): a list belongs to exactly one service and is never a second named
+// object with its own lifecycle.
+func aclReferenceCause(b []byte) string {
+	var probe struct {
+		ACL json.RawMessage `json:"acl"`
+	}
+	name := "a name"
+	if json.Unmarshal(b, &probe) == nil {
+		var s string
+		if json.Unmarshal(probe.ACL, &s) == nil {
+			name = strconv.Quote(s)
+		}
+	}
+	return fmt.Sprintf("acl: %s names an access list by reference; an access list belongs to exactly one service and cannot be referenced by another, and no named, separately managed list exists to point at — declare its stage, type and rules inline", name)
 }

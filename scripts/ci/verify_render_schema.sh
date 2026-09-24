@@ -23,7 +23,15 @@
 # fabric Config's (AD-68) — so each one is validated LAYERED as the device-configuration layer holds
 # it: the fabric golden of the same node (<node> from the file name) as intent fabric-<target> at
 # priority 10 and the service golden as intent service-<target> at priority 20, on one target. The
-# run fails naming every golden with a validation error and prints the errors. No lab and no
+# run fails naming every golden with a validation error and prints the errors. A STANDALONE
+# access-list golden (T107/T113: a document carrying only srl_nokia-acl:acl and no interface-ref —
+# its binding sits beneath the /acl/interface entry whose interface-ref the Config that owns the
+# subinterface writes, AD-68) is validated layered as the layer holds it on the device: the fabric
+# golden of its node at priority 10, then EVERY service golden of the same node that renders the
+# interface-ref of a subinterface it binds (the owner, found by interface-id) at priority 20, then
+# the standalone list at priority 20 — so the binding meets its filter AND the subinterface its
+# owner created. A standalone golden binding a subinterface no service golden of its node owns
+# FAILS, named. No lab and no
 # cluster: the schema repositories are fetched at the pinned tag/commit (a commit-pinned repository
 # — `kind: hash`, or the in-cluster mirror of AD-75, which is mapped back to the upstream repository
 # and commit versions.lock.yaml records for it — is checked out locally and handed to sdc-lite as a
@@ -156,16 +164,25 @@ done
 export HOME="$work/home"; mkdir -p "$HOME"   # sdc-lite keeps its targets under ~/.cache/sdc-lite
 mkdir -p "$work/norm"
 
-# vrs::validate <file> <target> <log> [<base>] — 0 clean, 1 refused (errors in <log>), 2 not loadable.
-# With <base> (the fabric golden of the node), the pair is loaded layered on one target as the
-# layer holds it: <base> as intent fabric-<target> at priority 10, <file> as service-<target> at 20.
+# vrs::validate <file> <target> <log> [<base> [<owner>…]] — 0 clean, 1 refused (errors in <log>), 2 not
+# loadable. With <base> (the fabric golden of the node), the pair is loaded layered on one target as
+# the layer holds it: <base> as intent fabric-<target> at priority 10, each <owner> (the service
+# goldens owning the subinterfaces a standalone access list binds) as owner<i>-<target> at 20, and
+# <file> as service-<target> at 20.
 vrs::validate() {
-  local f="$1" t="$2" log="$3" base="${4:-}"
+  local f="$1" t="$2" log="$3" base="${4:-}" o i=0
+  shift 3; [[ $# -gt 0 ]] && shift
   "$bin" schema load -t "$t" -f "$work/schema.yaml" >"$log.schema" 2>&1 \
     || { cat "$log.schema" >&2; die "schema load failed for $t"; }
   if [[ -n "$base" ]]; then
     "$bin" config load -t "$t" --file "$base" --file-format json_ietf --intent-name "fabric-$t" --priority 10 \
       >"$log" 2>&1 || return 2
+    # the owners of the subinterfaces a standalone access list binds, each its own intent (AD-68)
+    for o in "$@"; do
+      "$bin" config load -t "$t" --file "$o" --file-format json_ietf --intent-name "owner$i-$t" --priority 20 \
+        >"$log" 2>&1 || return 2
+      i=$((i + 1))
+    done
     "$bin" config load -t "$t" --file "$f" --file-format json_ietf --intent-name "service-$t" --priority 20 \
       >"$log" 2>&1 || return 2
   else
@@ -208,15 +225,30 @@ vrs::guarded() {
     if [[ -d "$d" ]]; then
       # shellcheck disable=SC2016  # awk program, not shell
       find "$d" -name '*.yang' -print0 | xargs -0 -r awk '
+        # a must on one line, or spanning lines (joined with single spaces, e.g. the egress
+        # acl-filter must of srl_nokia-acl, T107); whitespace is collapsed for the comparison
         /^[ \t]*must[ \t]+["\047].*["\047][ \t]*\{[ \t]*$/ {
           l = $0; sub(/^[ \t]*must[ \t]+/, "", l); sub(/[ \t]*\{[ \t]*$/, "", l)
           q = substr(l, 1, 1)
-          if (length(l) > 1 && substr(l, length(l), 1) == q) { expr = substr(l, 2, length(l) - 2); inm = 1 }
+          if (length(l) > 1 && substr(l, length(l), 1) == q) { expr = substr(l, 2, length(l) - 2); gsub(/[ \t]+/, " ", expr); inm = 1 }
+          next
+        }
+        /^[ \t]*must[ \t]+["\047]/ && !inacc {
+          l = $0; sub(/^[ \t]*must[ \t]+/, "", l); q = substr(l, 1, 1); acc = substr(l, 2)
+          if (index(acc, q) == 0) { sub(/[ \t]+$/, "", acc); inacc = 1 }
+          next
+        }
+        inacc {
+          l = $0; sub(/^[ \t]+/, "", l); sub(/[ \t]+$/, "", l); i = index(l, q)
+          if (i == 0) { acc = acc " " l; next }
+          inacc = 0
+          rest = substr(l, i + 1); sub(/^[ \t]*/, "", rest)
+          if (rest == "{") { expr = acc " " substr(l, 1, i - 1); gsub(/[ \t]+/, " ", expr); inm = 1 }
           next
         }
         inm && /^[ \t]*\}[ \t]*$/ { inm = 0; next }
-        inm && /^[ \t]*srl_nokia-ext:if-feature[ \t]+"not srl_nokia-feat:[a-z0-9-]+";[ \t]*$/ {
-          f = $0; sub(/^[^"]*"not srl_nokia-feat:/, "", f); sub(/".*$/, "", f); print expr "\t" f
+        inm && /^[ \t]*srl_nokia-ext:if-feature[ \t]+"not srl_nokia-feat(ures)?:[a-z0-9-]+";[ \t]*$/ {
+          f = $0; sub(/^[^"]*"not srl_nokia-feat(ures)?:/, "", f); sub(/".*$/, "", f); print expr "\t" f
         }' >>"$work/guarded.all"
     fi
     # a must a loaded deviation module DELETES (`deviate delete { must "<expr>" … }`, the first-party
@@ -249,7 +281,7 @@ vrs::split_excused() {
     [[ -n "$e" ]] || continue
     hit=""
     while IFS=$'\t' read -r expr f; do
-      [[ -n "$expr" && "$e" == *"must-statement [$expr]"* ]] && { hit="$f"; break; }
+      [[ -n "$expr" && "$(tr -s ' \t' '  ' <<<"$e")" == *"must-statement [$expr]"* ]] && { hit="$f"; break; }
     done <"$work/guarded.cur"
     if [[ -n "$hit" ]]; then
       echo "$e — guarded by srl_nokia-ext:if-feature \"not srl_nokia-feat:$hit\"; G3 requires $hit on every device" >>"$exc"
@@ -289,14 +321,19 @@ vrs::print_excused() {
   sed "s/^/  [$name]   /" "$work/$name.excused"
 }
 
-# vrs::judge <file> <name> [<base>] — prints the verdict; 0 PASS as is, 10 PASS on the normalised
-# copy, 11 PASS as is once feature-guarded musts are excused, 1 FAIL (errors printed on stderr).
-# With <base>, the golden is judged layered on it (a service golden on its node's fabric golden).
+# vrs::judge <file> <name> [<base> [<owner>…]] — prints the verdict; 0 PASS as is, 10 PASS on the
+# normalised copy, 11 PASS as is once feature-guarded musts are excused, 1 FAIL (errors printed on
+# stderr). With <base>, the golden is judged layered on it (a service golden on its node's fabric
+# golden), and on each <owner> between the two (a standalone access list on its owners).
 vrs::judge() {
-  local f="$1" name="$2" base="${3:-}" rc=0 sum_before sum_after copy bcopy="" bare=() ids on=""
-  local files=("$f"); [[ -n "$base" ]] && files+=("$base") && on=" (layered on ${base#"$ROOT"/})"
+  local f="$1" name="$2" base="${3:-}" rc=0 sum_before sum_after copy bcopy="" bare=() ids on="" o
+  shift 2; [[ $# -gt 0 ]] && shift
+  local owners=("$@") ocopies=()
+  local files=("$f"); [[ -n "$base" ]] && files+=("$base") && on=" (layered on ${base#"$ROOT"/}"
+  for o in "${owners[@]}"; do files+=("$o"); on+=" + ${o#"$ROOT"/}"; done
+  [[ -n "$on" ]] && on+=")"
   sum_before="$(sha256sum "${files[@]}" | cut -d' ' -f1 | paste -sd' ')"
-  vrs::validate "$f" "render-$name" "$work/$name.log" "$base" || rc=$?
+  vrs::validate "$f" "render-$name" "$work/$name.log" "$base" "${owners[@]}" || rc=$?
   if [[ "$rc" -eq 0 ]]; then
     echo "verify-render-schema: PASS $name$on"
     return 0
@@ -319,7 +356,8 @@ vrs::judge() {
   copy="$work/norm/$name.json"
   vrs::normalise "$f" "$copy"
   if [[ -n "$base" ]]; then bcopy="$work/norm/$name.base.json"; vrs::normalise "$base" "$bcopy"; fi
-  rc=0; vrs::validate "$copy" "render-$name-normalised" "$work/$name.normalised.log" "$bcopy" || rc=$?
+  for o in "${owners[@]}"; do ocopies+=("$work/norm/$name.owner${#ocopies[@]}.json"); vrs::normalise "$o" "${ocopies[-1]}"; done
+  rc=0; vrs::validate "$copy" "render-$name-normalised" "$work/$name.normalised.log" "$bcopy" "${ocopies[@]}" || rc=$?
   sum_after="$(sha256sum "${files[@]}" | cut -d' ' -f1 | paste -sd' ')"
   [[ "$sum_before" == "$sum_after" ]] || die "$f changed while it was validated (a golden is never modified)"
   if [[ "$rc" -eq 0 ]] || { [[ "$rc" -eq 1 ]] && ! vrs::refused "$work/$name.normalised.log" "$name.normalised"; }; then
@@ -330,6 +368,37 @@ vrs::judge() {
   echo "  [$name] refused as is (sdc-lite's prefixed-identityref defect) and STILL refused on the normalised copy:" >&2
   sed "s/^/  [$name] normalised: /" "$work/$name.normalised.log" >&2
   return 1
+}
+
+# vrs::standalone_acl <golden> — 0 when the golden is a standalone access list: it carries
+# srl_nokia-acl:acl alone and no interface-ref (it owns no subinterface, AD-68)
+vrs::standalone_acl() {
+  jq -e 'keys == ["srl_nokia-acl:acl"] and ([.. | objects | select(has("interface-ref"))] | length == 0)' "$1" >/dev/null 2>&1
+}
+
+# vrs::owners <golden> <node> <array-name> — fills <array-name> with the service goldens of <node>
+# (other than <golden>) that render the interface-ref of a subinterface <golden> binds; fails,
+# naming the interface-id, when a bound subinterface has no owner among them
+vrs::owners() {
+  local g="$1" node="$2" id o found missing=""
+  local -n _out="$3"
+  _out=()
+  while IFS= read -r id; do
+    [[ -n "$id" ]] || continue
+    found=""
+    for o in "$SERVICE_DIR"/*-"$node".json; do
+      [[ "$o" == "$g" ]] && continue
+      if jq -e --arg id "$id" '[."srl_nokia-acl:acl".interface[]? | select(."interface-id" == $id and has("interface-ref"))] | length > 0' "$o" >/dev/null 2>&1; then
+        found="$o"; break
+      fi
+    done
+    if [[ -z "$found" ]]; then missing+=" $id"; continue; fi
+    [[ " ${_out[*]} " == *" $found "* ]] || _out+=("$found")
+  done < <(jq -r '."srl_nokia-acl:acl".interface[]?."interface-id"' "$g")
+  if [[ -n "$missing" ]]; then
+    echo "  [$(basename "$g" .json)] a standalone access list binds${missing}, which no service golden of $node owns (renders the interface-ref of) — nothing to layer it on" >&2
+    return 1
+  fi
 }
 
 fails=(); normalised=0; excused=0
@@ -360,7 +429,11 @@ for g in "${services[@]}"; do
     echo "  [$name] no fabric golden $GOLDEN_DIR/$node.json to layer it on (a service golden is named <service>-<node>.json)" >&2
     fails+=("$name"); continue
   fi
-  rc=0; vrs::judge "$g" "$name" "$GOLDEN_DIR/$node.json" || rc=$?
+  owners=()
+  if vrs::standalone_acl "$g"; then
+    if ! vrs::owners "$g" "$node" owners; then fails+=("$name"); continue; fi
+  fi
+  rc=0; vrs::judge "$g" "$name" "$GOLDEN_DIR/$node.json" "${owners[@]}" || rc=$?
   tally "$rc" "$name"
 done
 

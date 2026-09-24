@@ -95,8 +95,8 @@ type AnycastGateway struct {
 	GatewayIPv6 string `json:"gatewayIPv6,omitempty"`
 }
 
-// ACL is parsed so that a schema-valid request is never mistaken for a malformed one; its
-// translation arrives with the access-list story (T110) and until then it is refused by name.
+// ACL is the filter a service carries (acl.go): required on the standalone acl construct, optional
+// on any other, where it binds to that service's own attachment subinterfaces (FR-035, FR-036).
 type ACL struct {
 	Name             string    `json:"name,omitempty"`
 	Stage            string    `json:"stage"`

@@ -48,7 +48,13 @@ DEVICE_METRICS_GNMI_PORT=57400
 # network-instance, member interfaces, subinterfaces, vxlan-interfaces and EVPN/BGP-VPN instance,
 # with the device's own down/not-programmed reasons and derivation origins; the remote VTEPs and
 # per-VTEP multicast destinations a spanning mac-vrf needs; and every network-instance's route
-# table, where a spanning ip-vrf's remote prefixes are read per prefix (never a count).
+# table, where a spanning ip-vrf's remote prefixes are read per prefix (never a count); and the
+# access-list read-back's applied side (T108, internal/verify/acl.go; contracts/acl-render-contract.md
+# §4.1, §4.3 as reconciled by live finding 2026-09-21-acl-binding-state): the ACL datapath
+# programming-complete gate per forwarding complex, and per filter entry — keyed by filter name, type
+# and sequence-id — its TCAM cost (single-instance, input-total, output-total) and its statistics
+# (matched-packets readable, incomplete). The read-back filters every read by its own filter's keys;
+# the cpm/system filters are sampled too and are never evidence.
 DEVICE_METRICS_PATHS=(
   "/interface[name=*]/oper-state"
   "/interface[name=*]/subinterface[index=*]/oper-state"
@@ -75,6 +81,12 @@ DEVICE_METRICS_PATHS=(
   "/network-instance[name=*]/protocols/bgp-vpn/bgp-instance[id=*]/route-distinguisher/route-distinguisher-origin"
   "/network-instance[name=*]/protocols/bgp-vpn/bgp-instance[id=*]/route-target/export-route-target-origin"
   "/network-instance[name=*]/protocols/bgp-vpn/bgp-instance[id=*]/route-target/import-route-target-origin"
+  "/acl/datapath-programming/forwarding-complex[slot-id=*][complex-id=*]/programming-complete"
+  "/acl/acl-filter[name=*][type=*]/entry[sequence-id=*]/tcam-entries/forwarding-complex[complex-identifier=*]/single-instance"
+  "/acl/acl-filter[name=*][type=*]/entry[sequence-id=*]/tcam-entries/forwarding-complex[complex-identifier=*]/input-total"
+  "/acl/acl-filter[name=*][type=*]/entry[sequence-id=*]/tcam-entries/forwarding-complex[complex-identifier=*]/output-total"
+  "/acl/acl-filter[name=*][type=*]/entry[sequence-id=*]/statistics/matched-packets"
+  "/acl/acl-filter[name=*][type=*]/entry[sequence-id=*]/statistics/incomplete"
 )
 
 # The integer encodings of the enumerated string leaves beyond the three state tables below
@@ -167,7 +179,7 @@ ${paths}    outputs:
         strip-leading-underscore: true
         strings-as-attributes: false
         counter-patterns: []
-        event-processors: [session-state-to-int, oper-state-to-int, active-to-int, reason-to-int, origin-to-int, state-as-int]
+        event-processors: [session-state-to-int, oper-state-to-int, active-to-int, acl-bool-to-int, reason-to-int, origin-to-int, state-as-int]
     processors:
       session-state-to-int:
         event-strings:
@@ -191,6 +203,14 @@ ${paths}    outputs:
           transforms:
             - replace: {apply-on: value, old: "^true$", new: "1"}
             - replace: {apply-on: value, old: "^false$", new: "0"}
+      # the access-list booleans (T108): the datapath programming gate and a statistics entry's
+      # incomplete flag
+      acl-bool-to-int:
+        event-strings:
+          value-names: [".*/programming-complete$", ".*/statistics/incomplete$"]
+          transforms:
+            - replace: {apply-on: value, old: "^true$", new: "1"}
+            - replace: {apply-on: value, old: "^false$", new: "0"}
       reason-to-int:
         event-strings:
           value-names: [".*oper-down-reason$", ".*not-programmed-reason$"]
@@ -204,10 +224,11 @@ ${origins}
       # gNMIc's otlp output skips every string value, a digit string included (v0.47.0), so the
       # mapped state leaves are converted to integers or they are never exported — and so are the
       # uint64 indexes (the VTEP's and the multicast destination's), which JSON_IETF encodes as
-      # strings (RFC 7951 §6.1; observed on 25.7.1)
+      # strings (RFC 7951 §6.1; observed on 25.7.1) — and an access-list entry's matched-packets
+      # (uint64) with its booleans; its uint16 TCAM counts are converted too, a no-op on a number
       state-as-int:
         event-convert:
-          value-names: [".*session-state$", ".*oper-state$", ".*/active$", ".*oper-down-reason$", ".*not-programmed-reason$", ".*route-distinguisher-origin$", ".*route-target-origin$", ".*destination-index$", ".*vtep/index$"]
+          value-names: [".*session-state$", ".*oper-state$", ".*/active$", ".*oper-down-reason$", ".*not-programmed-reason$", ".*route-distinguisher-origin$", ".*route-target-origin$", ".*destination-index$", ".*vtep/index$", ".*/programming-complete$", ".*/statistics/incomplete$", ".*/statistics/matched-packets$", ".*/single-instance$", ".*/input-total$", ".*/output-total$"]
           type: int
 YAML
 }

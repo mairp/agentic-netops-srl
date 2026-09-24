@@ -145,7 +145,7 @@ func TestAccessLists(t *testing.T) {
 	}
 	now := metav1.Now()
 	acl.DeletionTimestamp = &now
-	one(t, CheckBindings(&second, []fabricv1.Network{acl}), RuleBindingExclusivity, "being deleted and still holds its bindings")
+	one(t, CheckBindings(&second, []fabricv1.Network{acl}), RuleBindingExclusivity, "being deleted and still holds its bindings", "being removed")
 }
 
 func TestQualification(t *testing.T) {
@@ -208,4 +208,24 @@ func TestEvaluates(t *testing.T) {
 	if ok, _ := Evaluates(admissionv1.Update, deleting, old); ok {
 		t.Fatal("UPDATE of a deleting object evaluated")
 	}
+}
+
+// An owner's UPDATE may not remove a subinterface another Network's standalone list is bound to:
+// the binding is withdrawn first (contracts/acl-render-contract.md §5).
+func TestHeldSubinterfaces(t *testing.T) {
+	old := vlanNet("holder", 100, att("leaf01", "ethernet-1/1", vlan(100)), att("leaf02", "ethernet-1/1", vlan(100)))
+	acl := aclNet("acl", "ingress", "ipv4", att("leaf01", "ethernet-1/1", vlan(100)))
+	dropBound := vlanNet("holder", 100, att("leaf02", "ethernet-1/1", vlan(100)))
+	one(t, CheckHeldSubinterfaces(&dropBound, &old, []fabricv1.Network{acl}), RuleStandaloneNeedsSubi,
+		"leaf01 ethernet-1/1.100", "ns/acl", "withdraw that list first")
+	dropOther := vlanNet("holder", 100, att("leaf01", "ethernet-1/1", vlan(100)))
+	if vs := CheckHeldSubinterfaces(&dropOther, &old, []fabricv1.Network{acl}); len(vs) != 0 {
+		t.Fatalf("dropping an unbound attachment refused: %v", vs)
+	}
+	if vs := CheckHeldSubinterfaces(&dropBound, nil, []fabricv1.Network{acl}); len(vs) != 0 {
+		t.Fatalf("a CREATE checked against an old object: %v", vs)
+	}
+	now := metav1.Now()
+	acl.DeletionTimestamp = &now
+	one(t, CheckHeldSubinterfaces(&dropBound, &old, []fabricv1.Network{acl}), RuleStandaloneNeedsSubi, "being removed")
 }

@@ -50,6 +50,13 @@ want=(
   "/network-instance[name=*]/protocols/bgp-vpn/bgp-instance[id=*]/route-target/import-route-target-origin"
   "/network-instance[name=*]/route-table/ipv4-unicast/route/active"
   "/network-instance[name=*]/route-table/ipv6-unicast/route/active"
+  # the access-list read-back (T108): the programming gate, per-entry TCAM by direction, statistics
+  "/acl/datapath-programming/forwarding-complex[slot-id=*][complex-id=*]/programming-complete"
+  "/acl/acl-filter[name=*][type=*]/entry[sequence-id=*]/tcam-entries/forwarding-complex[complex-identifier=*]/single-instance"
+  "/acl/acl-filter[name=*][type=*]/entry[sequence-id=*]/tcam-entries/forwarding-complex[complex-identifier=*]/input-total"
+  "/acl/acl-filter[name=*][type=*]/entry[sequence-id=*]/tcam-entries/forwarding-complex[complex-identifier=*]/output-total"
+  "/acl/acl-filter[name=*][type=*]/entry[sequence-id=*]/statistics/matched-packets"
+  "/acl/acl-filter[name=*][type=*]/entry[sequence-id=*]/statistics/incomplete"
 )
 absent=""
 for p in "${want[@]}"; do grep -qF -- "- \"${p}\"" <<<"$out" || absent+="$p"$'\n'; done
@@ -78,11 +85,12 @@ check_table origin-to-int DEVICE_METRICS_ORIGINS
 conv="$(awk '/^      state-as-int:/{on=1} on&&/value-names/{print; exit}' <<<"$out")"
 bad=""
 for v in '".*session-state$"' '".*oper-state$"' '".*/active$"' '".*oper-down-reason$"' '".*not-programmed-reason$"' \
-  '".*route-distinguisher-origin$"' '".*route-target-origin$"' '".*destination-index$"' '".*vtep/index$"'; do
+  '".*route-distinguisher-origin$"' '".*route-target-origin$"' '".*destination-index$"' '".*vtep/index$"' \
+  '".*/programming-complete$"' '".*/statistics/incomplete$"' '".*/statistics/matched-packets$"'; do
   grep -qF -- "$v" <<<"$conv" || bad+="$v"$'\n'
 done
 if [[ -z "$bad" ]]; then pass "state-as-int converts every string leaf and uint64 index"; else fail "state-as-int misses" "$bad"; fi
-if grep -qF 'event-processors: [session-state-to-int, oper-state-to-int, active-to-int, reason-to-int, origin-to-int, state-as-int]' <<<"$out"; then
+if grep -qF 'event-processors: [session-state-to-int, oper-state-to-int, active-to-int, acl-bool-to-int, reason-to-int, origin-to-int, state-as-int]' <<<"$out"; then
   pass "processors listed on the output, conversion last"
 else
   fail "processor list" "$(grep event-processors <<<"$out")"

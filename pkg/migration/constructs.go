@@ -73,8 +73,9 @@ func Canonicalize(name string) (Resolution, bool) {
 }
 
 // canonicalize folds the input's vocabulary on entry: the type becomes the construct and a migration
-// alias is recorded as the arrival vocabulary. An unresolvable type is left as written, for
-// validation to refuse by name.
+// alias is recorded as the arrival vocabulary; an access list's family, stage and protocol
+// spellings are folded (acl.go). An unresolvable value is left as written, for validation to
+// refuse by name.
 func (in *ServiceInput) canonicalize() {
 	if r, ok := Canonicalize(in.Type); ok {
 		in.Type = r.Construct
@@ -82,4 +83,5 @@ func (in *ServiceInput) canonicalize() {
 			in.SourceType = r.Source
 		}
 	}
+	in.ACL.canonicalize()
 }

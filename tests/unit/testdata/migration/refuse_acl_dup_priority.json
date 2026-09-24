@@ -1,0 +1,41 @@
+{
+  "serviceId": "7e0c4a6b8d3f5c9",
+  "type": "vlan",
+  "tenant": "acme",
+  "acl": {
+    "name": "web-ingress",
+    "stage": "ingress",
+    "type": "ipv4",
+    "defaultAction": "deny",
+    "rules": [
+      {
+        "name": "allow-https",
+        "priority": 100,
+        "action": "permit",
+        "protocol": "tcp",
+        "sourcePrefix": "10.0.0.0/24",
+        "destinationPort": "443",
+        "description": "operator https allowance"
+      },
+      {
+        "name": "deny-telnet",
+        "priority": 100,
+        "action": "deny",
+        "protocol": "tcp",
+        "destinationPort": "23"
+      }
+    ]
+  },
+  "endpoints": [
+    {
+      "node": "leaf01",
+      "attachment": "ethernet-1/1",
+      "vlan": 100
+    },
+    {
+      "node": "leaf02",
+      "attachment": "ethernet-1/1",
+      "vlan": 100
+    }
+  ]
+}

@@ -1,0 +1,27 @@
+{
+  "serviceId": "0b3f7d9e1a6c8f2",
+  "type": "acl",
+  "tenant": "acme",
+  "acl": {
+    "name": "web-ingress",
+    "stage": "ingress",
+    "type": "ipv4",
+    "defaultAction": "deny",
+    "rules": [
+      {
+        "name": "allow-sctp-sig",
+        "priority": 100,
+        "action": "permit",
+        "protocol": "sctp",
+        "destinationPort": "2905"
+      }
+    ]
+  },
+  "endpoints": [
+    {
+      "node": "leaf01",
+      "attachment": "ethernet-1/1",
+      "vlan": 100
+    }
+  ]
+}

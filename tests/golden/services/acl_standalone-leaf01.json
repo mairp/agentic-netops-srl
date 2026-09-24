@@ -1,0 +1,57 @@
+{
+  "srl_nokia-acl:acl": {
+    "acl-filter": [
+      {
+        "description": "tenant2/guard ingress",
+        "entry": [
+          {
+            "action": {
+              "drop": {}
+            },
+            "description": "drop-rtp",
+            "match": {
+              "ipv4": {
+                "destination-ip": {
+                  "prefix": "10.110.0.0/24"
+                },
+                "protocol": "udp"
+              },
+              "transport": {
+                "destination-port": {
+                  "range": {
+                    "end": 5100,
+                    "start": 5000
+                  }
+                }
+              }
+            },
+            "sequence-id": 20
+          },
+          {
+            "action": {
+              "accept": {}
+            },
+            "description": "default-permit",
+            "sequence-id": 65535
+          }
+        ],
+        "name": "acl-guard-ingress",
+        "statistics-per-entry": true,
+        "type": "ipv4"
+      }
+    ],
+    "interface": [
+      {
+        "input": {
+          "acl-filter": [
+            {
+              "name": "acl-guard-ingress",
+              "type": "ipv4"
+            }
+          ]
+        },
+        "interface-id": "ethernet-1/1.110"
+      }
+    ]
+  }
+}

@@ -753,15 +753,16 @@ func (f *fakeTelemetry) set(ok bool) {
 // fakeRenderer renders a deterministic native document per node from the service model, with
 // the device's list structure — every service object beneath a list entry it alone keys (the
 // subinterface, irb0's subinterface, the vxlan-interface, the network-instance, the acl
-// interface) — so the overlap check sees the shapes the real render has. Access-list filters
-// are refused, as the renderer of this phase does (User Story 5).
+// interface) — so the overlap check sees the shapes the real render has. It renders no
+// access-list filter and refuses a node carrying one: the suites that exercise access lists
+// (acl_lifecycle_test.go) drive the real internal/render/srl renderer instead (T106).
 type fakeRenderer struct{}
 
 func (fakeRenderer) RenderService(m *model.ServiceModel) (map[string]network.Rendered, error) {
 	out := map[string]network.Rendered{}
 	for _, n := range m.Nodes {
 		if len(n.ACLFilters) > 0 {
-			return nil, fmt.Errorf("render service node %s: access-list rendering arrives with User Story 5", n.Node)
+			return nil, fmt.Errorf("render service node %s: the fake renderer renders no access-list filter; acl_lifecycle_test.go uses the real renderer", n.Node)
 		}
 		ports := map[string][]any{}
 		var portNames []string

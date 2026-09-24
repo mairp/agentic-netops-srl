@@ -111,6 +111,16 @@ _DEVICE_ACTION = re.compile(
     r"|\bby hand\b|\bmanually (?:configure|add|set|fix)\b|\byourself\b"
 )
 
+# A protocol an access-list rule MATCHES is traffic, not a session this tier would open: a rule
+# name carrying it ("deny-telnet", "allow-ssh") and a filter verb applied to it ("denies telnet",
+# "block ssh traffic") are removed before Rule 3 looks. "telnet to leaf02 …" is untouched.
+_FILTERED_PROTOCOL = re.compile(
+    r"\b[a-z0-9]+(?:-[a-z0-9]+)*-(?:ssh|telnet)\b|\b(?:ssh|telnet)(?:-[a-z0-9]+)+\b"
+    r"|\b(?:deny|denies|permit|permits|allow|allows|block|blocks|drop|drops|match|matches)"
+    r"\s+(?:tcp\s+)?(?:ssh|telnet)\b(?!\s+(?:to|into|on|onto)\b)"
+    r"|\b(?:ssh|telnet)\s+traffic\b"
+)
+
 # Rule 4 — a question about the platform.
 _QUESTION = re.compile(
     r"^(?:what|which|why|how|when|where|who|can|could|does|do|is|are|explain|describe|tell me"
@@ -185,7 +195,7 @@ def _classify_kept(text: str) -> tuple[RequestClass, Refusal | None, str | None]
         return RequestClass.UNSUPPORTED_OR_UNSAFE, refuse_confirmation_bypass(named), None
     if _TOOL_REQUEST.search(folded):
         return RequestClass.UNSUPPORTED_OR_UNSAFE, refuse_unknown_tool(named), None
-    if _DEVICE_ACTION.search(folded):
+    if _DEVICE_ACTION.search(_FILTERED_PROTOCOL.sub(" ", folded)):
         return RequestClass.UNSUPPORTED_OR_UNSAFE, refuse_direct_device_action(named), None
     if _QUESTION.search(folded) or folded.endswith("?"):
         return RequestClass.INFORMATIONAL, None, None

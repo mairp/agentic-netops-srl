@@ -64,7 +64,8 @@ type subinterface struct {
 type where struct{ svc, ep int }
 
 // batchCauses are the rules that span services: a serviceId is unique in the batch, a (node, port,
-// vlan) has one owner (FR-034) and a port carries one tagging mode (AD-20).
+// vlan) has one owner (FR-034), a port carries one tagging mode (AD-20), and the access-list rules
+// the request itself decides (aclBatchCauses).
 func batchCauses(inputs []ServiceInput, prefix func(int) string) []string {
 	var causes []string
 	ids := map[string]int{}
@@ -139,7 +140,7 @@ func batchCauses(inputs []ServiceInput, prefix func(int) string) []string {
 			}
 		}
 	}
-	return causes
+	return append(causes, aclBatchCauses(inputs, prefix, owners)...)
 }
 
 func translate(in *ServiceInput, asn int64) Network {
@@ -201,6 +202,13 @@ func translate(in *ServiceInput, asn int64) Network {
 		r.Prefixes = append(append(r.Prefixes, in.AddressFamilies.IPv4Prefixes...), in.AddressFamilies.IPv6Prefixes...)
 		n.Spec.Routers = []Router{r}
 		n.Spec.Attachments = attachments(in.Endpoints, r.Name)
+	case ConstructACL:
+		// accessLists[] and attachments[] only: each attachment references an existing
+		// subinterface and carries no vrf (network-spec.md §2).
+		n.Spec.Attachments = attachments(in.Endpoints, "")
+	}
+	if in.ACL != nil {
+		n.Spec.AccessLists = []AccessList{accessList(sid, in.ACL)}
 	}
 	return n
 }

@@ -141,14 +141,23 @@ func TestRefusalFixturesThroughTheCLI(t *testing.T) {
 	}
 }
 
-// Every refuse_*.json fixture in the directory is covered by the table above or by the access-list
-// story's own suite; none is silently skipped.
+// Every refuse_*.json fixture in the directory is refused by the CLI — covered by the table above
+// or by the access-list suite (acl_test.go) — except those decidedByTheWebhook, which need data the
+// translator is never given and are proved against the webhook's rules there; none is silently
+// skipped.
 func TestEveryTranslatorRefusalFixtureRefuses(t *testing.T) {
 	files, err := filepath.Glob(filepath.Join(testdata, "refuse_*.json"))
 	if err != nil || len(files) < 12 {
 		t.Fatalf("refusal fixtures: %v (%d)", err, len(files))
 	}
 	for _, f := range files {
+		if _, elsewhere := decidedByTheWebhook[filepath.Base(f)]; elsewhere {
+			r := runCLI(t, filepath.Base(f))
+			if r.code != 0 {
+				t.Errorf("%s: the translator cannot decide it and must translate it; exit %d, stderr %s", filepath.Base(f), r.code, r.stderr)
+			}
+			continue
+		}
 		r := runCLI(t, filepath.Base(f))
 		if r.code == 0 || len(r.stdout) != 0 || !bytes.HasPrefix(r.stderr, []byte(`{"error":"validation","causes":[`)) {
 			t.Errorf("%s: exit %d, stdout %d bytes, stderr %s", filepath.Base(f), r.code, len(r.stdout), r.stderr)

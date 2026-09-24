@@ -30,7 +30,14 @@ package verify
 //     network-instance, member interfaces, routed subinterfaces, vxlan-interface,
 //     EVPN instance and origins, and every prefix it connects or declares in its
 //     own route table — a prefix attached on this leaf as a local route, one
-//     attached only on another leaf as an active bgp-evpn route.
+//     attached only on another leaf as an active bgp-evpn route;
+//   - access lists (acl.go, T108), on every node carrying a filter — a
+//     service's own or a standalone `acl`: the ACL datapath programming gate,
+//     then per entry of THIS filter (name, type, sequence-id) its TCAM cost in
+//     the declared direction and none in the other, and its statistics
+//     readable and complete; and, on the written side, the filter, every
+//     entry's action and match, the binding in the declared direction and —
+//     where this Config owns the subinterface — its interface-ref.
 //
 // A device-wide or fabric-wide count is never evidence (FR-100, CR-001): no
 // received-routes, active-routes, route-summary or statistics path is ever
@@ -322,6 +329,11 @@ func (s *Service) verifyNode(ctx context.Context, target Target, construct model
 		}
 	}
 
+	// --- written side: the access lists' filters, entries and bindings (acl.go) ---
+	aclMissing, aclPaths := aclWritten(n, runningDoc)
+	missing = append(missing, aclMissing...)
+	cfgPaths = append(cfgPaths, aclPaths...)
+
 	// --- applied side: one state read, keyed to this service's own objects ---
 	var paths []string
 	for _, e := range exps {
@@ -362,6 +374,18 @@ const (
 	// ExpectNonZero: present and non-zero (an index). Absent is the
 	// expectation's Check; zero is CheckNotProgrammed.
 	ExpectNonZero
+	// The access-list kinds (acl.go), judged by evaluateACL:
+	// ExpectAllEqual: at least one instance, and every instance reads Want.
+	ExpectAllEqual
+	// ExpectAnyPositive: some instance reads a count > 0. Absent is the
+	// expectation's Check; every instance 0 is CheckNotProgrammed.
+	ExpectAnyPositive
+	// ExpectAllZero: every instance reads 0 (nothing read passes).
+	ExpectAllZero
+	// ExpectPresent: at least one instance, whatever it reads.
+	ExpectPresent
+	// ExpectNotEqual: no instance reads Want (nothing read passes).
+	ExpectNotEqual
 )
 
 // StateExpectation is one applied-side leaf of one node and what it must read.
@@ -395,6 +419,9 @@ type StateExpectation struct {
 
 func (e StateExpectation) evaluate(got map[string][]string) (Check, string, bool) {
 	vals := got[e.Path]
+	if e.Expect >= ExpectAllEqual {
+		return e.evaluateACL(vals)
+	}
 	var reasonVals []string
 	reason := ""
 	if e.ReasonPath != "" {
@@ -443,7 +470,8 @@ func leafName(path string) string {
 // ServiceExpectations are the applied-side leaves of every node of the
 // service, by node: the vlan set on every bridged instance, the mac-vrf
 // overlay set on one with a vxlan-interface, the ip-vrf set on every routed
-// instance. A `vlan` gets the vlan set alone. It fails only on an input the
+// instance, and the access-list set (acl.go) on every node carrying a filter.
+// A `vlan` gets the vlan set alone (and its own list's). It fails only on an input the
 // reads cannot be keyed from (a remote leaf with no allocated VTEP address).
 func ServiceExpectations(in ServiceInput) (map[string][]StateExpectation, error) {
 	out := map[string][]StateExpectation{}
@@ -466,6 +494,7 @@ func ServiceExpectations(in ServiceInput) (map[string][]StateExpectation, error)
 				exps = append(exps, ipvrfExpectations(m, n, ni, in.Prefixes[ni.Name])...)
 			}
 		}
+		exps = append(exps, aclExpectations(n)...)
 		out[n.Node] = exps
 	}
 	return out, nil

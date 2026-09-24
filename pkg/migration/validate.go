@@ -87,7 +87,10 @@ func validateService(in *ServiceInput, p string, opt Options) (causes []string, 
 		add("unsupported.%s: unsupported feature: %s; the platform refuses it rather than translating the rest without it", k, name)
 	}
 
-	if len(in.Endpoints) == 0 {
+	switch {
+	case len(in.Endpoints) == 0 && in.Type == ConstructACL:
+		add("endpoints: at least one endpoint is required — an access list binds to named attachment subinterfaces (a node, a port and optionally the VLAN of an existing subinterface), never fabric-wide, never to a network instance or a VLAN as such")
+	case len(in.Endpoints) == 0:
 		add("endpoints: at least one endpoint is required")
 	}
 	for i, ep := range in.Endpoints {
@@ -106,8 +109,9 @@ func validateService(in *ServiceInput, p string, opt Options) (causes []string, 
 		}
 	}
 
-	if in.ACL != nil && in.Type != ConstructACL {
-		add("acl: access-list translation arrives with its own story (US5, T110); this translator does not yet emit accessLists[], and it refuses the request rather than dropping the filter")
+	// An access list, on any construct: validated the same way wherever it stands (acl.go).
+	if in.ACL != nil {
+		causes = append(causes, validateACL(in.ACL, p)...)
 	}
 
 	switch in.Type {
@@ -122,7 +126,7 @@ func validateService(in *ServiceInput, p string, opt Options) (causes []string, 
 		c, a := validateIPVRF(in, p, opt)
 		causes, asn = append(causes, c...), a
 	case ConstructACL:
-		add("type: acl — access-list translation arrives with its own story (US5, T110); this translator does not yet emit accessLists[], and it refuses the request rather than emitting a service without its filter")
+		causes = append(causes, validateStandaloneACL(in, p)...)
 	default:
 		add("type: %q is not a construct this platform offers; the constructs are %s", in.Type, ConstructList())
 	}

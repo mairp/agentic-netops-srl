@@ -1,0 +1,30 @@
+# A mac-vrf carrying its own access list (FR-036): VLAN 150 (naming band, AD-33) extended over the
+# fabric by L2VNI 10150 (allocation band 10000–20000; claimed by the provider itself before it
+# writes any Config, FR-109), with an ingress IPv4 list bound on every attachment. The filter
+# acl-lab-macvrf-acl-ingress and its bindings on ethernet-1/1.150 are rendered into the SAME
+# per-node Config as the mac-vrf, its subinterfaces and their interface-refs — one transaction.
+# Rules are evaluated in ascending priority, first match wins; priority is the device's
+# sequence-id unchanged; the declared defaultAction renders the terminal entry at 65535 (FR-041).
+apiVersion: fabric.agentic-netops.io/v1alpha1
+kind: Network
+metadata:
+  name: lab-macvrf-acl
+  namespace: agentic-netops-services
+spec:
+  description: lab mac-vrf vlan 150 l2vni 10150 across leaf01 and leaf02, with an ingress ipv4 access list
+  bridgeDomains:
+  - name: bd150
+    vlan: 150
+    l2vni: 10150
+  accessLists:
+  - name: lab-macvrf-acl-ingress
+    stage: ingress
+    type: ipv4
+    defaultAction: permit
+    rules:
+    - {name: deny-telnet, priority: 100, action: deny, protocol: tcp, destinationPort: "23"}
+    - {name: deny-tftp-range, priority: 200, action: deny, protocol: udp, sourcePrefix: "10.150.0.0/24", destinationPort: "69-70"}
+    - {name: permit-icmp, priority: 300, action: permit, protocol: icmp}
+  attachments:
+  - {node: leaf01, attachment: ethernet-1/1, vlan: 150}
+  - {node: leaf02, attachment: ethernet-1/1, vlan: 150}

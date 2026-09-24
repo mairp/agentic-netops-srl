@@ -375,6 +375,7 @@ func TestDecodeTablesMatchCollectorConfig(t *testing.T) {
 		"session-state-to-int": {"session-state"},
 		"oper-state-to-int":    {"oper-state"},
 		"active-to-int":        {"active"},
+		"acl-bool-to-int":      {"programming-complete", "incomplete"},
 		"reason-to-int":        {"oper-down-reason", "not-programmed-reason"},
 		"origin-to-int":        {"route-distinguisher-origin", "export-route-target-origin", "import-route-target-origin"},
 	}
@@ -417,7 +418,8 @@ func TestDecodeTablesMatchCollectorConfig(t *testing.T) {
 	}
 	// the uint64 indexes are converted to integers or never exported
 	for _, v := range []string{`".*destination-index$"`, `".*vtep/index$"`, `".*oper-down-reason$"`, `".*not-programmed-reason$"`,
-		`".*route-distinguisher-origin$"`, `".*route-target-origin$"`} {
+		`".*route-distinguisher-origin$"`, `".*route-target-origin$"`, `".*/programming-complete$"`, `".*/statistics/incomplete$"`,
+		`".*/statistics/matched-packets$"`} {
 		if !strings.Contains(cfg[strings.Index(cfg, "state-as-int:"):], v) {
 			t.Errorf("state-as-int does not convert %s", v)
 		}
@@ -455,8 +457,28 @@ func TestServicePathsAreSubscribed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// an access list in each direction (T108)
+	deny := model.ActionDrop
+	am, err := model.BuildService(model.ServiceInput{ServiceID: "a1", Construct: model.ConstructACL,
+		AccessLists: []model.AccessList{
+			{Stage: model.StageIngress, Family: model.FamilyIPv4, DefaultAction: &deny,
+				Rules:    []model.ACLRule{{Name: "r", Priority: 10, Action: model.ActionAccept, Protocol: "icmp"}},
+				Bindings: []model.ACLBinding{{Node: "leaf01", Port: "ethernet-1/1", VLAN: 990}}},
+			{Stage: model.StageEgress, Family: model.FamilyIPv6,
+				Rules:    []model.ACLRule{{Name: "r", Priority: 10, Action: model.ActionAccept, Protocol: "icmpv6"}},
+				Bindings: []model.ACLBinding{{Node: "leaf01", Port: "ethernet-1/1", VLAN: 990}}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	aexps, err := ServiceExpectations(ServiceInput{Model: am})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(aexps["leaf01"]) < 10 {
+		t.Fatalf("access-list expectations %v", aexps["leaf01"])
+	}
 	n := 0
-	for _, es := range [][]StateExpectation{exps["leaf01"], gexps["leaf02"]} {
+	for _, es := range [][]StateExpectation{exps["leaf01"], gexps["leaf02"], aexps["leaf01"]} {
 		for _, e := range es {
 			for _, p := range []string{e.Path, e.ReasonPath} {
 				if p == "" {

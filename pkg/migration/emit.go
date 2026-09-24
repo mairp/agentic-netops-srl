@@ -29,12 +29,13 @@ type Metadata struct {
 	Annotations map[string]string `json:"annotations"`
 }
 
-// NetworkSpec: description, vlans, bridgeDomains, routers, accessLists (arrives with T110), attachments.
+// NetworkSpec: description, vlans, bridgeDomains, routers, accessLists, attachments.
 type NetworkSpec struct {
 	Description   string         `json:"description,omitempty"`
 	VLANs         []NetworkVLAN  `json:"vlans,omitempty"`
 	BridgeDomains []BridgeDomain `json:"bridgeDomains,omitempty"`
 	Routers       []Router       `json:"routers,omitempty"`
+	AccessLists   []AccessList   `json:"accessLists,omitempty"`
 	Attachments   []Attachment   `json:"attachments"`
 }
 
@@ -77,6 +78,29 @@ type Router struct {
 	RouteTargets *RouteTargets `json:"routeTargets,omitempty"`
 	L3VNI        int64         `json:"l3vni"`
 	Prefixes     []string      `json:"prefixes,omitempty"`
+}
+
+// AccessList is spec.accessLists[]: name, stage, type, defaultAction, rules (T110).
+type AccessList struct {
+	Name          string       `json:"name"`
+	Stage         string       `json:"stage"`
+	Type          string       `json:"type"`
+	DefaultAction string       `json:"defaultAction,omitempty"`
+	Rules         []ACLRuleOut `json:"rules"`
+}
+
+// ACLRuleOut is one emitted rule: name, priority, action, protocol, sourcePrefix,
+// destinationPrefix, sourcePort, destinationPort, description.
+type ACLRuleOut struct {
+	Name              string `json:"name"`
+	Priority          int64  `json:"priority"`
+	Action            string `json:"action"`
+	Protocol          string `json:"protocol,omitempty"`
+	SourcePrefix      string `json:"sourcePrefix,omitempty"`
+	DestinationPrefix string `json:"destinationPrefix,omitempty"`
+	SourcePort        string `json:"sourcePort,omitempty"`
+	DestinationPort   string `json:"destinationPort,omitempty"`
+	Description       string `json:"description,omitempty"`
 }
 
 // Attachment: node, attachment, vlan, vrf.
@@ -161,6 +185,31 @@ func (s NetworkSpec) YAML() string {
 				w.line(2, "prefixes:")
 				for _, p := range r.Prefixes {
 					w.line(2, "- "+scalar(p))
+				}
+			}
+		}
+	}
+	if len(s.AccessLists) > 0 {
+		w.line(1, "accessLists:")
+		for _, l := range s.AccessLists {
+			w.item(1, "name", l.Name)
+			w.kv(2, "stage", l.Stage)
+			w.kv(2, "type", l.Type)
+			if l.DefaultAction != "" {
+				w.kv(2, "defaultAction", l.DefaultAction)
+			}
+			w.line(2, "rules:")
+			for _, r := range l.Rules {
+				w.item(2, "name", r.Name)
+				w.num(3, "priority", r.Priority)
+				w.kv(3, "action", r.Action)
+				for _, f := range []struct{ k, v string }{
+					{"protocol", r.Protocol}, {"sourcePrefix", r.SourcePrefix}, {"destinationPrefix", r.DestinationPrefix},
+					{"sourcePort", r.SourcePort}, {"destinationPort", r.DestinationPort}, {"description", r.Description},
+				} {
+					if f.v != "" {
+						w.kv(3, f.k, f.v)
+					}
 				}
 			}
 		}
