@@ -11,7 +11,9 @@
 //     liveness GET /health (generous) vs readiness GET /v1/health; every agent the same probe split;
 //   - slim: Service and containers expose 46357 only — 46358 is nowhere; slim-config has server TLS on
 //     (cert_file/key_file, never insecure) and the gateway password as an env reference;
-//   - the tier collector has exactly one exporter, clickhouse, with no TTL, on every pipeline;
+//   - the tier collector fans one emission out to two sinks (T136): exactly the exporters clickhouse
+//     (no TTL) and otlp/fabric (OTLP/gRPC to the fabric collector, own queue and retry) — traces and
+//     metrics to both, logs to clickhouse only; its own telemetry on :8888;
 //   - the four agent images (and the ui's, ui_manifest_test.go) are `<name>:<64 hex>` with imagePullPolicy Never, overridden by the
 //     kustomization's images: block with a 64-hex newTag; third-party images are the lock's pinned refs;
 //   - TRANSPORT_SERVER_ENDPOINT is http://slim.agentic-netops-agents.svc:46357 in every agent;
@@ -866,7 +868,7 @@ func TestSlimTLSMaterial(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------- collector: one exporter, no TTL
+// ---------------------------------------------------------------- collector: two sinks, no TTL
 
 type collectorConfig struct {
 	Exporters map[string]map[string]any `json:"exporters"`
@@ -885,8 +887,17 @@ func collectorProblems(raw string) []string {
 	if err := yaml.Unmarshal([]byte(raw), &c); err != nil {
 		return []string{"collector config: " + err.Error()}
 	}
-	if len(c.Exporters) != 1 || c.Exporters["clickhouse"] == nil {
-		msgs = append(msgs, fmt.Sprintf("collector: want exactly one exporter, clickhouse; got %d", len(c.Exporters)))
+	if len(c.Exporters) != 2 || c.Exporters["clickhouse"] == nil || c.Exporters["otlp/fabric"] == nil {
+		msgs = append(msgs, fmt.Sprintf("collector: want exactly two exporters, clickhouse and otlp/fabric; got %d", len(c.Exporters)))
+	}
+	fab := c.Exporters["otlp/fabric"]
+	if fab["endpoint"] != "device-metrics.monitoring.svc:4317" {
+		msgs = append(msgs, fmt.Sprintf("collector: otlp/fabric endpoint %v, want device-metrics.monitoring.svc:4317", fab["endpoint"]))
+	}
+	for _, k := range []string{"sending_queue", "retry_on_failure"} {
+		if m, _ := fab[k].(map[string]any); m == nil || m["enabled"] != true {
+			msgs = append(msgs, "collector: otlp/fabric "+k+" must be enabled — a sink that is down never blocks the other")
+		}
 	}
 	ch := c.Exporters["clickhouse"]
 	if ttl, set := ch["ttl"]; set && fmt.Sprint(ttl) != "0" {
@@ -903,10 +914,17 @@ func collectorProblems(raw string) []string {
 	if ch["password"] != "${env:CLICKHOUSE_PASSWORD}" {
 		msgs = append(msgs, "collector: clickhouse password must be the env reference ${env:CLICKHOUSE_PASSWORD}")
 	}
-	for _, p := range []string{"traces", "metrics", "logs"} {
+	if len(c.Service.Pipelines) != 3 {
+		msgs = append(msgs, fmt.Sprintf("collector: want exactly the pipelines traces, metrics, logs; got %d", len(c.Service.Pipelines)))
+	}
+	for p, want := range map[string][]string{
+		"traces":  {"clickhouse", "otlp/fabric"},
+		"metrics": {"clickhouse", "otlp/fabric"},
+		"logs":    {"clickhouse"},
+	} {
 		pl, ok := c.Service.Pipelines[p]
-		if !ok || !slices.Equal(pl.Exporters, []string{"clickhouse"}) || !slices.Equal(pl.Receivers, []string{"otlp"}) {
-			msgs = append(msgs, "collector: pipeline "+p+" must be otlp → clickhouse")
+		if !ok || !slices.Equal(pl.Exporters, want) || !slices.Equal(pl.Receivers, []string{"otlp"}) {
+			msgs = append(msgs, fmt.Sprintf("collector: pipeline %s must be otlp → %v", p, want))
 		}
 	}
 	if !strings.Contains(raw, "0.0.0.0:4318") {
@@ -915,7 +933,7 @@ func collectorProblems(raw string) []string {
 	return msgs
 }
 
-func TestCollectorOneExporterNoTTL(t *testing.T) {
+func TestCollectorTwoSinksNoTTL(t *testing.T) {
 	o := loadTier(t)
 	cm, ok := o.configMaps["agent-otel-collector-config"]
 	if !ok {
@@ -924,20 +942,23 @@ func TestCollectorOneExporterNoTTL(t *testing.T) {
 	for _, m := range collectorProblems(cm.Data["config.yaml"]) {
 		t.Error(m)
 	}
-	if s, ok := o.services["agent-otel-collector"]; !ok || len(s.Spec.Ports) != 1 || s.Spec.Ports[0].Port != 4318 {
-		t.Error("Service agent-otel-collector: want exactly 4318")
+	if s, ok := o.services["agent-otel-collector"]; !ok || len(s.Spec.Ports) != 2 || s.Spec.Ports[0].Port != 4318 ||
+		s.Spec.Ports[1].Name != "telemetry" || s.Spec.Ports[1].Port != 8888 {
+		t.Error("Service agent-otel-collector: want exactly 4318 and telemetry 8888")
 	}
 	raw := cm.Data["config.yaml"]
 	for _, bad := range []string{
 		strings.Replace(raw, "ttl: 0", "ttl: 720h", 1),
 		strings.Replace(raw, "\nexporters:\n", "\nexporters:\n  debug: {}\n", 1),
-		strings.Replace(raw, "exporters: [clickhouse]", "exporters: [clickhouse, otlphttp/fabric]", 1),
+		strings.Replace(raw, "exporters: [clickhouse, otlp/fabric]", "exporters: [clickhouse]", 1),
+		strings.Replace(raw, "exporters: [clickhouse]", "exporters: [clickhouse, otlp/fabric]", 1),
+		strings.Replace(raw, "device-metrics.monitoring.svc:4317", "clickhouse.agentic-netops-agents.svc:4317", 1),
 	} {
 		if bad == raw {
 			t.Fatal("negative control did not mutate the config")
 		}
 		if len(collectorProblems(bad)) == 0 {
-			t.Error("negative control: a collector with a TTL or a second exporter was accepted")
+			t.Error("negative control: a collector with a TTL, a third exporter, a missing sink or logs forwarded was accepted")
 		}
 	}
 }
@@ -980,13 +1001,15 @@ func TestWorkloadNetworkPolicies(t *testing.T) {
 		target string
 		ports  []int32
 	}{
-		"agent-otel-collector-ingress": {"agent-otel-collector", []int32{4318}},
+		"agent-otel-collector-ingress": {"agent-otel-collector", []int32{4318, 8888}},
 		"clickhouse-ingress":           {"clickhouse", []int32{8123, 9000}},
 		"supervisor-ingress":           {"supervisor", []int32{9090}},
 		"ui-ingress":                   {"ui", []int32{3000}},
+		// grafana-analytics-netpol.yaml (T137): the dashboard's analytics datasource, MySQL wire
+		"clickhouse-grafana-analytics-ingress": {"clickhouse", []int32{9004}},
 	}
-	if len(o.policies) != len(want) {
-		t.Errorf("deploy/agents holds %d NetworkPolicies, want %d", len(o.policies), len(want))
+	if len(o.policies) != len(want)+1 { // + agent-otel-collector-egress-fabric, below
+		t.Errorf("deploy/agents holds %d NetworkPolicies, want %d", len(o.policies), len(want)+1)
 	}
 	for name, w := range want {
 		p, ok := o.policies[name]
@@ -1013,5 +1036,26 @@ func TestWorkloadNetworkPolicies(t *testing.T) {
 	if from := o.policies["clickhouse-ingress"].Spec.Ingress; len(from) != 1 || len(from[0].From) != 1 ||
 		from[0].From[0].PodSelector == nil || from[0].From[0].PodSelector.MatchLabels["app.kubernetes.io/name"] != "agent-otel-collector" {
 		t.Error("clickhouse-ingress: only the tier collector may reach the store")
+	}
+	// 8888 (the collector's own telemetry) from the monitoring namespace's Prometheus only
+	if in := o.policies["agent-otel-collector-ingress"].Spec.Ingress; len(in) != 2 || len(in[1].From) != 1 ||
+		in[1].From[0].NamespaceSelector == nil || in[1].From[0].PodSelector == nil ||
+		in[1].From[0].NamespaceSelector.MatchLabels["kubernetes.io/metadata.name"] != "monitoring" ||
+		in[1].From[0].PodSelector.MatchLabels["app.kubernetes.io/name"] != "prometheus" {
+		t.Error("agent-otel-collector-ingress: 8888 is admitted from monitoring/prometheus only")
+	}
+	// the one egress allowance: the tier collector → the fabric collector's pods, 4317/TCP (T136)
+	eg, ok := o.policies["agent-otel-collector-egress-fabric"]
+	if !ok {
+		t.Fatal("NetworkPolicy agent-otel-collector-egress-fabric missing")
+	}
+	if eg.Spec.PodSelector.MatchLabels["app.kubernetes.io/name"] != "agent-otel-collector" ||
+		!slices.Equal(eg.Spec.PolicyTypes, []networkingv1.PolicyType{networkingv1.PolicyTypeEgress}) || len(eg.Spec.Ingress) > 0 ||
+		len(eg.Spec.Egress) != 1 || len(eg.Spec.Egress[0].To) != 1 || len(eg.Spec.Egress[0].Ports) != 1 ||
+		eg.Spec.Egress[0].Ports[0].Port.IntVal != 4317 ||
+		eg.Spec.Egress[0].To[0].NamespaceSelector == nil || eg.Spec.Egress[0].To[0].PodSelector == nil ||
+		eg.Spec.Egress[0].To[0].NamespaceSelector.MatchLabels["kubernetes.io/metadata.name"] != "monitoring" ||
+		eg.Spec.Egress[0].To[0].PodSelector.MatchLabels["app.kubernetes.io/name"] != "device-metrics-otel" {
+		t.Errorf("agent-otel-collector-egress-fabric: want egress only, tier collector → monitoring/device-metrics-otel 4317/TCP; got %+v", eg.Spec)
 	}
 }

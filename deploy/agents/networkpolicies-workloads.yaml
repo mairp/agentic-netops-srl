@@ -2,11 +2,19 @@
 # The ingress allowances the intent tier's workloads need beyond the four US6 policies
 # (deploy/rbac/networkpolicies.yaml — deny-all-by-default, allow-egress-scoped, slim-ingress,
 # apiserver-egress-cluster-clients), which are not modified (T087; FR-075). Each admits one port to
-# one workload from the narrowest peer set that uses it; egress is untouched (allow-egress-scoped
-# already admits pod-to-pod traffic inside agentic-netops-agents and nothing toward the management
-# CIDR). NetworkPolicies are additive allowances, so none of these can widen a denial of US6.
+# one workload from the narrowest peer set that uses it; egress is untouched but for the tier
+# collector's forward (allow-egress-scoped already admits pod-to-pod traffic inside
+# agentic-netops-agents and nothing toward the management CIDR). NetworkPolicies are additive
+# allowances, so none of these can widen a denial of US6.
 #
-#   agent-otel-collector-ingress  4318/TCP (OTLP/HTTP) from tier-labelled pods — every agent emits once
+#   agent-otel-collector-ingress  4318/TCP (OTLP/HTTP) from tier-labelled pods — every agent emits once;
+#                                 8888/TCP (the collector's own telemetry) from the monitoring
+#                                 namespace's Prometheus only (job agent-otel-collector, T136)
+#   agent-otel-collector-egress-fabric
+#                                 the one egress allowance: 4317/TCP (OTLP/gRPC) from the tier collector
+#                                 to the fabric collector's pods in monitoring — the otlp/fabric forward
+#                                 (T136). allow-egress-scoped excludes the pod and service CIDRs, so
+#                                 without it the forward has no path; DNS stays allow-egress-scoped's
 #   clickhouse-ingress            8123/TCP and 9000/TCP from the tier collector only; the audit
 #                                 export reads the store through `kubectl exec`, never the network
 #   supervisor-ingress            9090/TCP from anywhere: the operator reaches the supervisor through
@@ -37,6 +45,40 @@ spec:
     ports:
     - protocol: TCP
       port: 4318
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: monitoring
+      podSelector:
+        matchLabels:
+          app.kubernetes.io/name: prometheus
+    ports:
+    - protocol: TCP
+      port: 8888
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: agent-otel-collector-egress-fabric
+  namespace: agentic-netops-agents
+  labels:
+    app.kubernetes.io/part-of: agentic-netops-intent-tier
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: agent-otel-collector
+  policyTypes: [Egress]
+  egress:
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: monitoring
+      podSelector:
+        matchLabels:
+          app.kubernetes.io/name: device-metrics-otel
+    ports:
+    - protocol: TCP
+      port: 4317
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy

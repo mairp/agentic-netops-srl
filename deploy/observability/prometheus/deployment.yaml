@@ -41,6 +41,7 @@ spec:
         - --storage.tsdb.path=/prometheus
         - --storage.tsdb.retention.time=2d
         - --web.enable-lifecycle
+        - --enable-feature=exemplar-storage   # the tier-spans job's trace-id exemplars (T136)
         - --web.listen-address=:9090
         ports:
         - {name: web, containerPort: 9090}

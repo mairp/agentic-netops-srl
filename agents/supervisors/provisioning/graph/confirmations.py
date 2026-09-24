@@ -164,6 +164,8 @@ async def decide(state: ServiceRequestState, runtime: Runtime[SupervisorContext]
     network = network_of(state)
     construct = construct_of(state)
     updates: dict[str, Any] = {which: record, "awaiting": None, "turn_consumed": True}
+    # T135: agentic_netops_agent_confirmations_total{confirmation=first|second,decision}.
+    metrics.record_confirmation(which, "confirmed" if decided == "confirm" else "declined")
     if decided == "confirm":
         emit_audit(runtime, state, "confirm", stage=stage, resources=[network_ref(network)],
                    reason=f"{which} of the {construct or UNREPORTED_CONSTRUCT} "

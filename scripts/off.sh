@@ -304,6 +304,7 @@ off::purge_intent_tier() {
     return 1
   fi
   log::phase TierPurgeRemove
+  intent_tier::grafana_unpatch || return 1
   intent_tier::remove_workloads || return 1
   off::capture_operator_username || return 1
   intent_secrets::remove || { log::error "tier purge: removing the tier's generated Secrets failed"; return 1; }

@@ -14,6 +14,11 @@ says is outstanding. It never retries the delete.
 Every progress event carries ``ready`` as the ``Ready`` condition's status string, unaltered, and
 its ``reason`` beside it; an event is recorded whenever the pair changes. Nothing is emitted before
 a ``Ready`` condition has been read — a ``None`` is never put on a chunk.
+
+Each watch is one ``convergence`` span in the request's trace (T135, :mod:`common.tracing`):
+the ``Network``, its namespace, the outcome, the last ``Ready`` status and reason read, and the
+watch's duration; a terminal failure, a deletion under a creation watch and a timeout mark the span
+failed.
 """
 
 from __future__ import annotations
@@ -22,6 +27,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Literal
 
+from common import tracing
 from common.schemas.audit import ResourceRef
 from common.schemas.stream import ProgressEvent
 from provisioning.deployer.conditions import REASON_DELETING, Live, network_ref
@@ -45,8 +51,43 @@ def _event(status: str, name: str, live: Live) -> ProgressEvent:
                          ready=live.ready, reason=live.reason)
 
 
+# The watch outcomes that fail the convergence span.
+_FAILED_OUTCOMES = frozenset({"terminal", "deleted", "timeout"})
+
+
+async def _traced(kube: KubeClient, names: list[str], kind: str, run: Awaitable[WatchResult]
+                  ) -> WatchResult:
+    namespace = getattr(kube, "namespace", None)
+    with tracing.convergence_span(", ".join(names), namespace if isinstance(namespace, str)
+                                  else None,
+                                  attributes={"agentic_netops.watch": kind}) as span:
+        result = await run
+        live = result.live
+        last = result.progress[-1] if result.progress else None
+        ready = live.ready if live is not None else (last.ready if last else None)
+        reason = live.reason if live is not None else (last.reason if last else None)
+        tracing.record_convergence(span, outcome=result.outcome, ready=ready, reason=reason,
+                                   message=result.message,
+                                   failed=result.outcome in _FAILED_OUTCOMES)
+        return result
+
+
 async def watch_creation(kube: KubeClient, names: list[str], *, bound: float, poll: float,
                          clock: Clock, sleep: Sleep) -> WatchResult:
+    return await _traced(kube, names, "creation",
+                         _watch_creation(kube, names, bound=bound, poll=poll, clock=clock,
+                                         sleep=sleep))
+
+
+async def watch_removal(kube: KubeClient, name: str, *, bound: float, poll: float,
+                        clock: Clock, sleep: Sleep) -> WatchResult:
+    return await _traced(kube, [name], "removal",
+                         _watch_removal(kube, name, bound=bound, poll=poll, clock=clock,
+                                        sleep=sleep))
+
+
+async def _watch_creation(kube: KubeClient, names: list[str], *, bound: float, poll: float,
+                          clock: Clock, sleep: Sleep) -> WatchResult:
     deadline = clock() + bound
     seen: dict[str, tuple[str | None, str | None]] = {}
     result = WatchResult("timeout")
@@ -112,8 +153,8 @@ async def watch_creation(kube: KubeClient, names: list[str], *, bound: float, po
         await sleep(min(poll, max(deadline - now, 0.0)))
 
 
-async def watch_removal(kube: KubeClient, name: str, *, bound: float, poll: float,
-                        clock: Clock, sleep: Sleep) -> WatchResult:
+async def _watch_removal(kube: KubeClient, name: str, *, bound: float, poll: float,
+                         clock: Clock, sleep: Sleep) -> WatchResult:
     deadline = clock() + bound
     seen: tuple[str | None, str | None] | None = None
     result = WatchResult("in_progress")

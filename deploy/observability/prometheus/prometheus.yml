@@ -2,7 +2,7 @@
 # data-model.md §21). Rendered into ConfigMap prometheus-config by this directory's kustomization;
 # a change is loaded by `POST /-/reload` (--web.enable-lifecycle).
 #
-# The six jobs (their `job` label is what the rules and the dashboards select on):
+# The eight jobs (their `job` label is what the rules and the dashboards select on):
 #   devices         the device metric collector's Prometheus exporter (devices-via-collector, 5 s)
 #   otel-collector  the collector's own telemetry (receiver, exporter, filter, queue series)
 #   gnmic-self      gNMIc's own /metrics (target up, subscribe counters, otlp output counters)
@@ -10,6 +10,16 @@
 #   sdc             the device-configuration layer's controller metrics (https, the ServiceAccount's
 #                   token; authorized by ClusterRole prometheus, nonResourceURLs /metrics get)
 #   prometheus      this server
+#   tier-spans      the collector's prometheus/spans exporter (:8890): the intent tier's span RED
+#                   series (agentic_netops_agent_spans_*), OpenMetrics so their trace-id exemplars
+#                   are ingested (--enable-feature=exemplar-storage, deployment.yaml) (T136)
+#   agent-otel-collector
+#                   the intent tier collector's own telemetry (:8888), discovered through the DNS A
+#                   record of its Service: while the tier is absent the name does not resolve and the
+#                   job has ZERO targets — never a target that is down (T136)
+#
+# No alert rule selects either tier job (rules/pipeline.yaml's up == 0 names its three jobs), so a
+# tier that is absent, installed or removed raises nothing about the fabric's pipeline.
 #
 # The join (R-10, data-model.md §21): at the scrape of `devices` the interface name is normalized,
 # ethernet-<slot>/<port> → e<slot>-<port> (topologyview.NormalizeInterface), so a device series and
@@ -64,3 +74,13 @@ scrape_configs:
   - job_name: prometheus
     static_configs:
       - targets: [localhost:9090]
+  - job_name: tier-spans
+    scrape_protocols: [OpenMetricsText1.0.0, OpenMetricsText0.0.1, PrometheusText0.0.4]
+    static_configs:
+      - targets: [device-metrics.monitoring.svc:8890]
+  - job_name: agent-otel-collector
+    dns_sd_configs:
+      - names: [agent-otel-collector.agentic-netops-agents.svc]
+        type: A
+        port: 8888
+        refresh_interval: 30s

@@ -13,6 +13,10 @@ The interface is fixed by ``tests/unit/test_llm_endpoint.py`` (T168):
   raises :class:`EndpointError` naming the missing ``BASE_URL`` as its own dependency; an absent
   endpoint is never passed through to the library's default.
 
+Every call is a ``model.call`` span in the request's trace (T135, NFR-009): provider, model, the
+prompt and the response — redacted — and the token usage (and cost, when LiteLLM reports one),
+beside the ``agentic_netops_agent_model_*`` series.
+
 The provider is chosen by the model-name prefix (``openai/gpt-4o`` → ``openai``), which is also
 how LiteLLM routes. The default transport is LiteLLM with ``api_base`` passed explicitly.
 """
@@ -25,6 +29,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from common import metrics, tracing
 from common.exceptions import EndpointError
 from common.guards.redaction import redact
 
@@ -130,13 +135,81 @@ class LLMClient:
         return endpoint
 
     def complete(self, messages: list[dict[str, Any]]) -> Any:
-        endpoint = self.endpoint()  # re-read on every call — never cached (FR-106)
+        try:
+            endpoint = self.endpoint()  # re-read on every call — never cached (FR-106)
+        except EndpointError as exc:
+            # No model call is made; the refusal is still on the trace, naming the dependency.
+            with tracing.model_call_span(provider=None, model=None, messages=messages) as span:
+                tracing.set_attributes(span, {tracing.ATTR_OUTCOME: "failed"})
+                tracing.mark_failure(span, None, str(exc))
+            raise
         self.calls += 1
         # one line per model call: the e2e suites (T089) count these (a refused request makes none)
         log.info("model call %d: %s", self.calls, endpoint.describe())
-        return self._transport(base_url=endpoint.base_url, model=endpoint.model,
-                               api_key=endpoint.api_key, messages=messages)
+        with tracing.model_call_span(provider=endpoint.provider, model=endpoint.model,
+                                     messages=messages) as span:
+            try:
+                response = self._transport(base_url=endpoint.base_url, model=endpoint.model,
+                                           api_key=endpoint.api_key, messages=messages)
+            except Exception as exc:
+                tracing.set_attributes(span, {tracing.ATTR_OUTCOME: "failed"})
+                tracing.mark_failure(span, None, f"{type(exc).__name__}: {exc}")
+                metrics.record_model_call(endpoint.model, "failed")
+                raise
+            usage = response_usage(response)
+            tracing.record_model_response(span, completion=response_text(response),
+                                          model=usage.get("model"),
+                                          input_tokens=usage.get("input_tokens"),
+                                          output_tokens=usage.get("output_tokens"),
+                                          cost=usage.get("cost"))
+            metrics.record_model_call(endpoint.model, "succeeded",
+                                      input_tokens=usage.get("input_tokens"),
+                                      output_tokens=usage.get("output_tokens"),
+                                      cost=usage.get("cost"))
+        return response
+
+
+def _get(obj: Any, key: str) -> Any:
+    if isinstance(obj, dict):
+        return obj.get(key)
+    return getattr(obj, key, None)
+
+
+def response_text(response: Any) -> str:
+    """The assistant text of a response (a LiteLLM ``ModelResponse``, its dict form or a string);
+    the whole response rendered when it has no such text."""
+    if isinstance(response, str):
+        return response
+    try:
+        return str(_get(_get(_get(response, "choices")[0], "message"), "content") or "")
+    except (TypeError, KeyError, IndexError, AttributeError):
+        return str(response)
+
+
+def response_usage(response: Any) -> dict[str, Any]:
+    """``{input_tokens, output_tokens, cost, model}`` as the response reports them (None when
+    not reported). The cost is LiteLLM's ``response_cost`` hidden parameter."""
+    usage = _get(response, "usage") if not isinstance(response, str) else None
+    out: dict[str, Any] = {"input_tokens": None, "output_tokens": None, "cost": None,
+                           "model": None}
+    if usage is not None:
+        for key, names in (("input_tokens", ("prompt_tokens", "input_tokens")),
+                           ("output_tokens", ("completion_tokens", "output_tokens"))):
+            for name in names:
+                value = _get(usage, name)
+                if isinstance(value, int) and not isinstance(value, bool):
+                    out[key] = value
+                    break
+    hidden = getattr(response, "_hidden_params", None)
+    cost = hidden.get("response_cost") if isinstance(hidden, dict) else None
+    if cost is None and isinstance(response, dict):
+        cost = response.get("response_cost")
+    if isinstance(cost, int | float) and not isinstance(cost, bool):
+        out["cost"] = float(cost)
+    model = _get(response, "model") if not isinstance(response, str) else None
+    out["model"] = model if isinstance(model, str) else None
+    return out
 
 
 __all__ = ["Endpoint", "EndpointError", "LLMClient", "litellm_transport", "load_endpoint",
-           "provider_for"]
+           "provider_for", "response_text", "response_usage"]

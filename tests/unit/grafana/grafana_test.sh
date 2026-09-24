@@ -5,7 +5,7 @@
 #
 # Proves, one behaviour per check:
 #   - every dashboard parses, carries a provenance object, names only the datasource uid
-#     `prometheus`, holds no http(s) URL at all (nothing resolves from a third-party repository),
+#     `prometheus` (the intent tier's also agent-analytics, the analytics store — T137), holds no http(s) URL at all (nothing resolves from a third-party repository),
 #     and names every series through a placeholder series.json defines;
 #   - the flow panel (andrewbmchugh-flow-panel) appears only in the physical-topology dashboard, at
 #     the plugin version the lock records, with its SVG and panel configuration as the two inline
@@ -22,6 +22,8 @@
 #     substituted verbatim (quotes, backslashes, newlines survive JSON escaping) and no placeholder
 #     is left; it refuses a missing topology file, an unknown series name and a package whose
 #     digest is not the lock's;
+#   - the intent tier's dashboard (intent-tier.json, T137) is never in the fabric set: `grafana_assets.sh
+#     agents` renders it alone into ConfigMap grafana-dashboards-agents, tier-labelled;
 #   - every dashboard expression parses as PromQL (promtool of the pinned Prometheus image, when the
 #     image is present locally — otherwise reported SKIP);
 #   - GRAFANA_IMAGE_TEST=1: the pinned Grafana image, network none and read-only, runs the init
@@ -70,6 +72,11 @@ if bash "$LIB" render "$scratch/gen" >"$scratch/render.yaml" 2>"$scratch/render.
 else
   fail "grafana_assets.sh render" "$(cat "$scratch/render.err")"; echo "$fails failure(s)"; exit 1
 fi
+if bash "$LIB" agents >"$scratch/agents.yaml" 2>"$scratch/agents.err"; then
+  pass "grafana_assets.sh agents exits 0"
+else
+  fail "grafana_assets.sh agents" "$(cat "$scratch/agents.err")"; echo "$fails failure(s)"; exit 1
+fi
 
 # ---------------------------------------------------------------------- templates, manifests, lock
 report python3 - "$ROOT" "$scratch" <<'PY'
@@ -86,9 +93,12 @@ bad = [k for k, v in series.items() if not isinstance(v.get("metric"), str) or n
        or not isinstance(v.get("verified"), bool)]
 ok(not bad, "series.json: every entry has a metric and a verified flag", bad)
 
-want = {"fabric", "orchestration", "evpn-service-path", "physical-topology", "collector-health"}
+want = {"fabric", "orchestration", "evpn-service-path", "physical-topology", "collector-health", "intent-tier"}
 files = {os.path.basename(p)[:-5]: p for p in glob.glob(os.path.join(g, "dashboards", "*.json"))}
-ok(set(files) == want, "the five dashboards of T132 exist, and no other", sorted(files))
+ok(set(files) == want, "the five dashboards of T132 and the intent tier's (T137) exist, and no other", sorted(files))
+# the intent tier's dashboard alone also reads the analytics store (T137): Grafana's built-in MySQL
+# datasource on ClickHouse's MySQL wire port
+ANALYTICS = {"type": "mysql", "uid": "agent-analytics"}
 
 URL = re.compile(r"https?://", re.I)
 SER = re.compile(r"@@series:([A-Za-z0-9_]+)@@")
@@ -114,8 +124,9 @@ for name, p in sorted(files.items()):
             for v in o:
                 walk(v)
     walk(d)
-    badds = [x for x in dss if not (isinstance(x, dict) and x.get("uid") == "prometheus" and x.get("type") == "prometheus")]
-    ok(dss and not badds, f"{name}: every datasource is uid prometheus ({len(dss)} references)", badds[:3])
+    badds = [x for x in dss if not (isinstance(x, dict) and x.get("uid") == "prometheus" and x.get("type") == "prometheus")
+             and not (name == "intent-tier" and x == ANALYTICS)]
+    ok(dss and not badds, f"{name}: every datasource is uid prometheus{' or agent-analytics' if name == 'intent-tier' else ''} ({len(dss)} references)", badds[:3])
     ok(not URL.search(txt) and "githubusercontent" not in txt, f"{name}: no http(s) URL, nothing third-party",
        URL.findall(txt)[:3])
     unknown = sorted({m for m in SER.findall(txt) if m not in series})
@@ -266,6 +277,24 @@ for n in dash_cms:
         ok(f["targets"][0]["expr"] == "srl_nokia_interfaces:interface_oper_state", "series placeholder resolved from series.json",
            f["targets"][0]["expr"])
 ok(not left, "no placeholder left in any rendered dashboard", left)
+ok("grafana-dashboard-intent-tier" not in by and not any("intent-tier.json" in (d.get("data") or {}) for d in docs),
+   "the intent tier's dashboard is not in the fabric render")
+ag = [d for d in yaml.safe_load_all(open(os.path.join(scratch, "agents.yaml"))) if d]
+ok(len(ag) == 1 and ag[0]["kind"] == "ConfigMap" and ag[0]["metadata"]["name"] == "grafana-dashboards-agents"
+   and ag[0]["metadata"]["namespace"] == "monitoring" and list(ag[0]["data"]) == ["intent-tier.json"],
+   "agents render: exactly ConfigMap monitoring/grafana-dashboards-agents with key intent-tier.json",
+   [(d["kind"], d["metadata"]["name"], list(d.get("data") or {})) for d in ag])
+if ag:
+    lb = ag[0]["metadata"].get("labels") or {}
+    ok(lb.get("app.kubernetes.io/part-of") == "agentic-netops-intent-tier" and lb.get("agentic-netops.io/owned-by"),
+       "agents render: labelled part-of agentic-netops-intent-tier and ownership-labelled", lb)
+    txt = ag[0]["data"].get("intent-tier.json", "")
+    ok(len(txt.encode()) < 1024 * 1024 and "@@" not in txt and json.loads(txt).get("uid") == "intent-tier",
+       "agents render: under 1 MiB, no placeholder left, uid intent-tier")
+vols = {v["name"]: v for v in spec["volumes"]}
+ds_src = (vols.get("datasources") or {}).get("projected", {}).get("sources")
+ok(ds_src == [{"configMap": {"name": "grafana-datasources"}}],
+   "Deployment datasources volume is projected with the one source grafana-datasources (the tier's patch appends to it)", ds_src)
 PY
 
 # ------------------------------------------------------------------------------------ refusals
@@ -295,7 +324,7 @@ fi
 # ------------------------------------------------------------------------ PromQL parse (promtool)
 prom="$(yq -r '.observability.prometheus.pinned' "$LOCK")"
 if command -v docker >/dev/null 2>&1 && docker image inspect "$prom" >/dev/null 2>&1; then
-  python3 - "$scratch/render.yaml" >"$scratch/rules.yaml" <<'PY'
+  python3 - "$scratch/render.yaml" "$scratch/agents.yaml" >"$scratch/rules.yaml" <<'PY'
 import json, sys, yaml
 M = {"$__rate_interval": "1m", "$__range_s": "3600", "$__range": "1h", "$service_id": "svc",
      "$service": "macvrf-svc", "$vni": "10", "$node": ".*"}
@@ -306,8 +335,8 @@ def ex(o):
         for v in o.values(): yield from ex(v)
     elif isinstance(o, list):
         for v in o: yield from ex(v)
-for d in yaml.safe_load_all(open(sys.argv[1])):
-    if d and d["metadata"]["name"].startswith("grafana-dashboard-"):
+for d in [d for f in sys.argv[1:3] for d in yaml.safe_load_all(open(f))]:
+    if d and d["metadata"]["name"].startswith("grafana-dashboard"):
         for k, v in d["data"].items():
             for i, e in enumerate(ex(json.loads(v))):
                 for a in sorted(M, key=len, reverse=True): e = e.replace(a, M[a])

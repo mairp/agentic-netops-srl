@@ -19,7 +19,9 @@
 # Provisioning: datasource Prometheus (uid prometheus) and the file dashboard provider
 # (provisioning.yaml); the dashboards are the ConfigMaps grafana-dashboard-<name> that
 # grafana_assets.sh renders from dashboards/*.json (series names from series.json, the topology
-# view's SVG and panel YAML from the generated topology assets of T131).
+# view's SVG and panel YAML from the generated topology assets of T131). The intent tier's dashboard
+# and its analytics datasource are NOT here: `--with-intent-tier` adds them with a two-line patch of
+# the projected dashboards and datasources volumes and `--purge-intent-tier` reverts it (R-19, T137).
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -121,7 +123,13 @@ spec:
       volumes:
       - {name: data, emptyDir: {}}
       - {name: tmp, emptyDir: {}}
-      - {name: datasources, configMap: {name: grafana-datasources}}
+      # projected (one source): the intent tier's reversible two-line patch (R-19, T137) appends
+      # `- secret: {name: grafana-agents-datasource}` here and `- configMap: {name: grafana-dashboards-agents}`
+      # to dashboards below — scripts/lib/intent_tier.sh intent_tier::grafana_patch / grafana_unpatch
+      - name: datasources
+        projected:
+          sources:
+          - configMap: {name: grafana-datasources}
       - {name: dashboard-providers, configMap: {name: grafana-dashboard-providers}}
       - name: dashboards
         projected:

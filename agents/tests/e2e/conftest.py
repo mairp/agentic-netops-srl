@@ -222,3 +222,23 @@ def auth_refusals_total() -> float | None:
         return float(out)
     except ValueError:
         return None
+
+
+@pytest.fixture(scope="session")
+def traced_service() -> Iterator[Any]:
+    """US12 (T138): one tier-created service, driven through both confirmations and converged —
+    the request whose one trace the trace and link suites read — removed through the tier at the
+    end of the session."""
+    from tierflow import provision, remove, wait_gone
+
+    svc = provision(TRACED_PROMPT)
+    try:
+        yield svc
+    finally:
+        if svc.network:
+            remove(svc.network)
+            wait_gone(svc.network)
+
+
+# VLAN 120 on leaf02 ethernet-1/1: naming band, a port no lab example holds that VLAN on
+TRACED_PROMPT = "Create a vlan for tenant acme on leaf02 ethernet-1/1 with VLAN 120"

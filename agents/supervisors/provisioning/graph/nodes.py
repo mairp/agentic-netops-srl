@@ -33,6 +33,11 @@ tier issued (:mod:`.registry`). The supervisor audits only confirm, decline and 
 Bounds (data-model.md §25): at most ``SUPERVISOR_MAX_ITERATIONS`` worker dispatches per request
 turn and ``SUPERVISOR_REQUEST_DEADLINE_SECONDS`` of request time, operator confirmation time
 excluded. Either ends the turn with an explicit final ``FAILED`` chunk naming the bound.
+
+Observability (T135): each stage node runs inside its ``stage.<stage>`` span (:mod:`.graph`); a
+failing node states *why* on that span (:func:`_trace_failure`) — the reason, and the payload that
+failed when there is one — and an unsafe request refused by the guards counts on
+``agentic_netops_agent_refused_unsafe_total{class}``.
 """
 
 from __future__ import annotations
@@ -46,7 +51,7 @@ from typing import Any
 from langgraph.graph import END
 from langgraph.runtime import Runtime
 
-from common import metrics
+from common import metrics, tracing
 from common.exceptions import (
     EndpointError,
     SubmissionRefusedError,
@@ -243,10 +248,22 @@ async def intake(state: ServiceRequestState, runtime: Runtime[SupervisorContext]
     return updates
 
 
+def _trace_failure(stage: str, reason: str, payload: Any = None, errors: Any = None) -> None:
+    """Mark the running stage span failed at ``stage``: the reason and, when a payload failed,
+    that payload (redacted by :func:`common.tracing.mark_failure`)."""
+    current = tracing.current_stage()
+    if current is not None:
+        current.fail(reason, stage=stage, payload=payload, errors=errors)
+
+
 def _refuse(runtime: Runtime[SupervisorContext], state: ServiceRequestState, message: str,
-            reason: str, request_class: str) -> dict:
+            reason: str, request_class: str, refusal_class: str | None = None) -> dict:
     emit_audit(runtime, state, "refuse", stage="supervisor", reason=reason)
     metrics.record_stage("supervisor", "refused")
+    if refusal_class is not None:
+        metrics.record_refused_unsafe(str(refusal_class))
+    _trace_failure("supervisor", reason, payload={"request": state.get("turn_text"),
+                                                  "refusal_class": refusal_class})
     emit(runtime, state, "final", status=S.FAILED.value, message=message)
     updates: dict[str, Any] = {"next": "refused", "turn_done": True, "turn_consumed": True,
                                "turn_class": request_class}
@@ -285,7 +302,7 @@ async def guard(state: ServiceRequestState, runtime: Runtime[SupervisorContext])
             refusal = verdict.refusal
             message = refusal.message if refusal else "Refused."
             return _refuse(runtime, state, message, f"{verdict.refusal_class}: {message}",
-                           request_class.value)
+                           request_class.value, verdict.refusal_class)
         request_class = RequestClass.INFORMATIONAL
     updates: dict[str, Any] = {"turn_class": request_class.value, "next": "supervisor"}
     if in_flight:
@@ -360,6 +377,7 @@ async def inform(state: ServiceRequestState, runtime: Runtime[SupervisorContext]
             answer = redact(_content(await asyncio.to_thread(llm.complete, messages)))
         except EndpointError as exc:
             metrics.record_stage("supervisor", "failed")
+            _trace_failure("supervisor", f"model endpoint unavailable: {exc}")
             emit(runtime, state, "error", stage="supervisor", status=S.FAILED.value,
                  reason=f"model endpoint unavailable: {exc}", retryable=True)
             return {"turn_done": True}
@@ -386,6 +404,7 @@ async def bounded_exit(state: ServiceRequestState, runtime: Runtime[SupervisorCo
                     "record — ask for its status")
     log_for(state, logging.WARNING, "%s", message)
     metrics.record_stage("supervisor", "failed")
+    _trace_failure("supervisor", message)
     emit(runtime, state, "final", status=S.FAILED.value, message=message)
     return {"workflow_status": S.FAILED.value, "pending": None, "awaiting": None,
             "turn_done": True, "active_seconds": _active(runtime, state)}
@@ -406,6 +425,7 @@ def _deadline_passed(runtime: Runtime[SupervisorContext], state: ServiceRequestS
 def _unreachable(runtime: Runtime[SupervisorContext], state: ServiceRequestState, stage: str,
                  exc: WorkerUnreachableError) -> dict:
     metrics.record_stage(stage, "unreachable")
+    _trace_failure(stage, f"{exc} ({exc.cause})" if exc.cause else str(exc))
     log_for(state, logging.WARNING, "%s (%s)", exc, exc.cause)
     emit(runtime, state, "error", stage=stage, status=S.FAILED.value, reason=str(exc),
          retryable=True)
@@ -415,8 +435,9 @@ def _unreachable(runtime: Runtime[SupervisorContext], state: ServiceRequestState
 
 def _failed(runtime: Runtime[SupervisorContext], state: ServiceRequestState, stage: str,
             reason: str, outcome: str = "failed", out_of_band: str | None = None,
-            message: str | None = None) -> dict:
+            message: str | None = None, payload: Any = None, errors: Any = None) -> dict:
     metrics.record_stage(stage, outcome)
+    _trace_failure(stage, reason, payload, errors)
     log_for(state, logging.WARNING, "%s", reason)
     emit(runtime, state, "error", stage=stage, status=S.FAILED.value, reason=reason,
          retryable=False, out_of_band=out_of_band)
@@ -437,13 +458,15 @@ async def mapper(state: ServiceRequestState, runtime: Runtime[SupervisorContext]
     except WorkerUnreachableError as exc:
         return _unreachable(runtime, state, "mapper", exc)
     except WorkerFailedError as exc:
-        return _failed(runtime, state, "mapper", str(exc))
+        return _failed(runtime, state, "mapper", str(exc), payload=getattr(exc, "payload", None),
+                       errors=getattr(exc, "errors", None))
     if _past_deadline(runtime, state):
         return _deadline_passed(runtime, state, "mapper")
     interpretation: Interpretation = result.data
     conflict = interpretation.terminal_conflict()
     if conflict:
-        return _failed(runtime, state, "mapper", f"worker failed: mapper — {conflict}")
+        return _failed(runtime, state, "mapper", f"worker failed: mapper — {conflict}",
+                       payload=interpretation.to_wire(), errors=[conflict])
     active = _active(runtime, state)
     if interpretation.unsupported_properties:
         # Complete, self-explanatory causes: emitted verbatim; nothing is claimed (the
@@ -451,7 +474,8 @@ async def mapper(state: ServiceRequestState, runtime: Runtime[SupervisorContext]
         causes = list(interpretation.unsupported_properties)
         emit_audit(runtime, state, "refuse", stage="mapper", reason="; ".join(causes))
         return {**_failed(runtime, state, "mapper", "; ".join(causes), outcome="refused",
-                          message=render("refused", causes="\n".join(causes))),
+                          message=render("refused", causes="\n".join(causes)),
+                          payload=interpretation.to_wire(), errors=causes),
                 "interpretation": interpretation.to_wire()}
     if interpretation.missing_fields:
         metrics.record_stage("mapper", "clarification")
@@ -486,14 +510,16 @@ async def _allocate(state: ServiceRequestState, runtime: Runtime[SupervisorConte
     except WorkerUnreachableError as exc:
         return _unreachable(runtime, state, "allocator", exc)
     except WorkerFailedError as exc:
-        return _failed(runtime, state, "allocator", str(exc))
+        return _failed(runtime, state, "allocator", str(exc),
+                       payload=getattr(exc, "payload", None), errors=getattr(exc, "errors", None))
     if _past_deadline(runtime, state):
         return _deadline_passed(runtime, state, "allocator")
     assignment: NormalizedServiceIntent = result.data
     if assignment.type != interpretation.get("service_type"):
         return _failed(runtime, state, "allocator",
                        f"worker failed: allocator — construct {assignment.type} does not match "
-                       f"the confirmed interpretation's {interpretation.get('service_type')}")
+                       f"the confirmed interpretation's {interpretation.get('service_type')}",
+                       payload=assignment.to_wire())
     wire = assignment.to_wire()
     metrics.record_stage("allocator", "succeeded")
     emit(runtime, state, "stage", stage="allocator", status=S.ALLOCATED.value, payload=wire)
@@ -553,6 +579,7 @@ async def lookup(state: ServiceRequestState, runtime: Runtime[SupervisorContext]
     except WorkerFailedError as exc:
         if status_query:
             metrics.record_stage("supervisor", "failed")
+            _trace_failure("deployer", str(exc))
             emit(runtime, state, "error", stage="deployer", status=S.FAILED.value,
                  reason=str(exc), retryable=False)
             return {"pending": None, "turn_done": True}
@@ -656,6 +683,7 @@ async def deployer(state: ServiceRequestState, runtime: Runtime[SupervisorContex
             # The submission may have landed: its outcome cannot be observed (FR-054).
             metrics.record_stage("deployer", "status_unknown")
             message = _unknown_message(ctx, state)
+            _trace_failure("deployer", message)
             log_for(state, logging.ERROR, "%s", message)
             emit(runtime, state, "final", status=S.STATUS_UNKNOWN.value, message=message)
             return {**base, "workflow_status": S.STATUS_UNKNOWN.value, "pending": None,
@@ -668,7 +696,9 @@ async def deployer(state: ServiceRequestState, runtime: Runtime[SupervisorContex
     except WorkerFailedError as exc:
         if removal and first_call and ctx.registry is not None:
             await ctx.registry.forget_removal(network)
-        return {**base, **_failed(runtime, state, "deployer", str(exc))}
+        return {**base, **_failed(runtime, state, "deployer", str(exc),
+                                  payload=getattr(exc, "payload", None) or payload,
+                                  errors=getattr(exc, "errors", None))}
     report: DeploymentReport = result.data
     if report.retryable and report.status == S.FAILED and not report.submitted:
         # A dependency of the deployer (the cluster API, its admission webhook, the translator
@@ -679,6 +709,7 @@ async def deployer(state: ServiceRequestState, runtime: Runtime[SupervisorContex
         base.pop("created", None)
         metrics.record_stage("deployer", "unreachable")
         reason = report.message or f"deployer dependency unavailable: {report.dependency}"
+        _trace_failure("deployer", reason)
         log_for(state, logging.WARNING, "%s", reason)
         emit(runtime, state, "error", stage="deployer", status=S.FAILED.value, reason=reason,
              retryable=True)
@@ -715,6 +746,7 @@ async def deployer(state: ServiceRequestState, runtime: Runtime[SupervisorContex
                 "converged": False, "turn_done": True}
     if status == S.STATUS_UNKNOWN:
         metrics.record_stage("deployer", "status_unknown")
+        _trace_failure("deployer", report.message or _unknown_message(ctx, state))
         emit(runtime, state, "final", status=S.STATUS_UNKNOWN.value,
              message=report.message or _unknown_message(ctx, state))
         return {**base, "workflow_status": S.STATUS_UNKNOWN.value, "pending": None,
@@ -730,4 +762,6 @@ async def deployer(state: ServiceRequestState, runtime: Runtime[SupervisorContex
         reason = f"{reason}; {what}"
         extra = release_updates(state, clean, released)
     return {**base, **_failed(runtime, state, "deployer", reason,
-                              out_of_band=report.out_of_band), "converged": False, **extra}
+                              out_of_band=report.out_of_band, payload=payload,
+                              errors=list(report.causes or []) or None),
+            "converged": False, **extra}

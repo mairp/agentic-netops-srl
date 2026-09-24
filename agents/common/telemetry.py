@@ -15,10 +15,17 @@ Beside the exporter, the meter provider carries an in-process :class:`InMemoryMe
 reader, not an exporter — so :func:`common.metrics.value` can read a counter back in tests and in
 the process itself. ``init_telemetry(otlp=False)`` (the unit tests) swaps the OTLP pipeline for an
 in-memory span exporter and exports nothing.
+
+The metric reader exports every :data:`METRIC_EXPORT_INTERVAL_MS` (10 s, not the SDK's 60 s): the
+fabric collector's recorded ``prometheus`` exporter drops a series ``metric_expiration`` (20 s)
+after its last point (``tests/gate/observed/telemetry-series.json``, never re-chosen), so a tier
+series pushed once a minute would read absent two thirds of the time (T136, FR-092, FR-093).
+``OTEL_METRIC_EXPORT_INTERVAL`` still overrides it.
 """
 
 from __future__ import annotations
 
+import os
 import threading
 from dataclasses import dataclass
 from typing import Any
@@ -31,6 +38,9 @@ from opentelemetry.sdk.trace.export import BatchSpanProcessor, SimpleSpanProcess
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
 SERVICE_NAMESPACE = "agentic-netops-agents"
+
+# below the fabric collector's metric_expiration (20 s) — see the module docstring
+METRIC_EXPORT_INTERVAL_MS = 10_000
 
 _lock = threading.Lock()
 _telemetry: Telemetry | None = None
@@ -92,7 +102,10 @@ def init_telemetry(component: str | None = None, *, endpoint: str | None = None,
             span_exporter: Any = OTLPSpanExporter(endpoint=f"{base}/v1/traces")
             tracer_provider.add_span_processor(BatchSpanProcessor(span_exporter))
             readers.append(
-                PeriodicExportingMetricReader(OTLPMetricExporter(endpoint=f"{base}/v1/metrics"))
+                PeriodicExportingMetricReader(
+                    OTLPMetricExporter(endpoint=f"{base}/v1/metrics"),
+                    export_interval_millis=metric_export_interval_ms(),
+                )
             )
             exporters_created += 1
         else:
@@ -102,6 +115,15 @@ def init_telemetry(component: str | None = None, *, endpoint: str | None = None,
         _telemetry = Telemetry(component, endpoint if otlp else None, tracer_provider,
                                meter_provider, reader, span_exporter, otlp)
         return _telemetry
+
+
+def metric_export_interval_ms() -> float:
+    """``OTEL_METRIC_EXPORT_INTERVAL`` when set to a positive number, else the 10 s default."""
+    try:
+        value = float(os.environ.get("OTEL_METRIC_EXPORT_INTERVAL", ""))
+    except ValueError:
+        return METRIC_EXPORT_INTERVAL_MS
+    return value if value > 0 else METRIC_EXPORT_INTERVAL_MS
 
 
 def get_telemetry() -> Telemetry:
@@ -124,4 +146,5 @@ def reset_for_tests() -> None:
         exporters_created = 0
 
 
-__all__ = ["Telemetry", "get_telemetry", "init_telemetry", "reset_for_tests"]
+__all__ = ["METRIC_EXPORT_INTERVAL_MS", "Telemetry", "get_telemetry", "init_telemetry",
+           "metric_export_interval_ms", "reset_for_tests"]

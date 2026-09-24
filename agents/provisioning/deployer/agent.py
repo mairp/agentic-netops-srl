@@ -23,6 +23,14 @@ the fail-closed admission webhook among it — or the translator sidecar not ans
 ``status: FAILED, retryable: true, dependency: <named>, submitted: false`` after the worker-call
 retry rule, so the supervisor reports the dependency, keeps the thread resumable and — nothing
 having been applied — the claims provisional (the release gate still names the id releasable).
+
+**Observability (T135).** A ``FAILED`` report marks this worker's ``worker.handle`` span (and the
+``deployer.<operation>`` span) failed with the report's message; a refusal by the pre-flight, the
+server-side dry-run or the apply also records the payload that failed validation — the intent, or
+the ``Network`` manifest the cluster rejected. Every ``Network`` the deployer reads or lists
+refreshes the ``agentic_netops_agent_service_info`` gauge (:class:`ServiceInfoKube`): one series
+per tier-submitted ``Network`` — correlation label, name, namespace, construct — dropped when it is
+read gone.
 """
 
 from __future__ import annotations
@@ -38,17 +46,18 @@ from typing import Any
 import httpx
 from pydantic import ValidationError
 
+from common import metrics, tracing
 from common.schemas.normalized_service_intent import NormalizedServiceIntent
 from common.schemas.stream import DeploymentReport, ProgressEvent
-from common.tracing import request_span
+from common.tracing import worker_operation_span
 from common.transport import StageMessage, reply_failed, reply_ok
 from config.settings import Settings
 from provisioning.deployer.conditions import Live, network_ref
 from provisioning.deployer.events import AuditEmitter
 from provisioning.deployer.kube import ClusterUnavailableError, KubeClient, KubeError
 from provisioning.deployer.preflight import load_inventory, preflight
-from provisioning.deployer.stamp import CORRELATION_LABEL, StampError
-from provisioning.deployer.status import read_status
+from provisioning.deployer.stamp import CORRELATION_LABEL, TIER_LABEL, TIER_VALUE, StampError
+from provisioning.deployer.status import derive_construct, read_status
 from provisioning.deployer.submit import (
     DEFAULT_TRANSLATOR_URL,
     DependencyUnavailableError,
@@ -90,6 +99,58 @@ def _str(payload: Mapping[str, Any], key: str) -> str:
     return value.strip()
 
 
+def _service_entry(obj: Mapping[str, Any], namespace: str
+                   ) -> tuple[str, str, str, str | None] | None:
+    """``(network, namespace, correlation_id, construct)`` of a tier-submitted Network, or None."""
+    meta = obj.get("metadata") if isinstance(obj.get("metadata"), Mapping) else {}
+    labels = meta.get("labels") if isinstance(meta.get("labels"), Mapping) else {}
+    cid, name = labels.get(CORRELATION_LABEL), meta.get("name")
+    if labels.get(TIER_LABEL) != TIER_VALUE or not isinstance(cid, str) or not _CID.match(cid) \
+            or not isinstance(name, str) or not name:
+        return None
+    ns = meta.get("namespace") if isinstance(meta.get("namespace"), str) else namespace
+    return name, ns, cid, derive_construct(obj).construct
+
+
+class ServiceInfoKube:
+    """The deployer's cluster client, seen through: every ``Network`` read or listed refreshes
+    the ``service_info`` gauge cache (T135, FR-093). Everything else is passed through."""
+
+    def __init__(self, kube: Any) -> None:
+        self._kube = kube
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._kube, name)
+
+    @property
+    def _namespace(self) -> str:
+        namespace = getattr(self._kube, "namespace", None)
+        return namespace if isinstance(namespace, str) else "agentic-netops-intent"
+
+    async def get_network(self, name: str) -> dict[str, Any] | None:
+        obj = await self._kube.get_network(name)
+        try:
+            entry = _service_entry(obj, self._namespace) if isinstance(obj, Mapping) else None
+            if entry is not None:
+                metrics.set_service_info(*entry)
+            else:
+                metrics.forget_service_info(name, self._namespace)
+        except Exception:  # the gauge never fails a read
+            log.debug("service_info refresh failed for Network/%s", name, exc_info=True)
+        return obj
+
+    async def list_networks(self, label_selector: str | None = None) -> list[dict[str, Any]]:
+        items = await self._kube.list_networks(label_selector)
+        if label_selector is None:  # a full listing: the cache becomes exactly what it names
+            try:
+                entries = [e for e in (_service_entry(i, self._namespace) for i in items
+                                       if isinstance(i, Mapping)) if e is not None]
+                metrics.sync_service_info(entries)
+            except Exception:
+                log.debug("service_info resync failed", exc_info=True)
+        return items
+
+
 class Deployer:
     def __init__(self, settings: Settings, *,
                  kube_factory: Callable[[], KubeClient] | None = None,
@@ -118,7 +179,7 @@ class Deployer:
     @property
     def kube(self) -> KubeClient:
         if self._kube is None:
-            self._kube = self.kube_factory()
+            self._kube = ServiceInfoKube(self.kube_factory())  # type: ignore[assignment]
         return self._kube
 
     # ----------------------------------------------------------------------------------------
@@ -135,8 +196,14 @@ class Deployer:
         thread_id = request.thread_id or ""
         if operation != "release_gate" and not thread_id:
             return reply_failed("out-of-contract request: no thread id")
-        with request_span(f"deployer.{operation}", correlation_id=cid,
-                          attributes={"thread_id": thread_id, "operation": operation}) as span:
+        assignment = payload.get("assignment")
+        construct = assignment.get("type") if isinstance(assignment, dict) else None
+        # the construct names the device instance the intent-tier dashboard links back to
+        # (<prefix>-<service id>, T137): it rides the operation span beside the Network name
+        with worker_operation_span(f"deployer.{operation}", correlation_id=cid,
+                                   attributes={"thread_id": thread_id,
+                                               "operation": operation,
+                                               "agentic_netops.construct": construct}) as span:
             audit = AuditEmitter(lambda: self.kube, now=self.now, span=span.span)
             try:
                 if operation == "create":
@@ -155,6 +222,9 @@ class Deployer:
                     dependency=exc.dependency,
                     message=f"{exc.dependency} unavailable: {exc.detail}; the request can be "
                             "resumed")
+            if report.status == "FAILED":
+                tracing.mark_worker_failure("deployer", report.message or
+                                            f"{operation}: {report.status}")
         text = report.message or f"{operation}: {report.status}"
         return reply_ok(text, report.model_dump(mode="json", exclude_none=True))
 
@@ -197,6 +267,9 @@ class Deployer:
         conflicts = preflight(intent, network, await self.kube.list_networks(),
                               inventory=load_inventory(self.settings.site_inventory_dir))
         if conflicts:
+            tracing.mark_worker_failure("deployer", "refused by the pre-flight: "
+                                        + "; ".join(conflicts), payload=intent,
+                                        errors=conflicts)
             return DeploymentReport(
                 operation="create", status="FAILED", submitted=False, causes=conflicts,
                 message="refused by the pre-flight: " + "; ".join(conflicts)
@@ -222,6 +295,9 @@ class Deployer:
             holders = list(dict.fromkeys(_HOLDER.findall(message)))
             if holders:
                 causes.extend(f"holder: Network {h}" for h in holders)
+            tracing.mark_worker_failure("deployer", f"refused: {message}",
+                                        payload=getattr(exc, "manifest", None) or intent,
+                                        errors=causes or [message])
             return DeploymentReport(
                 operation="create", status="FAILED", submitted=False,
                 causes=causes or [message], message=f"refused: {message}")
@@ -236,6 +312,7 @@ class Deployer:
                                     retryable=True, dependency=exc.dependency,
                                     message=exc.message)
         except SubmissionError as exc:
+            tracing.mark_worker_failure("deployer", exc.message, payload=exc.manifest)
             # 6. roll back by the correlation label
             result = await rollback(self.kube, cid)
             status_word = "rolled back" if result.ok else "ROLLBACK FAILED"
@@ -407,4 +484,4 @@ def make_handler(settings: Settings, **kwargs: Any) -> Callable[[StageMessage], 
     return handler
 
 
-__all__ = ["OPERATIONS", "Deployer", "make_handler"]
+__all__ = ["OPERATIONS", "Deployer", "ServiceInfoKube", "make_handler"]

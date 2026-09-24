@@ -23,6 +23,13 @@
 #                                           substituted inside the parsed JSON (the file contents become
 #                                           JSON strings, escaped by the encoder); a placeholder left
 #                                           over, a missing or empty topology file fails naming it
+#                                           — every dashboard EXCEPT the intent tier's (below)
+#   grafana_assets::agents_dashboards       ConfigMap grafana-dashboards-agents (T137, FR-095, R-19):
+#                                           dashboards/intent-tier.json with the same series
+#                                           substitution, labelled app.kubernetes.io/part-of
+#                                           agentic-netops-intent-tier. Never part of the fabric set:
+#                                           the tier phase applies it and the purge deletes it
+#                                           (scripts/lib/intent_tier.sh intent_tier::grafana_patch)
 #   grafana_assets::render <generated>      plugin + dashboards, stdout (no cluster)
 #   grafana_assets::ensure [generated]      apply the render server-side (the chunks are too large for
 #                                           the client-side last-applied annotation), refusing any of
@@ -52,6 +59,9 @@ GRAFANA_ASSETS_NS="monitoring"
 GRAFANA_ASSETS_PLUGIN_ID="andrewbmchugh-flow-panel"
 GRAFANA_ASSETS_PLUGIN_CM="grafana-plugin-flow-panel"
 GRAFANA_ASSETS_TOPOLOGY_CM="topology-assets"
+# the intent tier's dashboards: rendered into ONE ConfigMap by agents_dashboards, never into the fabric set
+GRAFANA_ASSETS_AGENTS_CM="grafana-dashboards-agents"
+GRAFANA_ASSETS_AGENTS_DASHBOARDS="intent-tier"
 # 700 KiB of package per chunk: base64 makes it ~934 KiB, under the 1 MiB ConfigMap bound
 GRAFANA_ASSETS_DEFAULT_CHUNK_BYTES=716800
 
@@ -138,12 +148,30 @@ grafana_assets::dashboards() {
   for f in topology.svg topology-panel.yaml; do
     [[ -s "$gen/$f" ]] || { log::error "grafana_assets: $gen/$f is missing or empty (the generator step, observability::generate, writes it)"; return 1; }
   done
-  python3 - "$dir" "$gen" "$GRAFANA_ASSETS_NS" "$(grafana_assets::_labels)" <<'PY'
+  grafana_assets::_render_dashboards fabric "$dir" "$gen" "$(grafana_assets::_labels)"
+}
+
+# grafana_assets::agents_dashboards — ConfigMap grafana-dashboards-agents (no topology files needed)
+grafana_assets::agents_dashboards() {
+  local labels
+  labels="$(printf '{app.kubernetes.io/name: grafana, app.kubernetes.io/part-of: agentic-netops-intent-tier, %s: "%s"}' \
+    "$(ownership::key)" "$(ownership::value)")"
+  grafana_assets::_render_dashboards agents "$(grafana_assets::_dir)" "" "$labels"
+}
+
+# grafana_assets::_render_dashboards <fabric|agents> <dir> <generated|""> <labels>
+#   fabric: one ConfigMap grafana-dashboard-<name> per dashboard not in GRAFANA_ASSETS_AGENTS_DASHBOARDS
+#   agents: one ConfigMap GRAFANA_ASSETS_AGENTS_CM holding exactly those dashboards
+grafana_assets::_render_dashboards() {
+  python3 - "$1" "$2" "$3" "$GRAFANA_ASSETS_NS" "$4" "$GRAFANA_ASSETS_AGENTS_CM" "$GRAFANA_ASSETS_AGENTS_DASHBOARDS" <<'PY'
 import glob, json, os, re, sys
-d, gen, ns, labels = sys.argv[1:5]
+mode, d, gen, ns, labels, agents_cm, agents = sys.argv[1:8]
+agents = set(agents.split())
 series = json.load(open(os.path.join(d, "series.json")))["series"]
-subst = {"@@TOPOLOGY_SVG@@": open(os.path.join(gen, "topology.svg"), encoding="utf-8").read(),
-         "@@TOPOLOGY_PANEL_YAML@@": open(os.path.join(gen, "topology-panel.yaml"), encoding="utf-8").read()}
+subst = {}
+if gen:
+    subst = {"@@TOPOLOGY_SVG@@": open(os.path.join(gen, "topology.svg"), encoding="utf-8").read(),
+             "@@TOPOLOGY_PANEL_YAML@@": open(os.path.join(gen, "topology-panel.yaml"), encoding="utf-8").read()}
 SERIES = re.compile(r"@@series:([A-Za-z0-9_]+)@@")
 LEFT = re.compile(r"@@[A-Za-z0-9_:]+@@")
 errors = []
@@ -170,9 +198,10 @@ def walk(o, f, where):
     return f(o, where) if isinstance(o, str) else o
 
 out = []
-files = sorted(glob.glob(os.path.join(d, "dashboards", "*.json")))
+files = [p for p in sorted(glob.glob(os.path.join(d, "dashboards", "*.json")))
+         if (os.path.basename(p)[:-len(".json")] in agents) == (mode == "agents")]
 if not files:
-    errors.append(f"no dashboards under {d}/dashboards")
+    errors.append(f"no {mode} dashboards under {d}/dashboards")
 for p in files:
     name = os.path.basename(p)[:-len(".json")]
     doc = walk(json.load(open(p, encoding="utf-8")), series_of, name)
@@ -186,11 +215,17 @@ if errors:
     for e in sorted(set(errors)):
         print("grafana_assets: " + e, file=sys.stderr)
     sys.exit(1)
-for name, text in out:
+if mode == "agents":
     print("---")
     print("apiVersion: v1\nkind: ConfigMap\nmetadata:")
-    print(f"  name: grafana-dashboard-{name}\n  namespace: {ns}\n  labels: {labels}")
+    print(f"  name: {agents_cm}\n  namespace: {ns}\n  labels: {labels}")
     print("data:")
+for name, text in out:
+    if mode != "agents":
+        print("---")
+        print("apiVersion: v1\nkind: ConfigMap\nmetadata:")
+        print(f"  name: grafana-dashboard-{name}\n  namespace: {ns}\n  labels: {labels}")
+        print("data:")
     print(f"  {name}.json: " + json.dumps(text, ensure_ascii=False))
 PY
 }
@@ -238,13 +273,14 @@ grafana_assets::ensure() {
   log::info "Grafana assets installed in ${GRAFANA_ASSETS_NS}: $(tr '\n' ' ' <<<"$names")"
 }
 
-# executed directly: `grafana_assets.sh render <generated>` / `ensure [generated]` / `chunk-count`
+# executed directly: `grafana_assets.sh render <generated>` / `agents` / `ensure [generated]` / `chunk-count`
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
   set -uo pipefail
   case "${1:-}" in
     render) grafana_assets::render "${2:?generated topology dir}" ;;
+    agents) grafana_assets::agents_dashboards ;;
     ensure) grafana_assets::ensure "${2:-}" ;;
     chunk-count) grafana_assets::chunk_count ;;
-    *) echo "usage: $0 render <generated>|ensure [generated]|chunk-count" >&2; exit 2 ;;
+    *) echo "usage: $0 render <generated>|agents|ensure [generated]|chunk-count" >&2; exit 2 ;;
   esac
 fi

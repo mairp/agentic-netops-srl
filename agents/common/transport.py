@@ -51,6 +51,7 @@ from urllib.parse import urlsplit, urlunsplit
 from a2a.types import DataPart, Message, Part, Role, TextPart
 from pydantic import BaseModel, ValidationError
 
+from common import metrics, tracing
 from common.exceptions import (
     TransportAuthenticationError,
     TransportConfigurationError,
@@ -175,9 +176,14 @@ def _parts(text: str, data: Mapping[str, Any] | None) -> list[Part]:
 
 def build_request(kind: str, skill: str, data: Mapping[str, Any] | None, *, text: str = "",
                   correlation_id: str | None = None, thread_id: str | None = None,
-                  idempotency_key: str | None = None, operation: str = "create") -> Message:
+                  idempotency_key: str | None = None, operation: str = "create",
+                  traceparent: str | None = None) -> Message:
+    """A request; ``traceparent`` (W3C) carries the calling span, so the worker's spans land in
+    the caller's trace (T135)."""
     meta = {"kind": kind, "skill": skill, "correlation_id": correlation_id,
             "thread_id": thread_id, "idempotency_key": idempotency_key, "operation": operation}
+    if traceparent:
+        meta[tracing.TRACEPARENT] = traceparent
     return Message(message_id=uuid.uuid4().hex, role=Role.user, parts=_parts(text, data),
                    context_id=thread_id, metadata={META: meta})
 
@@ -277,7 +283,12 @@ def extract_payload(message: Message, expect: type[BaseModel] | None, marker: st
     try:
         return expect.model_validate(obj, strict=True), source
     except ValidationError as exc:
-        raise WorkerFailedError(worker, _validation_summary(exc)) from None
+        error = WorkerFailedError(worker, _validation_summary(exc))
+        # The payload that failed validation, for the trace (T135): worker.call and stage spans.
+        error.payload = obj  # type: ignore[attr-defined]
+        error.errors = [{"loc": ".".join(str(p) for p in e.get("loc", ())),  # type: ignore[attr-defined]
+                         "msg": e.get("msg")} for e in exc.errors()[:20]]
+        raise error from None
 
 
 # --------------------------------------------------------------------------------------------------
@@ -400,7 +411,54 @@ class TransportClient:
         """Call the worker offering ``skill``. Raises :class:`WorkerUnreachableError` (after the
         bounded retry; ``after_send`` set when a non-idempotent request may have been delivered)
         or :class:`WorkerFailedError` (never retried)."""
-        card = self.resolve(skill)
+        try:
+            card = self.resolve(skill)
+        except WorkerUnreachableError as exc:
+            with tracing.worker_call_span(skill, skill, correlation_id=correlation_id) as span:
+                tracing.set_attributes(span, {tracing.ATTR_OUTCOME: "unreachable",
+                                              tracing.ATTR_ATTEMPTS: 0})
+                tracing.mark_failure(span, None, str(exc))
+            metrics.record_worker_call(skill, "unreachable")
+            raise
+        with tracing.worker_call_span(card.worker, skill, correlation_id=correlation_id,
+                                      attributes={"agentic_netops.operation": operation}) as span:
+            state = {"attempts": 0}
+            try:
+                result = await self._call(card, skill, data, expect=expect, marker=marker,
+                                          correlation_id=correlation_id, thread_id=thread_id,
+                                          idempotency_key=idempotency_key, operation=operation,
+                                          text=text, idempotent=idempotent, state=state)
+            except WorkerUnreachableError as exc:
+                self._record_call(span, card.worker, "unreachable", state["attempts"], exc)
+                raise
+            except WorkerFailedError as exc:
+                self._record_call(span, card.worker, "failed", state["attempts"], exc)
+                raise
+            self._record_call(span, card.worker, "succeeded", state["attempts"], None)
+            return result
+
+    @staticmethod
+    def _record_call(span: Any, worker: str, outcome: str, attempts: int,
+                     exc: Exception | None) -> None:
+        tracing.set_attributes(span, {tracing.ATTR_OUTCOME: outcome,
+                                      tracing.ATTR_ATTEMPTS: attempts})
+        metrics.record_worker_call(worker, outcome)
+        if exc is None:
+            return
+        payload, errors = getattr(exc, "payload", None), getattr(exc, "errors", None)
+        reason = str(exc)
+        if isinstance(exc, WorkerUnreachableError) and exc.cause:
+            reason = f"{exc} ({exc.cause})"
+        tracing.mark_failure(span, None, reason, payload, errors)
+        stage = tracing.current_stage()
+        if stage is not None and payload is not None:
+            stage.fail(reason, payload=payload, errors=errors)
+
+    async def _call(self, card: Card, skill: str, data: Mapping[str, Any] | None, *,
+                    expect: type[BaseModel] | None, marker: str | None,
+                    correlation_id: str | None, thread_id: str | None,
+                    idempotency_key: str | None, operation: str, text: str,
+                    idempotent: bool, state: dict[str, int]) -> CallResult:
         try:
             await self.ensure_authenticated()
         except TransportAuthenticationError as exc:
@@ -408,11 +466,13 @@ class TransportClient:
         timeout = self.timeout_for(skill)
         payload = encode(build_request(KIND_STAGE, skill, data, text=text,
                                        correlation_id=correlation_id, thread_id=thread_id,
-                                       idempotency_key=idempotency_key, operation=operation))
+                                       idempotency_key=idempotency_key, operation=operation,
+                                       traceparent=tracing.traceparent()))
         attempts = 1 + self.settings.worker_call_retries
         after_send = False
         cause = None
         for attempt in range(attempts):
+            state["attempts"] = attempt + 1
             # A non-idempotent request (a submission) is sent only to a worker that answers a
             # probe first: SLIM reports an unregistered topic as silence, not as an error, and a
             # silent submission would otherwise be indistinguishable from one lost after
@@ -504,11 +564,26 @@ async def serve(card: Mapping[str, Any] | Card, handler: WorkerHandler, backend:
             idempotency_key=meta.get("idempotency_key"),
             operation=str(meta.get("operation") or "create"),
             data=datas[0] if datas else None, text=text)
-        try:
-            reply = await handler(message)
-        except Exception as exc:
-            log.exception("stage handler of %s failed", card.worker)
-            reply = reply_failed(redact(str(exc)) or type(exc).__name__)
+        # worker.handle: a child of the caller's traceparent, so this worker's spans share the
+        # supervisor's trace (T135).
+        with tracing.worker_handle_span(
+                card.worker, message.skill, traceparent_value=meta.get(tracing.TRACEPARENT),
+                correlation_id=message.correlation_id,
+                attributes={"agentic_netops.operation": message.operation}) as span:
+            try:
+                reply = await handler(message)
+            except Exception as exc:
+                log.exception("stage handler of %s failed", card.worker)
+                reply = reply_failed(redact(str(exc)) or type(exc).__name__)
+            reply_meta = _meta(reply) if isinstance(reply, Message) else {}
+            if reply_meta.get("status") == "error":
+                tracing.set_attributes(span, {tracing.ATTR_OUTCOME: "failed"})
+                tracing.mark_failure(span, card.worker, str(reply_meta.get("reason") or
+                                                            "the worker failed"))
+            elif span.status.status_code.name == "ERROR":
+                tracing.set_attributes(span, {tracing.ATTR_OUTCOME: "failed"})
+            else:
+                tracing.set_attributes(span, {tracing.ATTR_OUTCOME: "succeeded"})
         return encode(reply)
 
     await backend.register(card.topic, dispatch)

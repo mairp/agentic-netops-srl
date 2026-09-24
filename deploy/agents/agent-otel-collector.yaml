@@ -3,9 +3,17 @@
 # §"Object inventory"; data-model.md §21). Every tier agent emits ONCE, over OTLP/HTTP, to this
 # collector (OTEL_EXPORTER_OTLP_ENDPOINT=http://agent-otel-collector.agentic-netops-agents.svc:4318).
 #
-# User Story 7 installs it with EXACTLY ONE exporter — `clickhouse`, the agent-analytics store and the
-# audit record (clickhouse.yaml). The second exporter, the forward to the fabric collector, is added by
-# User Story 12 once that collector exists; until then nothing else leaves this collector.
+# One emission, two sinks (T136; FR-091, R-24): the agents keep their ONE exporter each, and the fan-out
+# lives here, in the traces and metrics pipelines —
+#   clickhouse   the agent-analytics store and the audit record (clickhouse.yaml), exactly as User
+#                Story 7 installed it (T087)
+#   otlp/fabric  the forward to the fabric collector (device-metrics.monitoring.svc:4317, OTLP/gRPC, T129),
+#                which turns tier spans into RED metrics with trace exemplars and exposes the
+#                agentic_netops_agent_ metrics to Prometheus; its own sending_queue and retry, so a
+#                sink that is down queues and retries on its own and never blocks the other
+# Logs go to clickhouse only (the fabric collector has no logs pipeline). The collector's own telemetry
+# (level detailed) is pulled on :8888 (port `telemetry`) and scraped as `agent-otel-collector`
+# (deploy/observability/prometheus, DNS discovery: no target while the tier is absent).
 #
 # The exporter creates the `otel` database's tables itself (create_schema) with `ttl: 0` — NO TTL on
 # any table, the trace table that carries the audit span events included (FR-078): the record is kept
@@ -51,6 +59,20 @@ data:
           initial_interval: 1s
           max_interval: 30s
           max_elapsed_time: 300s
+      otlp/fabric:
+        endpoint: device-metrics.monitoring.svc:4317
+        tls:
+          insecure: true
+        timeout: 10s
+        sending_queue:
+          enabled: true
+          num_consumers: 2
+          queue_size: 1000
+        retry_on_failure:
+          enabled: true
+          initial_interval: 1s
+          max_interval: 30s
+          max_elapsed_time: 300s
     extensions:
       health_check:
         endpoint: 0.0.0.0:13133
@@ -59,15 +81,21 @@ data:
       telemetry:
         logs:
           encoding: json
+        metrics:
+          level: detailed
+          readers:
+            - pull:
+                exporter:
+                  prometheus: {host: 0.0.0.0, port: 8888}
       pipelines:
         traces:
           receivers: [otlp]
           processors: [memory_limiter, batch]
-          exporters: [clickhouse]
+          exporters: [clickhouse, otlp/fabric]
         metrics:
           receivers: [otlp]
           processors: [memory_limiter, batch]
-          exporters: [clickhouse]
+          exporters: [clickhouse, otlp/fabric]
         logs:
           receivers: [otlp]
           processors: [memory_limiter, batch]
@@ -89,6 +117,10 @@ spec:
   - name: otlp-http
     port: 4318
     targetPort: otlp-http
+    protocol: TCP
+  - name: telemetry
+    port: 8888
+    targetPort: telemetry
     protocol: TCP
 ---
 apiVersion: apps/v1
@@ -186,6 +218,9 @@ spec:
         ports:
         - name: otlp-http
           containerPort: 4318
+          protocol: TCP
+        - name: telemetry
+          containerPort: 8888
           protocol: TCP
         - name: health
           containerPort: 13133

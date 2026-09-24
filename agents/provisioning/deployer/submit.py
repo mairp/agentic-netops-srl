@@ -60,13 +60,16 @@ NAMING_VLAN_BAND = range(100, 1000)
 ALLOCATION_VLAN_BAND = range(1000, 4001)
 
 class SubmissionError(Exception):
-    """A step of the transaction failed; ``phase`` names it."""
+    """A step of the transaction failed; ``phase`` names it. ``manifest`` is the object the
+    cluster rejected, when one was — the payload that failed validation, for the trace (T135)."""
 
-    def __init__(self, phase: str, message: str, *, causes: list[str] | None = None) -> None:
+    def __init__(self, phase: str, message: str, *, causes: list[str] | None = None,
+                 manifest: Mapping[str, Any] | None = None) -> None:
         super().__init__(message)
         self.phase = phase
         self.message = message
         self.causes = list(causes or [])
+        self.manifest = dict(manifest) if manifest is not None else None
 
 
 class DependencyUnavailableError(SubmissionError):
@@ -204,7 +207,8 @@ async def dry_run_all(kube: KubeClient, stamped: list[dict[str, Any]], *, retrie
         except KubeAPIError as exc:
             raise SubmissionError(
                 "dry-run", f"the server-side dry-run rejected Network/{name}: {exc.message} — "
-                           "the whole bundle is aborted and nothing was applied") from None
+                           "the whole bundle is aborted and nothing was applied",
+                manifest=manifest) from None
     return results
 
 
@@ -225,7 +229,7 @@ async def apply_all(kube: KubeClient, dry_runs: dict[str, dict[str, Any]],
                 backoff=backoff, sleep=sleep, what=f"apply of Network/{name}")
         except KubeAPIError as exc:
             raise SubmissionError("apply", f"the apply of Network/{name} was rejected: "
-                                           f"{exc.message}") from None
+                                           f"{exc.message}", manifest=body) from None
         except ClusterUnavailableError as exc:
             if not submitted.applied:
                 raise DependencyUnavailableError(

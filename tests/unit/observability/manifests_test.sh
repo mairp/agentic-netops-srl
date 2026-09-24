@@ -14,6 +14,10 @@
 #   - the collector's metric filter admits the tier prefix of data-model.md §21 and the device
 #     prefix as LITERAL HasPrefix strings (never a regex, never an inherited pattern — AD-66);
 #     traces are accepted; its own telemetry is on :8888 (port telemetry, Service port 8888);
+#   - tier spans (T136): traces/tier keeps only resource service.namespace == agentic-netops-agents
+#     and feeds the spanmetrics connector (namespace agentic_netops_agent_spans, exemplars on, the
+#     stage/worker/model/outcome dimensions), whose metrics/spans pipeline leaves through its own
+#     prometheus/spans exporter on :8890 in OpenMetrics (container and Service port `spans`);
 #   - the collector configuration validates with the pinned image;
 #   - gNMIc: the CA of monitoring/srl-credentials mounted read-only at /etc/gnmic-tls/ca.crt, the
 #     rendered configuration's tls-ca is that file and its api-server is :7890 with metrics, the
@@ -21,7 +25,9 @@
 #   - Prometheus: `kubectl kustomize deploy/observability/prometheus` has NO rules ConfigMap, the
 #     rules/ kustomization produces prometheus-rules with the four rule files and nothing else, the
 #     Deployment mounts it optional, runs --web.enable-lifecycle as non-root; prometheus.yml has
-#     the six jobs and the devices interface-name normalization;
+#     the eight jobs and the devices interface-name normalization; tier-spans scrapes :8890 preferring
+#     OpenMetrics with --enable-feature=exemplar-storage, agent-otel-collector discovers the tier
+#     collector by DNS A record on :8888 (zero targets while the tier is absent);
 #   - no credential literal in any of these manifests (credentials come from secretKeyRef / Secret
 #     volumes only).
 set -uo pipefail
@@ -101,8 +107,8 @@ else
   fail "collector filter is not the two literal HasPrefix prefixes" "prefix in §21: '$prefix'"$'\n'"$conds"
 fi
 pipes="$(yq -o=json -I=0 '.service.pipelines' <<<"$ocfg")"
-if jq -e '.metrics.processors == ["filter/tier-and-device"] and .metrics.receivers == ["otlp"] and .traces.receivers == ["otlp"]' <<<"$pipes" >/dev/null \
-  && [[ "$(yq -r '.processors | keys | .[]' <<<"$ocfg")" == filter/tier-and-device ]]; then
+if jq -e '.metrics.processors == ["filter/tier-and-device"] and .metrics.receivers == ["otlp"] and .metrics.exporters == ["prometheus"] and .traces.receivers == ["otlp"]' <<<"$pipes" >/dev/null \
+  && [[ "$(yq -r '.processors | keys | .[]' <<<"$ocfg" | tr '\n' ' ')" == "filter/tier-and-device filter/tier-spans " ]]; then
   pass "metrics pipeline otlp → filter → prometheus; traces pipeline accepts OTLP"
 else
   fail "collector pipelines" "$pipes"
@@ -114,6 +120,24 @@ lvl="$(yq -r '.service.telemetry.metrics.level' <<<"$ocfg")"
 [[ "$tport" == 8888 && "$sport" == 8888 && "$cport" == 8888 && "$lvl" == detailed ]] \
   && pass "collector self telemetry pulled on :8888 (level detailed), container and Service port 'telemetry'" \
   || fail "collector self telemetry" "reader $tport, service $sport, container $cport, level $lvl"
+
+# 3b. tier spans → spanmetrics → prometheus/spans :8890 (T136)
+tspan="$(yq -r '.processors["filter/tier-spans"].traces.span[]' <<<"$ocfg")"
+sm="$(yq -o=json -I=0 '.connectors.spanmetrics' <<<"$ocfg")"
+pspans="$(yq -o=json -I=0 '.exporters["prometheus/spans"]' <<<"$ocfg")"
+s8890="$(yq -r 'select(.kind == "Service" and .metadata.name == "device-metrics") | .spec.ports[] | select(.name == "spans") | .port' <<<"$otel")"
+c8890="$(yq -r 'select(.kind == "Deployment") | .spec.template.spec.containers[].ports[] | select(.name == "spans") | .containerPort' <<<"$otel")"
+if [[ "$tspan" == 'resource.attributes["service.namespace"] != "agentic-netops-agents"' ]] \
+  && jq -e '.namespace == "agentic_netops_agent_spans" and .exemplars.enabled == true
+      and ([.dimensions[].name] == ["agentic_netops.stage", "agentic_netops.worker", "gen_ai.request.model", "agentic_netops.outcome"])' <<<"$sm" >/dev/null \
+  && jq -e '.endpoint == "0.0.0.0:8890" and .enable_open_metrics == true' <<<"$pspans" >/dev/null \
+  && jq -e '.["traces/tier"] == {"receivers": ["otlp"], "processors": ["filter/tier-spans"], "exporters": ["spanmetrics"]}
+      and .["metrics/spans"] == {"receivers": ["spanmetrics"], "exporters": ["prometheus/spans"]}' <<<"$pipes" >/dev/null \
+  && [[ "$s8890" == 8890 && "$c8890" == 8890 ]]; then
+  pass "tier spans: traces/tier (service.namespace agentic-netops-agents) → spanmetrics (exemplars) → prometheus/spans :8890 OpenMetrics"
+else
+  fail "tier spans pipeline" "filter: $tspan"$'\n'"spanmetrics: $sm"$'\n'"prometheus/spans: $pspans"$'\n'"pipelines: $pipes"$'\n'"ports: service $s8890 container $c8890"
+fi
 
 # 4. the collector configuration validates with the pinned image
 if command -v "$RT" >/dev/null 2>&1; then
@@ -171,7 +195,15 @@ else
 fi
 pcfg="$(yq -r 'select(.kind == "ConfigMap" and .metadata.name == "prometheus-config") | .data["prometheus.yml"]' <<<"$prom")"
 jobs="$(yq -r '.scrape_configs[].job_name' <<<"$pcfg" | sort | tr '\n' ' ')"
-[[ "$jobs" == "devices gnmic-self otel-collector prometheus sdc srl-provider " ]] && pass "prometheus.yml scrape jobs: $jobs" || fail "scrape jobs" "$jobs"
+[[ "$jobs" == "agent-otel-collector devices gnmic-self otel-collector prometheus sdc srl-provider tier-spans " ]] && pass "prometheus.yml scrape jobs: $jobs" || fail "scrape jobs" "$jobs"
+tjobs="$(yq -o=json -I=0 '[.scrape_configs[] | select(.job_name == "tier-spans" or .job_name == "agent-otel-collector")]' <<<"$pcfg")"
+if jq -e '(.[] | select(.job_name == "tier-spans") | .static_configs == [{"targets": ["device-metrics.monitoring.svc:8890"]}] and .scrape_protocols[0] == "OpenMetricsText1.0.0")
+    and (.[] | select(.job_name == "agent-otel-collector") | .dns_sd_configs == [{"names": ["agent-otel-collector.agentic-netops-agents.svc"], "type": "A", "port": 8888, "refresh_interval": "30s"}] and (has("static_configs") | not))' <<<"$tjobs" >/dev/null \
+  && jq -e '.spec.template.spec.containers[0].args | index("--enable-feature=exemplar-storage") != null' <<<"$pdep" >/dev/null; then
+  pass "tier-spans :8890 OpenMetrics first with exemplar storage; agent-otel-collector by DNS A record :8888 (no static target)"
+else
+  fail "tier scrape jobs / exemplar storage" "$tjobs"
+fi
 relabel="$(yq -o=json -I=0 '.scrape_configs[] | select(.job_name == "devices") | .metric_relabel_configs[0]' <<<"$pcfg")"
 jq -e '.source_labels == ["interface_name"] and .target_label == "interface_name" and .regex == "ethernet-(\\d+)/(\\d+)" and .replacement == "e${1}-${2}"' <<<"$relabel" >/dev/null \
   && [[ "$(yq -r '.rule_files[0]' <<<"$pcfg")" == '/etc/prometheus/rules/*.yaml' ]] \

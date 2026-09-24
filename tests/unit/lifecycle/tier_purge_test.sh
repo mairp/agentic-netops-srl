@@ -38,7 +38,8 @@
 #       artefact's hash never changes
 #   S10 the stand-alone `scripts/lib/audit_export.sh export` writes the export and the usernames
 #       record and removes nothing
-#   S11 static: no force-release annotation writer anywhere in the purge's code
+#   S11 static: no force-release annotation writer anywhere in the purge's code (the one patch verb is
+#       the Grafana two-line patch of Deployment monitoring/grafana, R-19)
 # shellcheck disable=SC2034,SC2207 # the variables are read inside check's eval strings
 set -uo pipefail
 
@@ -420,8 +421,12 @@ check "S10 stand-alone export: exits 0, writes the export and the usernames reco
 check "S10 stand-alone export: removes nothing" '[[ -z "$(mutating)" ]] && exists "$AG/secret/operator-credentials" && exists "$AG/statefulset/clickhouse"'
 
 # ================================================================== S11 — static
-check "S11 static: the purge's code writes no force-release annotation (no annotate / patch at all)" \
-  '! grep -nE "(annotate|patch)[[:space:]]|fabric\.agentic-netops\.io/force-release" "$ROOT/scripts/off.sh" "$ROOT/scripts/lib/intent_tier.sh" "$ROOT/scripts/lib/audit_export.sh"'
+# the one patch verb allowed is the Grafana two-line patch of R-19 (T137): Deployment monitoring/grafana
+# only, never a Network, never an annotation
+check "S11 static: the purge's code writes no force-release annotation (no annotate; no patch but the Grafana two-line patch)" \
+  '! grep -nE "(^|[^[:alnum:]_])annotate[[:space:]]|fabric\.agentic-netops\.io/force-release" "$ROOT/scripts/off.sh" "$ROOT/scripts/lib/intent_tier.sh" "$ROOT/scripts/lib/audit_export.sh" \
+   && ! grep -nE "(^|[^[:alnum:]_])patch[[:space:]]" "$ROOT/scripts/off.sh" "$ROOT/scripts/lib/audit_export.sh" \
+   && ! grep -nE "(kubectl|::k)[[:space:]]+(.*[^[:alnum:]_])?patch[[:space:]]" "$ROOT/scripts/lib/intent_tier.sh" | grep -vF "patch deployment \"\$INTENT_TIER_GRAFANA_DEPLOYMENT\" -n \"\$INTENT_TIER_GRAFANA_NS\"" | grep -q .'
 check "S11 static: nothing under .evidence is ever removed by the purge's code" \
   '! grep -nE "rm .*(\.evidence|EVIDENCE_(ROOT|DIR))" "$ROOT/scripts/off.sh" "$ROOT/scripts/lib/intent_tier.sh" "$ROOT/scripts/lib/audit_export.sh"'
 

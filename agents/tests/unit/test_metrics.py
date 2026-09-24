@@ -22,12 +22,13 @@ def fresh_telemetry() -> Iterator[None]:
     telemetry.reset_for_tests()
 
 
-def test_exactly_three_series_all_prefixed() -> None:
-    assert metrics.registered_names() == sorted([
+def test_the_three_series_of_t080_are_kept_all_prefixed() -> None:
+    # T135 adds series beside these three and redefines none of them (AD-50).
+    assert {
         "agentic_netops_agent_stage_requests_total",
         "agentic_netops_agent_auth_refusals_total",
         "agentic_netops_agent_out_of_band_changes_total",
-    ])
+    } <= set(metrics.registered_names())
     assert all(n.startswith("agentic_netops_agent_") for n in metrics.registered_names())
 
 
@@ -101,3 +102,100 @@ def test_one_exporter_per_process() -> None:
     # The metrics ride that one bundle.
     metrics.record_auth_refusal()
     assert metrics.value(metrics.AUTH_REFUSALS) == 1
+
+
+# --------------------------------------------------------------------------------------------------
+# T135: the series added beside the three (data-model.md §21, AD-50, AD-66)
+# --------------------------------------------------------------------------------------------------
+
+T135_SERIES = {
+    "agentic_netops_agent_stage_duration_seconds": "histogram",
+    "agentic_netops_agent_confirmations_total": "counter",
+    "agentic_netops_agent_refused_unsafe_total": "counter",
+    "agentic_netops_agent_worker_calls_total": "counter",
+    "agentic_netops_agent_model_calls_total": "counter",
+    "agentic_netops_agent_model_tokens_total": "counter",
+    "agentic_netops_agent_model_cost_usd_total": "counter",
+    "agentic_netops_agent_service_info": "observable_gauge",
+}
+
+
+def test_t135_series_are_registered_prefixed_and_the_three_unchanged() -> None:
+    assert set(T135_SERIES) <= set(metrics.registered_names())
+    assert all(n.startswith(metrics.PREFIX) for n in metrics.registered_names())
+    for name, kind in T135_SERIES.items():
+        assert metrics._registry[name].kind == kind, name
+    # the three of T080, exactly as they were
+    stage = metrics._registry[metrics.STAGE_REQUESTS]
+    assert (stage.labels, stage.kind) == (("stage", "outcome"), "counter")
+    assert metrics._registry[metrics.AUTH_REFUSALS].labels == ()
+    assert metrics._registry[metrics.OUT_OF_BAND_CHANGES].labels == ("change",)
+
+
+@pytest.mark.parametrize("kind", ["histogram", "observable_gauge"])
+def test_register_refuses_an_unprefixed_histogram_or_gauge(kind: str) -> None:
+    with pytest.raises(MetricNameError, match="agentic_netops_agent_"):
+        metrics.register("stage_duration_seconds", "x", kind=kind)
+    assert "stage_duration_seconds" not in metrics.registered_names()
+
+
+def test_every_metric_name_constant_of_the_module_carries_the_prefix() -> None:
+    tree = ast.parse((AGENTS / "common" / "metrics.py").read_text())
+    names = [n.value for n in ast.walk(tree)
+             if isinstance(n, ast.Constant) and isinstance(n.value, str)
+             and n.value.startswith(("agentic_netops", "Agentic"))
+             and not n.value.startswith("agentic-netops")]
+    assert set(T135_SERIES) <= set(names)
+    assert all(n.startswith("agentic_netops_agent_") for n in names), names
+
+
+def test_stage_duration_histogram_and_success_rate_from_stage_requests() -> None:
+    metrics.record_stage_duration("mapper", "succeeded", 1.5)
+    metrics.record_stage_duration("mapper", "succeeded", 0.5)
+    metrics.record_stage_duration("mapper", "failed", 3.0)
+    assert metrics.histogram(metrics.STAGE_DURATION, stage="mapper", outcome="succeeded") == (
+        2, 2.0)
+    assert metrics.histogram(metrics.STAGE_DURATION, stage="mapper")[0] == 3
+    # the success rate stays computed from the one per-stage counter, never from the histogram
+    assert metrics.success_rate("mapper") is None
+    metrics.record_stage("mapper", "succeeded")
+    metrics.record_stage("mapper", "failed")
+    assert metrics.success_rate("mapper") == 0.5
+    with pytest.raises(ValueError, match="closed set"):
+        metrics.record_stage_duration("mapper", "COMPLETED", 1.0)
+    with pytest.raises(ValueError, match="not a counter"):
+        metrics.increment(metrics.STAGE_DURATION, stage="mapper", outcome="succeeded")
+
+
+def test_confirmation_refusal_worker_and_model_counters() -> None:
+    metrics.record_confirmation("confirmation_1", "confirmed")
+    metrics.record_confirmation("second", "declined")
+    assert metrics.value(metrics.CONFIRMATIONS, confirmation="first", decision="confirmed") == 1
+    assert metrics.value(metrics.CONFIRMATIONS, confirmation="second", decision="declined") == 1
+    with pytest.raises(ValueError, match="closed set"):
+        metrics.record_confirmation("third", "confirmed")
+    metrics.record_refused_unsafe("unknown-tool")
+    assert metrics.value(metrics.REFUSED_UNSAFE, **{"class": "unknown-tool"}) == 1
+    with pytest.raises(ValueError, match="closed set"):
+        metrics.record_refused_unsafe("rude")
+    metrics.record_worker_call("allocator", "unreachable")
+    assert metrics.value(metrics.WORKER_CALLS, worker="allocator", outcome="unreachable") == 1
+    metrics.record_model_call("openai/gpt-4o", "succeeded", input_tokens=10, output_tokens=3,
+                              cost=0.5)
+    metrics.record_model_call("openai/gpt-4o", "failed")
+    assert metrics.value(metrics.MODEL_CALLS, model="openai/gpt-4o") == 2
+    assert metrics.value(metrics.MODEL_TOKENS, model="openai/gpt-4o", kind="input") == 10
+    assert metrics.value(metrics.MODEL_TOKENS, model="openai/gpt-4o", kind="output") == 3
+    assert metrics.value(metrics.MODEL_COST, model="openai/gpt-4o") == 0.5
+
+
+def test_service_info_is_one_series_per_network_and_bounded_by_them() -> None:
+    metrics.sync_service_info([("migr-a", "ns", "a" * 32, "vlan"),
+                               ("migr-b", "ns", "b" * 32, None)])
+    metrics.set_service_info("migr-a", "ns", "a" * 32, "vlan")  # a refresh adds nothing
+    assert metrics.value(metrics.SERVICE_INFO) == 2
+    assert metrics.value(metrics.SERVICE_INFO, network="migr-b", construct="unknown") == 1
+    metrics.forget_service_info("migr-b", "ns")
+    assert [e["network"] for e in metrics.service_info()] == ["migr-a"]
+    metrics.sync_service_info([])
+    assert metrics.value(metrics.SERVICE_INFO) == 0

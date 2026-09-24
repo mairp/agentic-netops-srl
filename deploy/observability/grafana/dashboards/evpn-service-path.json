@@ -7,7 +7,7 @@
   },
   "uid": "agentic-netops-evpn-service-path",
   "title": "EVPN service path",
-  "description": "T132 (FR-094, evidence/06-telemetry-visualization.md §8.2): for one mac-vrf / ip-vrf — the leaf-to-leaf tunnel path (each leaf carrying the instance and the remote VTEPs its VNI floods to, a VTEP resolved to its node through the node's system0 address), per-VTEP tunnel statistics, per-VNI MAC counts, the routed instance's route counts and the hit counters of the access lists bound to the service (acl-<service>-ingress / -egress, internal/model/names.go).",
+  "description": "T132 (FR-094, evidence/06-telemetry-visualization.md §8.2): for one mac-vrf / ip-vrf — the leaf-to-leaf tunnel path (each leaf carrying the instance and the remote VTEPs its VNI floods to, a VTEP resolved to its node through the node's system0 address), per-VTEP tunnel statistics, per-VNI MAC counts, the routed instance's route counts and the hit counters of the access lists bound to the service (acl-<service>-ingress / -egress, internal/model/names.go). The intent tier row names the conversation that created the service, linked to the intent-tier dashboard by correlation id (T137).",
   "tags": [
     "agentic-netops",
     "evpn",
@@ -872,6 +872,80 @@
         "w": 12,
         "x": 12,
         "y": 35
+      }
+    },
+    {
+      "type": "row",
+      "title": "Intent tier",
+      "collapsed": false,
+      "panels": [],
+      "id": 15,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 43
+      }
+    },
+    {
+      "type": "table",
+      "title": "Created by conversation",
+      "description": "T137 (FR-095): when the intent tier created this service, the conversation that did — agentic_netops_agent_service_info of the Network whose service id is this instance's (the Network name, without the tier's migr- prefix). The row link opens the intent-tier dashboard on that correlation id, with no time range: the conversation is found whenever it happened. Empty for a service the tier did not create.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "max by (correlation_id, network, namespace, construct) (agentic_netops_agent_service_info{network=~\"(migr-)?$service_id\"})",
+          "legendFormat": "__auto",
+          "range": false,
+          "instant": true,
+          "editorMode": "code",
+          "format": "table"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "links": [
+            {
+              "title": "Conversation trace (${__data.fields.correlation_id})",
+              "url": "/d/intent-tier/intent-tier?var-correlation_id=${__data.fields.correlation_id}"
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      },
+      "transformations": [
+        {
+          "id": "filterFieldsByName",
+          "options": {
+            "include": {
+              "names": [
+                "correlation_id",
+                "network",
+                "namespace",
+                "construct"
+              ]
+            }
+          }
+        }
+      ],
+      "id": 16,
+      "gridPos": {
+        "h": 5,
+        "w": 24,
+        "x": 0,
+        "y": 44
       }
     }
   ]

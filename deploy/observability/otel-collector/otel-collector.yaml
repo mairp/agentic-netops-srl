@@ -24,6 +24,17 @@
 # No sending_queue: the Prometheus exporter is a pull exporter (no queue to bound), and the debug
 # exporter is synchronous; otelcol_exporter_queue_* is therefore absent from this collector.
 #
+# Tier spans (T136; FR-091, FR-093, SC-038): the intent tier's collector forwards the agents' traces
+# and metrics here (otlp/fabric). A second traces pipeline, traces/tier, keeps only spans whose resource
+# carries service.namespace == "agentic-netops-agents" (every tier agent sets it — common/telemetry.py)
+# and feeds the spanmetrics connector: calls and duration per span, labelled by the stage, the worker,
+# the model and the outcome, with exemplars carrying the trace id (== the correlation id). Those RED
+# series (prefix agentic_netops_agent_spans_) leave through their OWN exporter, prometheus/spans on
+# :8890 (port `spans`), in OpenMetrics so the exemplars reach Prometheus (job `tier-spans`, scraped with
+# exemplar storage). The recorded `prometheus` exporter, the filter and the two original pipelines are
+# untouched; prometheus/spans carries the recorded translation_strategy too, because T134's re-check
+# compares every prometheus exporter of this collector against it.
+#
 # Its own telemetry (level detailed) is pulled on :8888 (port `telemetry`) and scraped as
 # `otel-collector` (deploy/observability/prometheus).
 apiVersion: v1
@@ -44,6 +55,20 @@ data:
         metrics:
           metric:
             - not (HasPrefix(name, "agentic_netops_agent_") or HasPrefix(name, "srl_nokia_"))
+      filter/tier-spans:
+        error_mode: ignore
+        traces:
+          span:
+            - resource.attributes["service.namespace"] != "agentic-netops-agents"
+    connectors:
+      spanmetrics:
+        namespace: agentic_netops_agent_spans
+        exemplars: {enabled: true}
+        dimensions:
+          - {name: agentic_netops.stage}
+          - {name: agentic_netops.worker}
+          - {name: gen_ai.request.model}
+          - {name: agentic_netops.outcome}
     exporters:
       prometheus:
         endpoint: 0.0.0.0:8889
@@ -51,6 +76,10 @@ data:
         metric_expiration: 20s
         send_timestamps: true
       debug: {verbosity: basic}
+      prometheus/spans:
+        endpoint: 0.0.0.0:8890
+        translation_strategy: UnderscoreEscapingWithoutSuffixes
+        enable_open_metrics: true
     extensions:
       health_check: {endpoint: 0.0.0.0:13133}
     service:
@@ -65,6 +94,8 @@ data:
       pipelines:
         metrics: {receivers: [otlp], processors: [filter/tier-and-device], exporters: [prometheus]}
         traces: {receivers: [otlp], exporters: [debug]}
+        traces/tier: {receivers: [otlp], processors: [filter/tier-spans], exporters: [spanmetrics]}
+        metrics/spans: {receivers: [spanmetrics], exporters: [prometheus/spans]}
 ---
 apiVersion: v1
 kind: Service
@@ -78,6 +109,7 @@ spec:
   - {name: otlp-grpc, port: 4317, targetPort: otlp-grpc}
   - {name: prometheus, port: 8889, targetPort: prometheus}
   - {name: telemetry, port: 8888, targetPort: telemetry}
+  - {name: spans, port: 8890, targetPort: spans}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -107,6 +139,7 @@ spec:
         - {name: otlp-grpc, containerPort: 4317}
         - {name: prometheus, containerPort: 8889}
         - {name: telemetry, containerPort: 8888}
+        - {name: spans, containerPort: 8890}
         - {name: health, containerPort: 13133}
         readinessProbe: {httpGet: {path: /, port: health}, periodSeconds: 5}
         livenessProbe: {httpGet: {path: /, port: health}, periodSeconds: 20}

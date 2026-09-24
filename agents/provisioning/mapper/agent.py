@@ -64,6 +64,7 @@ from typing import Any, Protocol
 from a2a.types import Message
 from pydantic import ValidationError
 
+from common import tracing
 from common.guards.redaction import redact
 from common.schemas.interpretation import MARKER, Interpretation
 from common.transport import StageMessage, reply_failed, reply_ok
@@ -216,6 +217,14 @@ def extract_json(text: str) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise ValueError("the answer's JSON is not an object")
     return value
+
+
+def _failed_payload(answer: str) -> Any:
+    """The model answer that failed validation: its JSON object when one parses, else the text."""
+    try:
+        return extract_json(answer)
+    except ValueError:
+        return answer
 
 
 def validation_summary(exc: ValidationError) -> str:
@@ -587,8 +596,11 @@ class Mapper:
             try:
                 interp = validate_model_output(answer, service_id)
             except ValueError as second:
-                raise MapperFailure(
-                    f"schema-invalid model output (after one retry): {second}") from None
+                reason = f"schema-invalid model output (after one retry): {second}"
+                # The trace keeps the interpretation that failed validation (T135).
+                tracing.mark_worker_failure("mapper", reason, payload=_failed_payload(answer),
+                                            errors=str(second))
+                raise MapperFailure(reason) from None
         return review(interp, text=text, inventory=inventory, qualification=qualification,
                       catalogue=catalogue)
 
@@ -610,6 +622,12 @@ class Mapper:
             return reply_failed(str(exc))
         outcome = ("refused" if interp.unsupported_properties else
                    "clarification" if interp.missing_fields else "interpreted")
+        if interp.unsupported_properties:
+            # A refusal at interpretation (the band check, an unqualified property): the
+            # interpretation that was refused goes on the trace with its causes (T135).
+            causes = list(interp.unsupported_properties)
+            tracing.mark_worker_failure("mapper", "; ".join(causes), payload=interp.to_wire(),
+                                        errors=causes)
         log.info("mapper: %s service %s (%s)", outcome, interp.service_id, interp.service_type)
         return reply_ok(summary(interp), interp.to_wire())
 

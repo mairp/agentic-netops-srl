@@ -17,6 +17,7 @@ resources:
   - clickhouse.yaml
   - agent-otel-collector.yaml
   - networkpolicies-workloads.yaml
+  - grafana-analytics-netpol.yaml
   - slim.yaml
   - supervisor.yaml
   - mapper.yaml
@@ -45,14 +46,14 @@ configMapGenerator:
 # (ErrImageNeverPull) — never `latest`.
 images:
   - name: supervisor
-    newTag: "fe2e2b6bc83482aa5becd3fb5ef9ba23628911a275d5c27bb4b6c3895a23cf96"
+    newTag: "df992064cfcff64961106871b3e362c0c3ba8eee12327ecf1381290aa82445d2"
   - name: mapper
-    newTag: "374b0e07a2b6cb24af4ebcf3e2a63953ae9f52710f5da419864aab49a6af2469"
+    newTag: "fec9749e3af3d6f339bb30bd302a8f1d56163d0f0ece1a4fe649c5776dac8eca"
   - name: allocator
-    newTag: "df1722d359afa1904744a7b4693ede93ab29a32f09e4aa80038ccf302c1d9321"
+    newTag: "e3b27d7e199d1931f93ee4aafc93a9aeacc679e0f570a689426aeb47ee1370be"
   - name: deployer
-    newTag: "4d5bdbee564375d4a8a81149c976d3c3f31596178e6d47ded74c48faedd6343b"
+    newTag: "f5513deb7369956094393b0a55aecf98bb5f7a4863af71ef398d8e273d6efdec"
   - name: intent-translator
-    newTag: "c7359fc738b0a57ee664a5b80cc743d93df57b65383974faf8c452450f47baa3"
+    newTag: "dc8ae3a7c6dfee76854bf60928e50580bf720ed6a91704ab76c5e970b3cade81"
   - name: ui
     newTag: "09a84cf6fddf798cb951bf0af115c8b0165b679acbfefc28933690ad41579911"

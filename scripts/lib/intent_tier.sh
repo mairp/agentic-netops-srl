@@ -34,6 +34,13 @@
 #                            (config/kind/cluster.yaml: 127.0.0.1 only) and their URLs stated → the
 #                            operator-credentials username — never the password — captured through
 #                            evidence_run (operator-username-<attempt>) on every provisioning run (SC-042)
+#                            → intent_tier::grafana_patch (T137, R-19): ConfigMap
+#                            monitoring/grafana-dashboards-agents (the intent-tier dashboard,
+#                            grafana_assets::agents_dashboards) and Secret monitoring/grafana-agents-datasource
+#                            (the agent-analytics datasource, generated from clickhouse-auth) applied, then
+#                            the TWO-LINE patch of Deployment monitoring/grafana — one source appended to its
+#                            projected `dashboards` volume, one to its projected `datasources` volume —
+#                            idempotent, rollout waited; no monitoring/grafana → a reported no-op
 #
 # Down path steps (orchestrated by scripts/off.sh off::purge_intent_tier):
 #   intent_tier::list_networks <evidence id>   the Networks in agentic-netops-intent, through
@@ -52,15 +59,20 @@
 #                                              ever force-released: this file writes no annotation
 #   intent_tier::remove_workloads / remove_claims / remove_boundary / remove_namespaces
 #                                              only once a re-list is empty (off.sh checks it)
+#   intent_tier::grafana_unpatch               the revert of grafana_patch: exactly its two sources removed
+#                                              (the control-plane sources left as they were), the ConfigMap
+#                                              and the Secret deleted; absent → a no-op
 #   intent_tier::export_audit_record <cluster> the export hook off.sh calls (scripts/lib/audit_export.sh)
 #
-# agentic-netops-services and the control plane are never named in a mutating call here.
+# agentic-netops-services and the control plane are never named in a mutating call here — with the one
+# recorded exception of R-19: the two sources grafana_patch appends to monitoring/grafana and
+# grafana_unpatch removes (and only those two, each guarded by a JSON-patch test of its volume).
 #
 # Settings (environment; defaults): TIER_PURGE_WAIT_SECONDS 300 (data-model.md §25),
 # TIER_PURGE_POLL_SECONDS 5, INTENT_TIER_WAIT_TIMEOUT (PROVISION_WAIT_TIMEOUT, else 300),
 # INTENT_TIER_MANIFEST_DIR (deploy/agents), INTENT_TIER_KIND_CONFIG (config/kind/cluster.yaml),
 # INTENT_TIER_SUPERVISOR_NODEPORT 30990, INTENT_TIER_UI_NODEPORT 30300, CLUSTER_NAME / KUBE_CONTEXT, KUBECTL.
-# Command form: intent_tier.sh settings | requests
+# Command form: intent_tier.sh settings | requests | grafana-patch | grafana-unpatch
 # Exit: 0 ok; 1 a step failed (named); 2 usage/settings.
 
 [[ -n "${__AGENTIC_NETOPS_INTENT_TIER_SH:-}" ]] && return 0
@@ -82,6 +94,8 @@ source "$INTENT_TIER_LIB/gate.sh"
 source "$INTENT_TIER_LIB/intent_secrets.sh"
 # shellcheck source=audit_export.sh
 source "$INTENT_TIER_LIB/audit_export.sh"
+# shellcheck source=grafana_assets.sh
+source "$INTENT_TIER_LIB/grafana_assets.sh"
 
 INTENT_TIER_AGENTS_NS="agentic-netops-agents"
 INTENT_TIER_INTENT_NS="agentic-netops-intent"
@@ -98,6 +112,18 @@ INTENT_TIER_QUIESCE=(supervisor ui deployer)                  # the request-acce
 INTENT_TIER_STORE=(statefulset/clickhouse deployment/agent-otel-collector)
 INTENT_TIER_ALL_DEPLOYMENTS=(supervisor ui mapper allocator deployer slim agent-otel-collector)
 INTENT_TIER_ALL_STATEFULSETS=(clickhouse)
+# the reversible two-line Grafana patch (T137, R-19): <volume>|<source kind>|<object name>
+INTENT_TIER_GRAFANA_NS="monitoring"
+INTENT_TIER_GRAFANA_DEPLOYMENT="grafana"
+INTENT_TIER_GRAFANA_DASHBOARDS_CM="grafana-dashboards-agents"
+INTENT_TIER_GRAFANA_DATASOURCE_SECRET="grafana-agents-datasource"
+# the field manager of the JSON patch — its managedFields entry is dropped right after (see _grafana_disown)
+INTENT_TIER_GRAFANA_PATCH_MANAGER="agentic-netops-intent-tier-grafana-patch"
+INTENT_TIER_GRAFANA_SOURCES=("dashboards|configMap|${INTENT_TIER_GRAFANA_DASHBOARDS_CM}" "datasources|secret|${INTENT_TIER_GRAFANA_DATASOURCE_SECRET}")
+# the analytics store as Grafana reads it: ClickHouse's MySQL wire port through the StatefulSet pod's
+# DNS name (the headless Service publishes no 9004; clickhouse.yaml is unchanged). Not the PostgreSQL
+# wire (9005): the pinned Grafana's PostgreSQL health check sends an empty query ClickHouse refuses
+INTENT_TIER_ANALYTICS_URL="clickhouse-0.clickhouse-headless.${INTENT_TIER_AGENTS_NS}.svc:9004"
 
 intent_tier::defaults() {
   : "${CLUSTER_NAME:=agentic-netops}"
@@ -395,7 +421,154 @@ intent_tier::install() {
   intent_tier::deploy_workloads || return 1
   intent_tier::publish_check || return 1
   intent_tier::capture_username || return 1
+  intent_tier::grafana_patch || return 1
   log::info "intent tier: Ready — store and collector, transport, $(IFS=,; echo "${INTENT_TIER_AGENT_WORKLOADS[*]}"), ui"
+}
+
+# ================================================================== the Grafana patch (T137, R-19)
+# The intent-tier dashboard and its analytics datasource reach the fabric's Grafana through exactly two
+# lines, appended by grafana_patch and removed by grafana_unpatch:
+#   dashboards  projected sources += - configMap: {name: grafana-dashboards-agents}
+#   datasources projected sources += - secret: {name: grafana-agents-datasource}
+# Everything else of deploy/observability/grafana/deployment.yaml is the control plane's and is never
+# touched. Each JSON-patch op is preceded by a `test` of the volume's name at that index, so a
+# Deployment changed in between makes the patch fail rather than land elsewhere.
+
+intent_tier::_grafana_present() { # 0: Deployment monitoring/grafana exists
+  intent_tier::_exists deployment "$INTENT_TIER_GRAFANA_DEPLOYMENT" "$INTENT_TIER_GRAFANA_NS"
+}
+intent_tier::_grafana_volumes() { # the Deployment's volumes as JSON
+  intent_tier::k get deployment "$INTENT_TIER_GRAFANA_DEPLOYMENT" -n "$INTENT_TIER_GRAFANA_NS" -o json \
+    | jq -c '.spec.template.spec.volumes // []'
+}
+# intent_tier::_grafana_ops <add|remove> <volumes json> — the JSON patch (an empty array: nothing to do)
+intent_tier::_grafana_ops() {
+  local mode="$1" vols="$2" entry
+  local -a specs=()
+  for entry in "${INTENT_TIER_GRAFANA_SOURCES[@]}"; do specs+=("$entry"); done
+  jq -c --arg mode "$mode" --args '
+    . as $vols
+    | [ $ARGS.positional[] | split("|") | {vol: .[0], kind: .[1], name: .[2]} ] as $want
+    | [ $want[] as $w
+        | ($vols | map(.name) | index($w.vol)) as $i
+        | if $i == null then error("grafana has no volume \($w.vol)")
+          elif ($vols[$i].projected.sources | type) != "array" then error("grafana volume \($w.vol) is not projected")
+          else
+            ($vols[$i].projected.sources | to_entries | map(select(.value[$w.kind].name == $w.name) | .key)) as $at
+            | if $mode == "add" then
+                (if ($at | length) == 0 then
+                   [{op: "test", path: "/spec/template/spec/volumes/\($i)/name", value: $w.vol},
+                    {op: "add", path: "/spec/template/spec/volumes/\($i)/projected/sources/-", value: {($w.kind): {name: $w.name}}}]
+                 else [] end)
+              else
+                ($at | sort | reverse | map(
+                   {op: "test", path: "/spec/template/spec/volumes/\($i)/projected/sources/\(.)", value: {($w.kind): {name: $w.name}}},
+                   {op: "remove", path: "/spec/template/spec/volumes/\($i)/projected/sources/\(.)"}))
+              end
+          end
+      ] | flatten' "${specs[@]}" <<<"$vols"
+}
+intent_tier::_grafana_apply_ops() { # <add|remove> — 0 and prints changed|unchanged
+  local mode="$1" vols ops out
+  vols="$(intent_tier::_grafana_volumes)" || { log::error "intent tier: reading Deployment ${INTENT_TIER_GRAFANA_NS}/${INTENT_TIER_GRAFANA_DEPLOYMENT} failed"; return 1; }
+  if ! ops="$(intent_tier::_grafana_ops "$mode" "$vols" 2>&1)"; then
+    log::error "intent tier: Deployment ${INTENT_TIER_GRAFANA_NS}/${INTENT_TIER_GRAFANA_DEPLOYMENT} cannot take the two-line patch: ${ops}" \
+      "(its dashboards and datasources volumes must be projected — deploy/observability/grafana/deployment.yaml)"
+    return 1
+  fi
+  if [[ "$(jq length <<<"$ops")" -eq 0 ]]; then printf 'unchanged'; return 0; fi
+  if ! out="$(intent_tier::k patch deployment "$INTENT_TIER_GRAFANA_DEPLOYMENT" -n "$INTENT_TIER_GRAFANA_NS" --field-manager "$INTENT_TIER_GRAFANA_PATCH_MANAGER" --type=json -p "$ops" 2>&1)"; then
+    log::error "intent tier: the ${mode} JSON patch of ${INTENT_TIER_GRAFANA_NS}/${INTENT_TIER_GRAFANA_DEPLOYMENT} failed:"
+    printf '%s\n' "$out" | sed 's/^/    | /' >&2
+    return 1
+  fi
+  intent_tier::_grafana_disown || return 1
+  printf 'changed'
+}
+# intent_tier::_grafana_disown — drop the patch's managedFields entry. The projected sources are an
+# atomic list, so the patch would otherwise own both lists and the control plane's next server-side
+# apply of deploy/observability/grafana would stop on a field conflict. Unowned, that apply goes
+# through and resets both volumes to the control plane's form; `--with-intent-tier` re-adds the two
+# lines (the patch is idempotent). A request that edits managedFields records no entry of its own.
+intent_tier::_grafana_disown() {
+  local ops out
+  ops="$(intent_tier::k get deployment "$INTENT_TIER_GRAFANA_DEPLOYMENT" -n "$INTENT_TIER_GRAFANA_NS" -o json --show-managed-fields \
+    | jq -c --arg m "$INTENT_TIER_GRAFANA_PATCH_MANAGER" '[.metadata.managedFields // [] | to_entries[] | select(.value.manager == $m) | .key]
+        | sort | reverse | map({op: "test", path: "/metadata/managedFields/\(.)/manager", value: $m}, {op: "remove", path: "/metadata/managedFields/\(.)"})')" \
+    || { log::error "intent tier: reading the managedFields of ${INTENT_TIER_GRAFANA_NS}/${INTENT_TIER_GRAFANA_DEPLOYMENT} failed"; return 1; }
+  [[ "$(jq length <<<"$ops")" -gt 0 ]] || return 0
+  if ! out="$(intent_tier::k patch deployment "$INTENT_TIER_GRAFANA_DEPLOYMENT" -n "$INTENT_TIER_GRAFANA_NS" --type=json -p "$ops" 2>&1)"; then
+    log::error "intent tier: dropping the patch's field manager from ${INTENT_TIER_GRAFANA_NS}/${INTENT_TIER_GRAFANA_DEPLOYMENT} failed:"
+    printf '%s\n' "$out" | sed 's/^/    | /' >&2
+    return 1
+  fi
+}
+intent_tier::_grafana_rollout() {
+  KUBE_CONTEXT="$(intent_tier::_ctx)" k8s_wait::rollout "$INTENT_TIER_GRAFANA_NS" "deployment/${INTENT_TIER_GRAFANA_DEPLOYMENT}" "$INTENT_TIER_WAIT_TIMEOUT" \
+    || { log::error "intent tier: ${INTENT_TIER_GRAFANA_NS}/${INTENT_TIER_GRAFANA_DEPLOYMENT} did not roll out within ${INTENT_TIER_WAIT_TIMEOUT}s"; return 1; }
+}
+
+# intent_tier::grafana_datasource — Secret grafana-agents-datasource on stdout: a Grafana datasource
+# provisioning file (key agent-analytics.yaml; JSON, which is YAML) whose user and password are read
+# from agentic-netops-agents/clickhouse-auth inside jq — never on a command line, never in a manifest
+intent_tier::grafana_datasource() {
+  local auth
+  auth="$(intent_tier::k get secret clickhouse-auth -n "$INTENT_TIER_AGENTS_NS" -o json 2>/dev/null)" \
+    || { log::error "intent tier: Secret ${INTENT_TIER_AGENTS_NS}/clickhouse-auth is absent — the analytics datasource has no credential to read"; return 1; }
+  jq -c --arg name "$INTENT_TIER_GRAFANA_DATASOURCE_SECRET" --arg ns "$INTENT_TIER_GRAFANA_NS" \
+    --arg url "$INTENT_TIER_ANALYTICS_URL" --argjson labels "$(intent_tier::_labels_json)" '
+    (.data.username // "" | @base64d) as $u | (.data.password // "" | @base64d) as $p
+    | if $u == "" or $p == "" then error("clickhouse-auth has no username or password") else . end
+    | {apiVersion: "v1", kind: "Secret", type: "Opaque",
+       metadata: {name: $name, namespace: $ns, labels: ($labels + {"app.kubernetes.io/name": "grafana"})},
+       data: {"agent-analytics.yaml": ({apiVersion: 1, datasources: [{
+           name: "agent-analytics", uid: "agent-analytics", type: "mysql", access: "proxy",
+           url: $url, user: $u, editable: false,
+           jsonData: {database: "otel", tlsAuth: false, tlsSkipVerify: false},
+           secureJsonData: {password: $p}}]} | tojson | @base64)}}' <<<"$auth"
+}
+
+# intent_tier::grafana_patch — the dashboard ConfigMap and the datasource Secret, then the two lines
+intent_tier::grafana_patch() {
+  intent_tier::defaults || return 1
+  if ! intent_tier::_grafana_present; then
+    log::info "intent tier: no Deployment ${INTENT_TIER_GRAFANA_NS}/${INTENT_TIER_GRAFANA_DEPLOYMENT} (no observability stack) — the intent-tier dashboard is not mounted; nothing changed"
+    return 0
+  fi
+  local cm ds res
+  cm="$(grafana_assets::agents_dashboards)" || { log::error "intent tier: rendering the intent-tier dashboard failed"; return 1; }
+  intent_tier::_apply "ConfigMap ${INTENT_TIER_GRAFANA_NS}/${INTENT_TIER_GRAFANA_DASHBOARDS_CM} (the intent-tier dashboard)" <<<"$cm" || return 1
+  ds="$(intent_tier::grafana_datasource)" || return 1
+  intent_tier::_apply "Secret ${INTENT_TIER_GRAFANA_NS}/${INTENT_TIER_GRAFANA_DATASOURCE_SECRET} (the agent-analytics datasource)" <<<"$ds" || return 1
+  res="$(intent_tier::_grafana_apply_ops add)" || return 1
+  if [[ "$res" == unchanged ]]; then
+    log::info "intent tier: ${INTENT_TIER_GRAFANA_NS}/${INTENT_TIER_GRAFANA_DEPLOYMENT} already carries the two-line patch — nothing added"
+    return 0
+  fi
+  intent_tier::_grafana_rollout || return 1
+  log::info "intent tier: ${INTENT_TIER_GRAFANA_NS}/${INTENT_TIER_GRAFANA_DEPLOYMENT} patched (two sources: configMap ${INTENT_TIER_GRAFANA_DASHBOARDS_CM}, secret ${INTENT_TIER_GRAFANA_DATASOURCE_SECRET}) and rolled out"
+}
+
+# intent_tier::grafana_unpatch — exactly the two sources out, then the ConfigMap and the Secret
+intent_tier::grafana_unpatch() {
+  intent_tier::defaults || return 1
+  local res=unchanged rc=0
+  if intent_tier::_grafana_present; then
+    res="$(intent_tier::_grafana_apply_ops remove)" || return 1
+    if [[ "$res" == changed ]]; then
+      intent_tier::_grafana_rollout || return 1
+      log::info "tier purge: the two-line patch of ${INTENT_TIER_GRAFANA_NS}/${INTENT_TIER_GRAFANA_DEPLOYMENT} reverted and rolled out"
+    else
+      log::info "tier purge: ${INTENT_TIER_GRAFANA_NS}/${INTENT_TIER_GRAFANA_DEPLOYMENT} carries no tier source — nothing reverted"
+    fi
+  else
+    log::info "tier purge: no Deployment ${INTENT_TIER_GRAFANA_NS}/${INTENT_TIER_GRAFANA_DEPLOYMENT} — no Grafana patch to revert"
+  fi
+  if intent_tier::_exists namespace "$INTENT_TIER_GRAFANA_NS"; then
+    intent_tier::_delete_if_tier configmap "$INTENT_TIER_GRAFANA_DASHBOARDS_CM" "$INTENT_TIER_GRAFANA_NS" || rc=1
+    intent_tier::_delete_if_tier secret "$INTENT_TIER_GRAFANA_DATASOURCE_SECRET" "$INTENT_TIER_GRAFANA_NS" || rc=1
+  fi
+  return "$rc"
 }
 
 # ================================================================== down path (off.sh --purge-intent-tier)
@@ -590,9 +763,11 @@ intent_tier::main() {
   local cmd="${1:-}"
   case "$cmd" in
     settings) intent_tier::settings ;;
+    grafana-patch) intent_tier::grafana_patch ;;
+    grafana-unpatch) intent_tier::grafana_unpatch ;;
     requests) intent_tier::defaults || return 2; intent_tier::requests_sum "$INTENT_TIER_MANIFEST_DIR" ;;
     -h|--help|help) sed -n '2,/^# Exit:/p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' ;;
-    *) log::error "usage: intent_tier.sh settings | requests"; return 2 ;;
+    *) log::error "usage: intent_tier.sh settings | requests | grafana-patch | grafana-unpatch"; return 2 ;;
   esac
 }
 

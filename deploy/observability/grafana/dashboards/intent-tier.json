@@ -1,0 +1,1417 @@
+{
+ "provenance": {
+  "source": "first-party",
+  "version": "1.0.0",
+  "task": "T137",
+  "note": "authored in this repository; rendered by scripts/lib/grafana_assets.sh agents_dashboards into ConfigMap grafana-dashboards-agents, mounted by the reversible two-line patch of scripts/lib/intent_tier.sh (R-19)"
+ },
+ "uid": "intent-tier",
+ "title": "Intent tier",
+ "description": "T137 (FR-095, R-19): the intent tier's health, per-stage request counts, success rate and latency, confirmations, refusals, worker and model calls, the span RED series of the fabric sink, both sinks' health, the services the tier created and — for the selected correlation id — the conversation trace from the agent-analytics store. Links between this dashboard and the fabric service view carry the correlation id or the service, never a time range.",
+ "tags": [
+  "agentic-netops",
+  "intent-tier"
+ ],
+ "editable": false,
+ "graphTooltip": 1,
+ "schemaVersion": 41,
+ "version": 1,
+ "time": {
+  "from": "now-6h",
+  "to": "now"
+ },
+ "refresh": "30s",
+ "timezone": "utc",
+ "annotations": {
+  "list": []
+ },
+ "links": [],
+ "templating": {
+  "list": [
+   {
+    "name": "correlation_id",
+    "label": "Correlation id (trace id)",
+    "type": "textbox",
+    "query": "",
+    "current": {
+     "text": "",
+     "value": ""
+    },
+    "hide": 0,
+    "description": "The conversation's correlation id — its trace id and the Network label agentic-netops.io/correlation-id."
+   }
+  ]
+ },
+ "panels": [
+  {
+   "id": 1,
+   "type": "row",
+   "title": "Tier health",
+   "collapsed": false,
+   "gridPos": {
+    "h": 1,
+    "w": 24,
+    "x": 0,
+    "y": 0
+   },
+   "panels": []
+  },
+  {
+   "id": 2,
+   "type": "stat",
+   "title": "Tier collector up",
+   "description": "up{job=\"agent-otel-collector\"}: the intent tier's collector, scraped on :8888 through dns_sd (0 when it is absent).",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "h": 4,
+    "w": 4,
+    "x": 0,
+    "y": 1
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "sum(up{job=\"agent-otel-collector\"}) or vector(0)",
+     "legendFormat": "",
+     "range": false,
+     "instant": true
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short",
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "red",
+        "value": null
+       },
+       {
+        "color": "green",
+        "value": 1
+       }
+      ]
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "colorMode": "background",
+    "graphMode": "none",
+    "textMode": "value"
+   }
+  },
+  {
+   "id": 3,
+   "type": "stat",
+   "title": "Span metrics up",
+   "description": "up{job=\"tier-spans\"}: the fabric collector's spanmetrics endpoint (:8890) the span RED panels read.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "h": 4,
+    "w": 4,
+    "x": 4,
+    "y": 1
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "sum(up{job=\"tier-spans\"}) or vector(0)",
+     "legendFormat": "",
+     "range": false,
+     "instant": true
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short",
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "red",
+        "value": null
+       },
+       {
+        "color": "green",
+        "value": 1
+       }
+      ]
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "colorMode": "background",
+    "graphMode": "none",
+    "textMode": "value"
+   }
+  },
+  {
+   "id": 4,
+   "type": "stat",
+   "title": "Services created by the tier",
+   "description": "One agentic_netops_agent_service_info series per tier-submitted Network that exists.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "h": 4,
+    "w": 4,
+    "x": 8,
+    "y": 1
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "count(agentic_netops_agent_service_info) or vector(0)",
+     "legendFormat": "",
+     "range": false,
+     "instant": true
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short"
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "colorMode": "background",
+    "graphMode": "none",
+    "textMode": "value"
+   }
+  },
+  {
+   "id": 5,
+   "type": "stat",
+   "title": "Stage success rate",
+   "description": "Over the dashboard range: requests with outcome converged|succeeded over every request (agentic_netops_agent_stage_requests_total).",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "h": 4,
+    "w": 4,
+    "x": 12,
+    "y": 1
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "sum(increase(agentic_netops_agent_stage_requests_total{outcome=~\"converged|succeeded\"}[$__range])) / sum(increase(agentic_netops_agent_stage_requests_total[$__range]))",
+     "legendFormat": "",
+     "range": false,
+     "instant": true
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "percentunit",
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "red",
+        "value": null
+       },
+       {
+        "color": "orange",
+        "value": 0.8
+       },
+       {
+        "color": "green",
+        "value": 0.95
+       }
+      ]
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "colorMode": "background",
+    "graphMode": "none",
+    "textMode": "value"
+   }
+  },
+  {
+   "id": 6,
+   "type": "stat",
+   "title": "Refused as unsafe",
+   "description": "Requests the guards classified unsafe and refused, over the dashboard range.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "h": 4,
+    "w": 4,
+    "x": 16,
+    "y": 1
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "sum(increase(agentic_netops_agent_refused_unsafe_total[$__range])) or vector(0)",
+     "legendFormat": "",
+     "range": false,
+     "instant": true
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short",
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       },
+       {
+        "color": "red",
+        "value": 1
+       }
+      ]
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "colorMode": "background",
+    "graphMode": "none",
+    "textMode": "value"
+   }
+  },
+  {
+   "id": 7,
+   "type": "stat",
+   "title": "Sink send failures",
+   "description": "Spans the tier collector failed to send, both sinks together, over the dashboard range.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "h": 4,
+    "w": 4,
+    "x": 20,
+    "y": 1
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "sum(increase({__name__=~\"otelcol_exporter_send_failed_spans(_total)?\", job=\"agent-otel-collector\"}[$__range])) or vector(0)",
+     "legendFormat": "",
+     "range": false,
+     "instant": true
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short",
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "green",
+        "value": null
+       },
+       {
+        "color": "red",
+        "value": 1
+       }
+      ]
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    },
+    "colorMode": "background",
+    "graphMode": "none",
+    "textMode": "value"
+   }
+  },
+  {
+   "id": 8,
+   "type": "row",
+   "title": "Services and conversations",
+   "collapsed": false,
+   "gridPos": {
+    "h": 1,
+    "w": 24,
+    "x": 0,
+    "y": 5
+   },
+   "panels": []
+  },
+  {
+   "id": 9,
+   "type": "table",
+   "title": "Services created by conversation",
+   "description": "agentic_netops_agent_service_info: one row per tier-submitted Network. service_id is the Network name without the migr- prefix (controllers/network/intent.go ServiceID), service the device network-instance the fabric service view selects (vlan-/macvrf-/ipvrf-<service_id>, internal/model/names.go). Row links: this dashboard for the conversation, the fabric service view for the service — neither carries a time range.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "h": 7,
+    "w": 24,
+    "x": 0,
+    "y": 6
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "label_replace(label_replace(label_replace(label_join(label_replace(agentic_netops_agent_service_info, \"service_id\", \"$1\", \"network\", \"(?:migr-)?(.+)\"), \"k\", \"|\", \"construct\", \"service_id\"), \"service\", \"vlan-$1\", \"k\", \"vlan[|](.+)\"), \"service\", \"macvrf-$1\", \"k\", \"mac-vrf[|](.+)\"), \"service\", \"ipvrf-$1\", \"k\", \"ip-vrf[|](.+)\")",
+     "legendFormat": "",
+     "range": false,
+     "instant": true,
+     "format": "table"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "links": [
+      {
+       "title": "Conversation trace (${__data.fields.correlation_id})",
+       "url": "/d/intent-tier/intent-tier?var-correlation_id=${__data.fields.correlation_id}"
+      },
+      {
+       "title": "Fabric service view (${__data.fields.service})",
+       "url": "/d/agentic-netops-evpn-service-path/evpn-service-path?var-service=${__data.fields.service}&var-service_id=${__data.fields.service_id}"
+      }
+     ]
+    },
+    "overrides": []
+   },
+   "transformations": [
+    {
+     "id": "filterFieldsByName",
+     "options": {
+      "include": {
+       "names": [
+        "correlation_id",
+        "network",
+        "namespace",
+        "construct",
+        "service_id",
+        "service"
+       ]
+      }
+     }
+    },
+    {
+     "id": "organize",
+     "options": {
+      "indexByName": {
+       "correlation_id": 0,
+       "network": 1,
+       "namespace": 2,
+       "construct": 3,
+       "service_id": 4,
+       "service": 5
+      }
+     }
+    }
+   ],
+   "options": {
+    "showHeader": true,
+    "cellHeight": "sm"
+   }
+  },
+  {
+   "id": 10,
+   "type": "table",
+   "title": "Conversation trace — $correlation_id",
+   "description": "Every span of the trace whose id is the correlation id, from the agent-analytics store (ClickHouse otel.otel_traces, datasource agent-analytics), oldest first. Filtered on TraceId only — no time filter: a conversation is found whatever the dashboard range. The failing stage carries status Error, its reason and the payload that failed validation. Row link: the fabric service view of the Network the conversation converged (k8s.network.name on the convergence span; the device instance prefix from agentic_netops.construct, mac-vrf when the trace names none), without a time range.",
+   "datasource": {
+    "type": "mysql",
+    "uid": "agent-analytics"
+   },
+   "gridPos": {
+    "h": 12,
+    "w": 24,
+    "x": 0,
+    "y": 13
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "mysql",
+      "uid": "agent-analytics"
+     },
+     "format": "table",
+     "rawQuery": true,
+     "editorMode": "code",
+     "rawSql": "WITH t AS (\n  SELECT anyIf(SpanAttributes['k8s.network.name'], SpanAttributes['k8s.network.name'] != '') AS network,\n         anyIf(SpanAttributes['agentic_netops.construct'], SpanAttributes['agentic_netops.construct'] != '') AS construct\n  FROM otel.otel_traces WHERE TraceId = '$correlation_id')\nSELECT Timestamp,\n       ServiceName AS service_name,\n       SpanName AS span_name,\n       SpanAttributes['agentic_netops.stage'] AS stage,\n       StatusCode AS status_code,\n       SpanAttributes['agentic_netops.failure.reason'] AS failure_reason,\n       SpanAttributes['agentic_netops.failure.payload'] AS failure_payload,\n       round(Duration / 1000000, 3) AS duration_ms,\n       arrayStringConcat(Events.Name, ', ') AS audit_events,\n       TraceId AS correlation_id,\n       t.network AS network,\n       replaceRegexpOne(t.network, '^migr-', '') AS service_id,\n       multiIf(t.network = '', '', t.construct = 'vlan', concat('vlan-', service_id),\n               t.construct = 'ip-vrf', concat('ipvrf-', service_id), concat('macvrf-', service_id)) AS service\nFROM otel.otel_traces CROSS JOIN t\nWHERE TraceId = '$correlation_id'\nORDER BY Timestamp"
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "links": [
+      {
+       "title": "Fabric service view (${__data.fields.service})",
+       "url": "/d/agentic-netops-evpn-service-path/evpn-service-path?var-service=${__data.fields.service}&var-service_id=${__data.fields.service_id}"
+      }
+     ]
+    },
+    "overrides": [
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "duration_ms"
+      },
+      "properties": [
+       {
+        "id": "unit",
+        "value": "ms"
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "status_code"
+      },
+      "properties": [
+       {
+        "id": "custom.cellOptions",
+        "value": {
+         "type": "color-text"
+        }
+       },
+       {
+        "id": "mappings",
+        "value": [
+         {
+          "type": "value",
+          "options": {
+           "Error": {
+            "color": "red",
+            "index": 0
+           },
+           "STATUS_CODE_ERROR": {
+            "color": "red",
+            "index": 1
+           }
+          }
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "matcher": {
+       "id": "byName",
+       "options": "failure_payload"
+      },
+      "properties": [
+       {
+        "id": "custom.inspect",
+        "value": true
+       }
+      ]
+     }
+    ]
+   },
+   "options": {
+    "showHeader": true,
+    "cellHeight": "sm"
+   }
+  },
+  {
+   "id": 11,
+   "type": "row",
+   "title": "Stages",
+   "collapsed": false,
+   "gridPos": {
+    "h": 1,
+    "w": 24,
+    "x": 0,
+    "y": 25
+   },
+   "panels": []
+  },
+  {
+   "id": 12,
+   "type": "timeseries",
+   "title": "Requests per stage",
+   "description": "agentic_netops_agent_stage_requests_total by stage and outcome.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "h": 8,
+    "w": 8,
+    "x": 0,
+    "y": 26
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "sum by (stage, outcome) (rate(agentic_netops_agent_stage_requests_total[$__rate_interval]))",
+     "legendFormat": "{{stage}} {{outcome}}",
+     "range": true,
+     "instant": false
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "reqps"
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "table",
+     "placement": "bottom",
+     "calcs": [
+      "lastNotNull",
+      "max"
+     ]
+    },
+    "tooltip": {
+     "mode": "multi"
+    }
+   }
+  },
+  {
+   "id": 13,
+   "type": "bargauge",
+   "title": "Success rate per stage",
+   "description": "Per stage over the dashboard range: outcome converged|succeeded over every request.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "h": 8,
+    "w": 8,
+    "x": 8,
+    "y": 26
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "sum by (stage) (increase(agentic_netops_agent_stage_requests_total{outcome=~\"converged|succeeded\"}[$__range])) / sum by (stage) (increase(agentic_netops_agent_stage_requests_total[$__range]))",
+     "legendFormat": "{{stage}}",
+     "range": false,
+     "instant": true
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "percentunit",
+     "min": 0,
+     "max": 1,
+     "thresholds": {
+      "mode": "absolute",
+      "steps": [
+       {
+        "color": "red",
+        "value": null
+       },
+       {
+        "color": "orange",
+        "value": 0.8
+       },
+       {
+        "color": "green",
+        "value": 0.95
+       }
+      ]
+     }
+    },
+    "overrides": []
+   },
+   "options": {
+    "orientation": "horizontal",
+    "displayMode": "basic",
+    "reduceOptions": {
+     "calcs": [
+      "lastNotNull"
+     ],
+     "fields": "",
+     "values": false
+    }
+   }
+  },
+  {
+   "id": 14,
+   "type": "timeseries",
+   "title": "Stage latency p50 / p95",
+   "description": "histogram_quantile over agentic_netops_agent_stage_duration_seconds by stage.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "h": 8,
+    "w": 8,
+    "x": 16,
+    "y": 26
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "histogram_quantile(0.5, sum by (le, stage) (rate(agentic_netops_agent_stage_duration_seconds_bucket[$__rate_interval])))",
+     "legendFormat": "p50 {{stage}}",
+     "range": true,
+     "instant": false
+    },
+    {
+     "refId": "B",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "histogram_quantile(0.95, sum by (le, stage) (rate(agentic_netops_agent_stage_duration_seconds_bucket[$__rate_interval])))",
+     "legendFormat": "p95 {{stage}}",
+     "range": true,
+     "instant": false
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "s"
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "table",
+     "placement": "bottom",
+     "calcs": [
+      "lastNotNull",
+      "max"
+     ]
+    },
+    "tooltip": {
+     "mode": "multi"
+    }
+   }
+  },
+  {
+   "id": 15,
+   "type": "row",
+   "title": "Operator decisions and refusals",
+   "collapsed": false,
+   "gridPos": {
+    "h": 1,
+    "w": 24,
+    "x": 0,
+    "y": 34
+   },
+   "panels": []
+  },
+  {
+   "id": 16,
+   "type": "timeseries",
+   "title": "Confirmations and declines",
+   "description": "agentic_netops_agent_confirmations_total by confirmation (first|second) and decision (confirmed|declined).",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "h": 8,
+    "w": 6,
+    "x": 0,
+    "y": 35
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "sum by (confirmation, decision) (increase(agentic_netops_agent_confirmations_total[$__rate_interval]))",
+     "legendFormat": "{{confirmation}} {{decision}}",
+     "range": true,
+     "instant": false
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short"
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "table",
+     "placement": "bottom",
+     "calcs": [
+      "lastNotNull",
+      "max"
+     ]
+    },
+    "tooltip": {
+     "mode": "multi"
+    }
+   }
+  },
+  {
+   "id": 17,
+   "type": "timeseries",
+   "title": "Refused as unsafe",
+   "description": "agentic_netops_agent_refused_unsafe_total by class.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "h": 8,
+    "w": 6,
+    "x": 6,
+    "y": 35
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "sum by (class) (increase(agentic_netops_agent_refused_unsafe_total[$__rate_interval]))",
+     "legendFormat": "{{class}}",
+     "range": true,
+     "instant": false
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short"
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "table",
+     "placement": "bottom",
+     "calcs": [
+      "lastNotNull",
+      "max"
+     ]
+    },
+    "tooltip": {
+     "mode": "multi"
+    }
+   }
+  },
+  {
+   "id": 18,
+   "type": "timeseries",
+   "title": "Auth refusals",
+   "description": "agentic_netops_agent_auth_refusals_total: requests the supervisor refused for missing or wrong operator credentials.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "h": 8,
+    "w": 6,
+    "x": 12,
+    "y": 35
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "sum(increase(agentic_netops_agent_auth_refusals_total[$__rate_interval]))",
+     "legendFormat": "refused",
+     "range": true,
+     "instant": false
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short"
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "table",
+     "placement": "bottom",
+     "calcs": [
+      "lastNotNull",
+      "max"
+     ]
+    },
+    "tooltip": {
+     "mode": "multi"
+    }
+   }
+  },
+  {
+   "id": 19,
+   "type": "timeseries",
+   "title": "Out-of-band changes",
+   "description": "agentic_netops_agent_out_of_band_changes_total by change.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "h": 8,
+    "w": 6,
+    "x": 18,
+    "y": 35
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "sum by (change) (increase(agentic_netops_agent_out_of_band_changes_total[$__rate_interval]))",
+     "legendFormat": "{{change}}",
+     "range": true,
+     "instant": false
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short"
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "table",
+     "placement": "bottom",
+     "calcs": [
+      "lastNotNull",
+      "max"
+     ]
+    },
+    "tooltip": {
+     "mode": "multi"
+    }
+   }
+  },
+  {
+   "id": 20,
+   "type": "row",
+   "title": "Workers and model",
+   "collapsed": false,
+   "gridPos": {
+    "h": 1,
+    "w": 24,
+    "x": 0,
+    "y": 43
+   },
+   "panels": []
+  },
+  {
+   "id": 21,
+   "type": "timeseries",
+   "title": "Worker calls",
+   "description": "agentic_netops_agent_worker_calls_total by worker and outcome.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "h": 8,
+    "w": 8,
+    "x": 0,
+    "y": 44
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "sum by (worker, outcome) (rate(agentic_netops_agent_worker_calls_total[$__rate_interval]))",
+     "legendFormat": "{{worker}} {{outcome}}",
+     "range": true,
+     "instant": false
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "reqps"
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "table",
+     "placement": "bottom",
+     "calcs": [
+      "lastNotNull",
+      "max"
+     ]
+    },
+    "tooltip": {
+     "mode": "multi"
+    }
+   }
+  },
+  {
+   "id": 22,
+   "type": "timeseries",
+   "title": "Model calls",
+   "description": "agentic_netops_agent_model_calls_total by model and outcome.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "h": 8,
+    "w": 8,
+    "x": 8,
+    "y": 44
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "sum by (model, outcome) (rate(agentic_netops_agent_model_calls_total[$__rate_interval]))",
+     "legendFormat": "{{model}} {{outcome}}",
+     "range": true,
+     "instant": false
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "reqps"
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "table",
+     "placement": "bottom",
+     "calcs": [
+      "lastNotNull",
+      "max"
+     ]
+    },
+    "tooltip": {
+     "mode": "multi"
+    }
+   }
+  },
+  {
+   "id": 23,
+   "type": "timeseries",
+   "title": "Model tokens",
+   "description": "agentic_netops_agent_model_tokens_total by model and kind (input|output).",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "h": 8,
+    "w": 8,
+    "x": 16,
+    "y": 44
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "sum by (model, kind) (increase(agentic_netops_agent_model_tokens_total[$__rate_interval]))",
+     "legendFormat": "{{model}} {{kind}}",
+     "range": true,
+     "instant": false
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short"
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "table",
+     "placement": "bottom",
+     "calcs": [
+      "lastNotNull",
+      "max"
+     ]
+    },
+    "tooltip": {
+     "mode": "multi"
+    }
+   }
+  },
+  {
+   "id": 24,
+   "type": "row",
+   "title": "Span RED — fabric sink (spanmetrics)",
+   "collapsed": false,
+   "gridPos": {
+    "h": 1,
+    "w": 24,
+    "x": 0,
+    "y": 52
+   },
+   "panels": []
+  },
+  {
+   "id": 25,
+   "type": "timeseries",
+   "title": "Span calls by span",
+   "description": "agentic_netops_agent_spans_calls (spanmetrics connector of the fabric collector) by span_name and status_code.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "h": 8,
+    "w": 8,
+    "x": 0,
+    "y": 53
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "sum by (span_name, status_code) (rate({__name__=~\"agentic_netops_agent_spans_calls(_total)?\"}[$__rate_interval]))",
+     "legendFormat": "{{span_name}} {{status_code}}",
+     "range": true,
+     "instant": false
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "reqps"
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "table",
+     "placement": "bottom",
+     "calcs": [
+      "lastNotNull",
+      "max"
+     ]
+    },
+    "tooltip": {
+     "mode": "multi"
+    }
+   }
+  },
+  {
+   "id": 26,
+   "type": "timeseries",
+   "title": "Span errors by stage",
+   "description": "Span calls with status_code STATUS_CODE_ERROR by agentic_netops_stage.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "h": 8,
+    "w": 8,
+    "x": 8,
+    "y": 53
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "sum by (agentic_netops_stage) (rate({__name__=~\"agentic_netops_agent_spans_calls(_total)?\", status_code=\"STATUS_CODE_ERROR\"}[$__rate_interval]))",
+     "legendFormat": "{{agentic_netops_stage}}",
+     "range": true,
+     "instant": false
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "reqps"
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "table",
+     "placement": "bottom",
+     "calcs": [
+      "lastNotNull",
+      "max"
+     ]
+    },
+    "tooltip": {
+     "mode": "multi"
+    }
+   }
+  },
+  {
+   "id": 27,
+   "type": "timeseries",
+   "title": "Span duration p95 by stage",
+   "description": "histogram_quantile(0.95) over agentic_netops_agent_spans_duration by agentic_netops_stage (milliseconds).",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "h": 8,
+    "w": 8,
+    "x": 16,
+    "y": 53
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "histogram_quantile(0.95, sum by (le, agentic_netops_stage) (rate({__name__=~\"agentic_netops_agent_spans_duration(_milliseconds)?_bucket\"}[$__rate_interval])))",
+     "legendFormat": "{{agentic_netops_stage}}",
+     "range": true,
+     "instant": false
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "ms"
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "table",
+     "placement": "bottom",
+     "calcs": [
+      "lastNotNull",
+      "max"
+     ]
+    },
+    "tooltip": {
+     "mode": "multi"
+    }
+   }
+  },
+  {
+   "id": 28,
+   "type": "row",
+   "title": "Sink health — tier collector",
+   "collapsed": false,
+   "gridPos": {
+    "h": 1,
+    "w": 24,
+    "x": 0,
+    "y": 61
+   },
+   "panels": []
+  },
+  {
+   "id": 29,
+   "type": "timeseries",
+   "title": "Spans sent per sink",
+   "description": "otelcol_exporter_sent_spans of the tier collector (job agent-otel-collector) by exporter: clickhouse (agent-analytics) and otlp/fabric (the fabric collector).",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "h": 8,
+    "w": 12,
+    "x": 0,
+    "y": 62
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "sum by (exporter) (rate({__name__=~\"otelcol_exporter_sent_spans(_total)?\", job=\"agent-otel-collector\"}[$__rate_interval]))",
+     "legendFormat": "{{exporter}}",
+     "range": true,
+     "instant": false
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short"
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "table",
+     "placement": "bottom",
+     "calcs": [
+      "lastNotNull",
+      "max"
+     ]
+    },
+    "tooltip": {
+     "mode": "multi"
+    }
+   }
+  },
+  {
+   "id": 30,
+   "type": "timeseries",
+   "title": "Span send failures per sink",
+   "description": "otelcol_exporter_send_failed_spans of the tier collector by exporter — one sink failing while the other keeps sending is the SC-039 picture.",
+   "datasource": {
+    "type": "prometheus",
+    "uid": "prometheus"
+   },
+   "gridPos": {
+    "h": 8,
+    "w": 12,
+    "x": 12,
+    "y": 62
+   },
+   "targets": [
+    {
+     "refId": "A",
+     "datasource": {
+      "type": "prometheus",
+      "uid": "prometheus"
+     },
+     "expr": "sum by (exporter) (rate({__name__=~\"otelcol_exporter_send_failed_spans(_total)?\", job=\"agent-otel-collector\"}[$__rate_interval]))",
+     "legendFormat": "{{exporter}}",
+     "range": true,
+     "instant": false
+    }
+   ],
+   "fieldConfig": {
+    "defaults": {
+     "unit": "short"
+    },
+    "overrides": []
+   },
+   "options": {
+    "legend": {
+     "displayMode": "table",
+     "placement": "bottom",
+     "calcs": [
+      "lastNotNull",
+      "max"
+     ]
+    },
+    "tooltip": {
+     "mode": "multi"
+    }
+   }
+  }
+ ]
+}

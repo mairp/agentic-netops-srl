@@ -12,11 +12,18 @@ A process killed mid-request loses nothing that was checkpointed: a new process 
 file finds the thread where the last completed node left it, and a turn on it resumes the pending
 stage. A submission carries an idempotency key derived from the thread, so a resumed submission is
 the same submission, never a second one.
+
+Every stage node run is a ``stage.<stage>`` span, a child of the turn's request span, and one
+measurement of ``agentic_netops_agent_stage_duration_seconds{stage,outcome}`` (T135): the outcome
+is the one the node recorded on ``agentic_netops_agent_stage_requests_total``. A stage that fails
+sets ``agentic_netops.failed_stage`` on the root request span. The two routing nodes (``intake``,
+``supervisor``) carry no span of their own.
 """
 
 from __future__ import annotations
 
 import asyncio
+import functools
 import logging
 import time
 import uuid
@@ -27,10 +34,11 @@ from typing import Any
 from langgraph.graph import END, START, StateGraph
 from langgraph.runtime import Runtime
 
+from common import metrics
 from common.exceptions import AgenticNetopsError
 from common.provisioning_states import WorkflowStatus
 from common.schemas.stream import build_chunk
-from common.tracing import request_span
+from common.tracing import ATTR_FAILED_STAGE, request_span, stage_span
 from common.transport import TransportClient
 from config.settings import Settings, assert_bounds
 from supervisors.provisioning.graph import nodes
@@ -56,6 +64,57 @@ NODES: dict[str, Callable[..., Any]] = {
 }
 
 
+# The pipeline stage each stage node runs as (data-model.md §21's ``stage``); the routing nodes
+# ``intake`` and ``supervisor`` are not listed and run without a stage span.
+NODE_STAGES: dict[str, str] = {
+    "guard": "supervisor",
+    "decide": "supervisor",
+    "await": "supervisor",
+    "inform": "supervisor",
+    "bounded_exit": "supervisor",
+    "release": "supervisor",
+    "mapper": "mapper",
+    "allocator": "allocator",
+    "lookup": "deployer",
+    "deployer": "deployer",
+}
+
+
+def _default_outcome(node: str, updates: Any) -> str:
+    """The outcome of a node run that recorded none: a stage left pending is in progress."""
+    if isinstance(updates, dict) and updates.get("pending") == node:
+        return "in_progress"
+    return "succeeded"
+
+
+def traced(node: str, fn: Callable[..., Any]) -> Callable[..., Any]:
+    """``fn`` run inside its ``stage.<stage>`` span, its duration measured (T135)."""
+    stage = NODE_STAGES.get(node)
+    if stage is None:
+        return fn
+
+    @functools.wraps(fn)
+    async def run(state: ServiceRequestState, runtime: Runtime[SupervisorContext]) -> Any:
+        root = getattr(runtime.context, "span", None)
+        updates: Any = None
+        with stage_span(stage, correlation_id=state.get("correlation_id"), parent=root,
+                        node=node) as current:
+            try:
+                updates = await fn(state, runtime)
+            except Exception as exc:
+                current.fail(f"internal error: {type(exc).__name__}")
+                raise
+            finally:
+                outcome = current.outcome or ("failed" if current.failed
+                                              else _default_outcome(node, updates))
+                metrics.record_stage_duration(stage, outcome, current.duration)
+                if current.failed and root is not None:
+                    root.set_attribute(ATTR_FAILED_STAGE, current.failed_stage or stage)
+        return updates
+
+    return run
+
+
 class UnknownThreadError(AgenticNetopsError):
     def __init__(self, thread_id: str) -> None:
         super().__init__(f"unknown thread {thread_id}")
@@ -65,7 +124,7 @@ class UnknownThreadError(AgenticNetopsError):
 def build_graph() -> StateGraph:
     graph = StateGraph(ServiceRequestState, context_schema=SupervisorContext)
     for name, fn in NODES.items():
-        graph.add_node(name, fn)
+        graph.add_node(name, traced(name, fn))
     graph.add_edge(START, "intake")
     graph.add_edge("intake", "guard")
     graph.add_conditional_edges("guard", nodes.route_after_guard, ["supervisor", END])
@@ -213,4 +272,4 @@ class Supervisor:
         return chunks
 
 
-__all__ = ["NODES", "Supervisor", "UnknownThreadError", "build_graph"]
+__all__ = ["NODES", "NODE_STAGES", "Supervisor", "UnknownThreadError", "build_graph", "traced"]
