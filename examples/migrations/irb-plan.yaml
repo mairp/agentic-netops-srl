@@ -1,0 +1,25 @@
+# A MigrationPlan (optional, AD-29; FR-048) for an integrated bridged-and-routed service that
+# arrived as L2L3-IRB: it maps onto mac-vrf with an anycast gateway — the gateway is a property of
+# the mac-vrf, not a fifth construct (FR-032). A gateway is required for this alias; on VPLS,
+# VPWS or L3VPN it is an unsupported feature the controller enumerates in status.
+apiVersion: agentic-netops.io/v1alpha1
+kind: MigrationPlan
+metadata:
+  name: irb-400
+  namespace: agentic-netops-services
+spec:
+  source:
+    platform: legacy-router
+    serviceType: L2L3-IRB
+    serviceID: legacy/irb/400
+    normalizedIntent:
+      tenant: tenant-b
+      description: bridged segment with a routed gateway
+      endpoints:
+      - {node: leaf01, attachment: ethernet-1/1}
+      - {node: leaf02, attachment: ethernet-1/1}
+      gateway:
+        ipv4: 10.40.0.1/24
+        ipv6: 2001:db8:40::1/64
+  targetNetworkRef:
+    name: lab-irb-400

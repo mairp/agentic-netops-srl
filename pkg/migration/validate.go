@@ -130,6 +130,11 @@ func validateService(in *ServiceInput, p string, opt Options) (causes []string, 
 	default:
 		add("type: %q is not a construct this platform offers; the constructs are %s", in.Type, ConstructList())
 	}
+	// The constraints of the vocabulary the request arrived in, only when it arrived as a migration
+	// alias; a request naming the construct directly is subject to none of them (FR-047, aliases.go).
+	if in.SourceType != "" {
+		causes = append(causes, sourceScopedCauses(in, p)...)
+	}
 	return causes, asn
 }
 
@@ -239,16 +244,7 @@ func validateMACVRF(in *ServiceInput, p string, opt Options) ([]string, int64) {
 	if n := len(in.Endpoints); n > 0 && n < minEndpoints {
 		add("endpoints: a mac-vrf without an anycastGateway needs at least 2 endpoints to bridge between, got %d; a single-node broadcast domain is a vlan", n)
 	}
-	if in.SourceType == "VPWS" {
-		if len(in.Endpoints) != 2 {
-			add("endpoints: the point-to-point migration alias (VPWS) requires exactly 2 endpoints, got %d", len(in.Endpoints))
-		}
-		if in.Policies == nil || in.Policies.VPWSLimitedEquivalence == nil || !*in.Policies.VPWSLimitedEquivalence {
-			add("policies.vpwsLimitedEquivalence: must be true — a point-to-point source maps onto a mac-vrf only as a limited equivalence the request opts into")
-		}
-	} else {
-		causes = append(causes, policyCauses(in, p)...)
-	}
+	causes = append(causes, policyCauses(in, p)...)
 	causes = append(causes, noVRFOnEndpoints(in, p, ConstructMACVRF)...)
 	causes = append(causes, sharedVLANCauses(in, p, ConstructMACVRF)...)
 
@@ -316,7 +312,12 @@ func validateIPVRF(in *ServiceInput, p string, opt Options) ([]string, int64) {
 	return append(causes, c...), asn
 }
 
+// policyCauses refuses the point-to-point opt-in on any request that did not arrive as the
+// point-to-point alias; on one that did, the opt-in is sourceScopedCauses' to judge (aliases.go).
 func policyCauses(in *ServiceInput, p string) []string {
+	if in.SourceType == SourceVPWS {
+		return nil
+	}
 	if in.Policies != nil && in.Policies.VPWSLimitedEquivalence != nil {
 		return []string{p + "policies.vpwsLimitedEquivalence: meaningful only for a request that arrived as the point-to-point migration alias (VPWS); this one did not"}
 	}

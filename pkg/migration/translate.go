@@ -13,7 +13,7 @@ type Result struct {
 	YAML      string
 }
 
-// TranslateJSON is the whole translator: strict parse → canonicalize → validate the whole batch →
+// TranslateJSON is the whole translator: strict parse → fold on entry → validate the whole batch →
 // translate. On any refusal it returns a *ValidationError (or *MalformedError) and no manifest.
 func TranslateJSON(data []byte, opt Options) (*Result, error) {
 	inputs, batch, err := ParseStrictBatch(data)
@@ -35,7 +35,7 @@ func TranslateBatch(inputs []ServiceInput, batch bool, opt Options) (*Result, er
 		return ""
 	}
 	for i := range inputs {
-		inputs[i].canonicalize()
+		foldOnEntry(&inputs[i]) // idempotent; a parsed input is already folded
 		c, asn := validateService(&inputs[i], prefix(i), opt)
 		causes = append(causes, c...)
 		asns[i] = asn
@@ -149,23 +149,10 @@ func translate(in *ServiceInput, asn int64) Network {
 		APIVersion: APIVersion,
 		Kind:       Kind,
 		Metadata: Metadata{
-			Name: "migr-" + sid,
-			Annotations: map[string]string{
-				AnnotationTranslator:        TranslatorName,
-				AnnotationTranslatorVersion: TranslatorVersion,
-				AnnotationMappingVersion:    MappingVersion,
-				AnnotationInputHash:         in.CanonicalHash(),
-				AnnotationTenant:            in.Tenant,
-				AnnotationServiceType:       in.Type,
-			},
+			Name:        "migr-" + sid,
+			Annotations: provenanceOf(in).Annotations(),
 		},
 		Spec: NetworkSpec{Description: fmt.Sprintf("Service %s (%s)", sid, in.Type)},
-	}
-	if in.SourceType != "" {
-		n.Metadata.Annotations[AnnotationSourceServiceType] = in.SourceType
-	}
-	if in.SourceType == "VPWS" {
-		n.Metadata.Annotations[AnnotationLimitedEquivalence] = "vpws-to-mac-vrf"
 	}
 
 	rts := func(vni int64) *RouteTargets { return derivedRouteTargets(asn, vni) }

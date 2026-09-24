@@ -1,0 +1,12 @@
+{
+  "serviceId": "7c3e5a9b1d2f4c6",
+  "type": "L3VPN",
+  "tenant": "initech",
+  "routeTargets": {"importRT": ["target:65000:10033"], "exportRT": ["target:65000:10033"]},
+  "l3vni": 10033,
+  "addressFamilies": {"ipv4Prefixes": ["10.33.0.0/24"], "ipv6Prefixes": ["2001:db8:33::/64"]},
+  "endpoints": [
+    {"node": "leaf01", "attachment": "ethernet-1/1", "vlan": 233, "vrf": "vrf-7c3e5a9b1d2f4c6"},
+    {"node": "leaf02", "attachment": "ethernet-1/1", "vlan": 233, "vrf": "vrf-7c3e5a9b1d2f4c6"}
+  ]
+}

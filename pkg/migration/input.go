@@ -4,7 +4,7 @@
 //
 // One path, called by both front ends: the CLI cmd/migration-translator and the pod-local sidecar
 // cmd/intent-translator (contracts/translator-api.md). It is strict parse (unknown fields rejected)
-// → canonicalization on entry (construct names and migration aliases folded, contracts/
+// → fold on entry, foldOnEntry (construct names and migration aliases folded, contracts/
 // construct-vocabulary.md §2) → all-or-nothing validation over the whole batch, every cause
 // collected and each naming its property path → deterministic emission (network-spec.md §3).
 // Nothing here talks to a cluster: JSON in, YAML and JSON out.
@@ -20,32 +20,12 @@ import (
 	"strings"
 )
 
-// Provenance the translator stamps on every object it emits (network-spec.md §1, §3). These are the
-// translator's own annotation keys; the intent tier's keys are disjoint and stamped by the deployer.
+// The object the translator emits (network-spec.md §1). Its provenance annotations, their keys and
+// their emission order are provenance.go's.
 const (
-	TranslatorName    = "agentic-netops-migration-translator"
-	TranslatorVersion = "v0.1.0"
-	MappingVersion    = "v0.1.0"
-
 	APIVersion = "fabric.agentic-netops.io/v1alpha1"
 	Kind       = "Network"
-
-	AnnotationTranslator         = "agentic-netops.io/translator"
-	AnnotationTranslatorVersion  = "agentic-netops.io/translator-version"
-	AnnotationMappingVersion     = "agentic-netops.io/mapping-version"
-	AnnotationInputHash          = "agentic-netops.io/migration-input-hash"
-	AnnotationTenant             = "agentic-netops.io/tenant"
-	AnnotationServiceType        = "agentic-netops.io/service-type"
-	AnnotationSourceServiceType  = "agentic-netops.io/source-service-type"
-	AnnotationLimitedEquivalence = "agentic-netops.io/limited-equivalence"
 )
-
-// annotationOrder is the emission order of the translator's keys (network-spec.md §3). The intent
-// tier's keys follow them, stamped later by the deployer.
-var annotationOrder = []string{
-	AnnotationTranslator, AnnotationTranslatorVersion, AnnotationMappingVersion, AnnotationInputHash,
-	AnnotationTenant, AnnotationServiceType, AnnotationSourceServiceType, AnnotationLimitedEquivalence,
-}
 
 // ServiceInput is one normalized service intent. Every object rejects unknown fields (the parser
 // decodes with DisallowUnknownFields); optional integers are pointers so an absent value is never
@@ -146,9 +126,31 @@ type Endpoint struct {
 	VRF        string `json:"vrf,omitempty"`
 }
 
-// Policies are explicit opt-ins, meaningful only for a point-to-point migration alias (FR-047).
+// Policies are explicit opt-ins, meaningful only for a point-to-point migration alias (FR-047;
+// sourceScopedCauses, aliases.go).
 type Policies struct {
 	VPWSLimitedEquivalence *bool `json:"vpwsLimitedEquivalence,omitempty"`
+}
+
+// foldOnEntry is the fold-on-entry step (FR-044; construct-vocabulary.md §2): ParseStrictBatch
+// calls it on every input the strict decoder accepts, BEFORE any validator runs, so no validator,
+// translator or output ever sees a migration alias as a type. The type becomes the construct
+// (Canonicalize: constructs.go's catalogue, then aliases.go's); an alias's arrival vocabulary is
+// recorded in SourceType, the provenance provenance.go stamps; an access list's family, stage and
+// protocol spellings are folded (acl.go). An unresolvable type is left as written, for validation
+// to refuse by name.
+//
+// It is idempotent — a folded type resolves to itself with no Source, and a recorded SourceType is
+// never cleared — so TranslateBatch, the entry point for inputs built in Go rather than parsed,
+// folds again without changing a parsed input.
+func foldOnEntry(in *ServiceInput) {
+	if r, ok := Canonicalize(in.Type); ok {
+		in.Type = r.Construct
+		if r.Source != "" {
+			in.SourceType = r.Source
+		}
+	}
+	in.ACL.canonicalize()
 }
 
 // CanonicalHash is the sha256 of the canonical input: the typed struct after canonicalization,

@@ -355,7 +355,11 @@ class Deployer:
             operation="status", status="COMPLETED", submitted=answer.live is not None,
             resources=[answer.resource], progress=progress, state=answer.state,  # type: ignore[arg-type]
             out_of_band=answer.out_of_band,  # type: ignore[arg-type]
-            live=answer.live.summary() if answer.live else None, message=answer.message)
+            service_type=answer.construct,  # type: ignore[arg-type]
+            provenance=answer.provenance,
+            live=({**answer.live.summary(), "construct": answer.construct,
+                   "provenance": answer.provenance} if answer.live else None),
+            message=answer.message)
 
     async def gate(self, payload: Mapping[str, Any]) -> DeploymentReport:
         ids = payload.get("correlation_ids")

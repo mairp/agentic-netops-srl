@@ -13,11 +13,11 @@ package migration
 //     already created — a reference, held to the structural 100–4000 alone and claiming nothing
 //     (AD-47) — and never a vrf.
 //
-// Folding happens on entry (canonicalize), so neither the emitted spec nor the canonical input hash
-// depends on a spelling: the family l3 / ip → ipv4 and l3v6 / ipv6 → ipv6, the stage in / inbound
-// → ingress and out / outbound → egress, the protocol icmpv6 → icmp6. On emission a protocol name
-// the Network API does not spell is written as its IANA number, and the rules are written in
-// ascending priority — the device's evaluation order.
+// Folding happens on entry (foldOnEntry, input.go), so neither the emitted spec nor the canonical
+// input hash depends on a spelling: the family l3 / ip → ipv4 and l3v6 / ipv6 → ipv6, the stage
+// in / inbound → ingress and out / outbound → egress, the protocol icmpv6 → icmp6. On emission a
+// protocol name the Network API does not spell is written as its IANA number, and the rules are
+// written in ascending priority — the device's evaluation order.
 //
 // Every refusal of contracts/acl-render-contract.md §3 the request itself can decide is decided
 // here, each cause naming its property path and the offending rule. The rules that need the

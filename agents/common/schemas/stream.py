@@ -141,7 +141,12 @@ class DeploymentReport(StrictModel):
     ``retryable``/``dependency`` — a dependency failure (the cluster API, the admission webhook
     among it: NFR-010, AD-52) after which nothing was applied and the thread stays resumable;
     ``rolled_back``/``survivors`` — a rollback's outcome (R-21); ``causes`` — the complete causes
-    of a refusal (the translator's 422, the pre-flight).
+    of a refusal (the translator's 422, the pre-flight). T121 (FR-026, FR-027): ``service_type`` —
+    the construct a ``status`` answer's live object is, derived when it was read from its stored
+    record (``None`` when the record names no construct; not called ``construct``, which would
+    shadow ``BaseModel.construct`` — the supervisor reads it as the construct); ``provenance`` —
+    the vocabulary the service was created in when that is not the construct's name (a retired
+    type, a migration alias), carried as provenance and never as a type.
     """
 
     operation: Literal["create", "remove", "status", "release_gate"] = "create"
@@ -161,6 +166,8 @@ class DeploymentReport(StrictModel):
     rolled_back: list[str] | None = None
     survivors: list[str] | None = None
     causes: list[str] | None = None
+    service_type: Literal["vlan", "mac-vrf", "ip-vrf", "acl"] | None = None
+    provenance: str | None = None
 
     @model_validator(mode="after")
     def _removal_never_configured(self) -> DeploymentReport:

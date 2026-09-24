@@ -1,0 +1,22 @@
+spec:
+  description: Service 7c3e5a9b1d2f4c6 (ip-vrf)
+  routers:
+  - name: vrf-7c3e5a9b1d2f4c6
+    routeTargets:
+      import:
+      - "target:65000:10033"
+      export:
+      - "target:65000:10033"
+    l3vni: 10033
+    prefixes:
+    - 10.33.0.0/24
+    - 2001:db8:33::/64
+  attachments:
+  - node: leaf01
+    attachment: ethernet-1/1
+    vlan: 233
+    vrf: vrf-7c3e5a9b1d2f4c6
+  - node: leaf02
+    attachment: ethernet-1/1
+    vlan: 233
+    vrf: vrf-7c3e5a9b1d2f4c6

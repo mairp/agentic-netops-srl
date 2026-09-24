@@ -1,0 +1,43 @@
+# The MigrationPlan controller records and never creates or modifies a Network (AD-29): get,
+# list, watch and status updates on migrationplans, get, list, watch on networks — no create,
+# update, patch or delete on networks — and Events about the plans it records. Cluster-wide,
+# like the provider's Network watch (R-15): a plan lives beside the service it reviews.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: srl-provider-migrationplans
+  labels:
+    app.kubernetes.io/name: srl-provider
+    app.kubernetes.io/component: migrationplan
+rules:
+- apiGroups: [agentic-netops.io]
+  resources: [migrationplans]
+  verbs: [get, list, watch]
+- apiGroups: [agentic-netops.io]
+  resources: [migrationplans/status]
+  verbs: [get, update, patch]
+- apiGroups: [fabric.agentic-netops.io]
+  resources: [networks]
+  verbs: [get, list, watch]
+- apiGroups: [""]
+  resources: [events]
+  verbs: [create, patch]
+- apiGroups: [events.k8s.io]
+  resources: [events]
+  verbs: [create, patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: srl-provider-migrationplans
+  labels:
+    app.kubernetes.io/name: srl-provider
+    app.kubernetes.io/component: migrationplan
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: srl-provider-migrationplans
+subjects:
+- kind: ServiceAccount
+  name: srl-provider
+  namespace: agentic-netops-system

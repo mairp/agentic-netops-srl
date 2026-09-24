@@ -1,0 +1,25 @@
+# A MigrationPlan (optional, AD-29; FR-048) for a routed service that arrived as L3VPN: it maps
+# onto the ip-vrf construct. The source's prefixes are recorded here as the translator
+# understands them; its route targets are not — the Network's are derived,
+# target:<fabricASN>:<vni> (FR-012), so no route-target policy exists on a plan. A manual cutover
+# is recorded as the operator's intent only; this controller performs no cutover of any kind.
+apiVersion: agentic-netops.io/v1alpha1
+kind: MigrationPlan
+metadata:
+  name: l3vpn-300
+  namespace: agentic-netops-services
+spec:
+  source:
+    platform: legacy-router
+    serviceType: L3VPN
+    serviceID: legacy/l3vpn/300
+    normalizedIntent:
+      tenant: tenant-b
+      description: routed tenant service
+      endpoints:
+      - {node: leaf01, attachment: ethernet-1/1}
+      prefixes: ["10.30.0.0/24", "2001:db8:30::/64"]
+  targetNetworkRef:
+    name: lab-l3vpn-300
+  mappingPolicy:
+    cutover: manual

@@ -14,6 +14,9 @@
 // "allocation-authority" hosts the first-party allocation authority's pool and
 // claim controllers (controllers/allocation, T176) and nothing else, and refuses
 // to start unless the lock selects first-party (allocation.go).
+//
+// The provider also hosts the optional MigrationPlan controller (controllers/migration, T122),
+// registered only when the MigrationPlan CRD is served (migration.go).
 package main
 
 import (
@@ -29,6 +32,7 @@ import (
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/discovery"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/utils/clock"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -39,6 +43,7 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	fabricv1 "github.com/mairp/agentic-netops-srl/api/fabric/v1alpha1"
+	migrationv1 "github.com/mairp/agentic-netops-srl/api/v1alpha1"
 	"github.com/mairp/agentic-netops-srl/controllers/fabric"
 	"github.com/mairp/agentic-netops-srl/internal/compat"
 	"github.com/mairp/agentic-netops-srl/internal/telemetry"
@@ -84,7 +89,9 @@ func run(ctx context.Context, lookup func(string) (string, bool), out io.Writer)
 	defer func() { _ = shutdown(context.Background()) }()
 
 	scheme := runtime.NewScheme()
-	adds := []func(*runtime.Scheme) error{clientgoscheme.AddToScheme, fabricv1.AddToScheme, sdc.AddToScheme}
+	// migrationv1: the optional MigrationPlan, whose controller registers only when its CRD is
+	// served (migration.go).
+	adds := []func(*runtime.Scheme) error{clientgoscheme.AddToScheme, fabricv1.AddToScheme, migrationv1.AddToScheme, sdc.AddToScheme}
 	if set.AuthorityKind() == kuid.AuthorityKuid {
 		// The upstream claim types only where kuid is the authority; the first-party
 		// kinds are in fabricv1.
@@ -157,6 +164,13 @@ func run(ctx context.Context, lookup func(string) (string, bool), out io.Writer)
 	deps := providerDeps{Settings: s, Compat: set, SDC: sdcClient, Claims: claims, APIReader: mgr.GetAPIReader()}
 	if err := setupNetwork(mgr, deps); err != nil {
 		return fmt.Errorf("network reconciler: %w", err)
+	}
+	disco, err := discovery.NewDiscoveryClientForConfig(cfg)
+	if err != nil {
+		return fmt.Errorf("discovery client: %w", err)
+	}
+	if _, err := setupMigration(mgr, disco); err != nil {
+		return fmt.Errorf("migrationplan controller: %w", err)
 	}
 	if err := setupWebhook(mgr, lookup); err != nil {
 		return fmt.Errorf("network webhook: %w", err)

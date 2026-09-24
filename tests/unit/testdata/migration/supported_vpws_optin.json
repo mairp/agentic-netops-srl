@@ -1,0 +1,12 @@
+{
+  "serviceId": "6b2d4f8a0c1e3b5",
+  "type": "VPWS",
+  "tenant": "acme",
+  "routeTargets": {"importRT": ["target:65000:10032"], "exportRT": ["target:65000:10032"]},
+  "l2vni": 10032,
+  "policies": {"vpwsLimitedEquivalence": true},
+  "endpoints": [
+    {"node": "leaf01", "attachment": "ethernet-1/1", "vlan": 132},
+    {"node": "leaf02", "attachment": "ethernet-1/1", "vlan": 132}
+  ]
+}

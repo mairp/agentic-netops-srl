@@ -33,22 +33,17 @@ type Resolution struct {
 	Source    string
 }
 
-// catalogue maps every accepted key (Key) to what it names (construct-vocabulary.md §2 table).
-var catalogue = map[string]Resolution{
-	"vlan":       {Construct: ConstructVLAN},
-	"macvrf":     {Construct: ConstructMACVRF},
-	"ipvrf":      {Construct: ConstructIPVRF},
-	"acl":        {Construct: ConstructACL},
-	"l2vni":      {Construct: ConstructMACVRF},
-	"l3vni":      {Construct: ConstructIPVRF},
-	"accesslist": {Construct: ConstructACL},
-	// Migration aliases: accepted on input only, folded before anything else sees them.
-	"vpls":    {Construct: ConstructMACVRF, Source: "VPLS"},
-	"vpws":    {Construct: ConstructMACVRF, Source: "VPWS"},
-	"eline":   {Construct: ConstructMACVRF, Source: "VPWS"},
-	"l3vpn":   {Construct: ConstructIPVRF, Source: "L3VPN"},
-	"l2l3irb": {Construct: ConstructMACVRF, Source: "L2L3-IRB"},
-	"irb":     {Construct: ConstructMACVRF, Source: "L2L3-IRB"},
+// catalogue maps the constructs' and synonyms' keys (Key) to the construct they name
+// (construct-vocabulary.md §2 table, first seven rows). The migration aliases — the last six rows —
+// are aliases.go's catalogue; Canonicalize consults both.
+var catalogue = map[string]string{
+	"vlan":       ConstructVLAN,
+	"macvrf":     ConstructMACVRF,
+	"ipvrf":      ConstructIPVRF,
+	"acl":        ConstructACL,
+	"l2vni":      ConstructMACVRF,
+	"l3vni":      ConstructIPVRF,
+	"accesslist": ConstructACL,
 }
 
 // Key is the name-resolution key: lower-cased, with every '-', '_', ' ', '.' and '+' deleted, so
@@ -66,22 +61,14 @@ func Key(name string) string {
 }
 
 // Canonicalize resolves any accepted spelling of a construct, synonym or migration alias. ok is
-// false for a name that is none of them; the caller refuses it listing the four constructs.
+// false for a name that is none of them; the caller refuses it listing the four constructs. For a
+// migration alias, Source is the arrival vocabulary (FoldAlias); for anything else it is empty.
 func Canonicalize(name string) (Resolution, bool) {
-	r, ok := catalogue[Key(name)]
-	return r, ok
-}
-
-// canonicalize folds the input's vocabulary on entry: the type becomes the construct and a migration
-// alias is recorded as the arrival vocabulary; an access list's family, stage and protocol
-// spellings are folded (acl.go). An unresolvable value is left as written, for validation to
-// refuse by name.
-func (in *ServiceInput) canonicalize() {
-	if r, ok := Canonicalize(in.Type); ok {
-		in.Type = r.Construct
-		if r.Source != "" {
-			in.SourceType = r.Source
-		}
+	if c, ok := catalogue[Key(name)]; ok {
+		return Resolution{Construct: c}, true
 	}
-	in.ACL.canonicalize()
+	if c, src, ok := FoldAlias(name); ok {
+		return Resolution{Construct: c, Source: src}, true
+	}
+	return Resolution{}, false
 }

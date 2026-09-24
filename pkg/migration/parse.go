@@ -15,7 +15,8 @@ var unknownField = regexp.MustCompile(`^json: unknown field "(.*)"$`)
 
 // ParseStrictBatch decodes a single normalized service intent object or an array of them. Unknown
 // fields are rejected (DisallowUnknownFields), and so is anything after the value. Each parsed
-// input is canonicalized on entry. batch reports whether the input was an array, which decides
+// input is folded on entry (foldOnEntry, input.go) before this returns, so every validator sees
+// constructs only. batch reports whether the input was an array, which decides
 // whether causes are prefixed with input[i].
 //
 // A body that is not a JSON object or array is a *MalformedError; an object the strict decoder
@@ -35,7 +36,7 @@ func ParseStrictBatch(data []byte) (inputs []ServiceInput, batch bool, err error
 			}
 			return nil, false, &ValidationError{Causes: []string{cause}}
 		}
-		in.canonicalize()
+		foldOnEntry(&in)
 		return []ServiceInput{in}, false, nil
 	case '[':
 		var raws []json.RawMessage
@@ -58,7 +59,7 @@ func ParseStrictBatch(data []byte) (inputs []ServiceInput, batch bool, err error
 				causes = append(causes, fmt.Sprintf("input[%d].%s", i, cause))
 				continue
 			}
-			in.canonicalize()
+			foldOnEntry(&in)
 			out = append(out, in)
 		}
 		if len(causes) > 0 {

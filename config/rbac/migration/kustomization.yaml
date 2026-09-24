@@ -1,0 +1,12 @@
+# The optional MigrationPlan controller's own identity grant (T122; FR-048, AD-29; data-model.md
+# §5, contracts/crd-api.md §"Optional `MigrationPlan` API"). NOT part of the default
+# config/rbac/kustomization.yaml and never applied by lab provisioning: an operator who wants the
+# MigrationPlan applies this directory together with config/crd/optional/ —
+#   kubectl apply -k config/crd/optional && kubectl apply -k config/rbac/migration
+# — and the provider (cmd/srl-provider) registers the controller at its next start, because the
+# CRD is then served. The grant is to the provider's own ServiceAccount; it adds no write verb on
+# networks (tests/unit/manifests/migration_role_test.go).
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+- role.yaml

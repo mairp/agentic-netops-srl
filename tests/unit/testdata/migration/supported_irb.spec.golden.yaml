@@ -1,0 +1,34 @@
+spec:
+  description: Service 8d4f6b0c2e3a5d7 (mac-vrf)
+  bridgeDomains:
+  - name: bd-8d4f6b0c2e3a5d7
+    vlan: 134
+    l2vni: 10034
+    evpn:
+      routeTargets:
+        import:
+        - "target:65000:10034"
+        export:
+        - "target:65000:10034"
+    irb:
+      vrf: vrf-8d4f6b0c2e3a5d7
+      gatewayIPv4: 10.34.0.1/24
+      gatewayIPv6: 2001:db8:34::1/64
+  routers:
+  - name: vrf-8d4f6b0c2e3a5d7
+    routeTargets:
+      import:
+      - "target:65000:10035"
+      export:
+      - "target:65000:10035"
+    l3vni: 10035
+    prefixes:
+    - 10.34.0.0/24
+    - 2001:db8:34::/64
+  attachments:
+  - node: leaf01
+    attachment: ethernet-1/1
+    vlan: 134
+  - node: leaf02
+    attachment: ethernet-1/1
+    vlan: 134

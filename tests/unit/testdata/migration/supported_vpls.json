@@ -1,0 +1,11 @@
+{
+  "serviceId": "5a1c3e7b9d0f2a4",
+  "type": "VPLS",
+  "tenant": "acme",
+  "routeTargets": {"importRT": ["target:65000:10031"], "exportRT": ["target:65000:10031"]},
+  "l2vni": 10031,
+  "endpoints": [
+    {"node": "leaf01", "attachment": "ethernet-1/1", "vlan": 131},
+    {"node": "leaf02", "attachment": "ethernet-1/1", "vlan": 131}
+  ]
+}

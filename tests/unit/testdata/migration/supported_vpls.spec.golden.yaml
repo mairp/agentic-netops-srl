@@ -1,0 +1,19 @@
+spec:
+  description: Service 5a1c3e7b9d0f2a4 (mac-vrf)
+  bridgeDomains:
+  - name: bd-5a1c3e7b9d0f2a4
+    vlan: 131
+    l2vni: 10031
+    evpn:
+      routeTargets:
+        import:
+        - "target:65000:10031"
+        export:
+        - "target:65000:10031"
+  attachments:
+  - node: leaf01
+    attachment: ethernet-1/1
+    vlan: 131
+  - node: leaf02
+    attachment: ethernet-1/1
+    vlan: 131

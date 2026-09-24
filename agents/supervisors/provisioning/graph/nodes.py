@@ -526,6 +526,9 @@ def _status_answer(data: Any) -> dict[str, Any]:
         "out_of_band": oob if oob in _OUT_OF_BAND else None,
         "message": data.get("message") if isinstance(data.get("message"), str) else None,
         "construct": construct if construct in CONSTRUCTS else None,
+        # the vocabulary the service was created in, as provenance — never a type (FR-027, T121)
+        "provenance": (data.get("provenance") if isinstance(data.get("provenance"), str)
+                       else None),
         "progress": [p for p in data.get("progress") or [] if isinstance(p, dict)],
     }
 
@@ -564,6 +567,8 @@ async def lookup(state: ServiceRequestState, runtime: Runtime[SupervisorContext]
         "state": answer["state"], "outOfBand": answer["out_of_band"], "tierRemoved": tier_removed,
         "message": live,
     }
+    if answer["provenance"]:
+        payload["provenance"] = answer["provenance"]
     resource = f"Network/{network}"
     if status_query:
         metrics.record_stage("supervisor", "succeeded")

@@ -1,0 +1,26 @@
+# A MigrationPlan (optional, AD-29; FR-048) recording a service that arrived as the migration
+# alias VPLS: it folds onto the mac-vrf construct, which is what status.construct records beside
+# status.sourceVocabulary: VPLS. The plan is a record only — the translator (pkg/migration) emits
+# the Network, whoever applies Networks applies it, and the MigrationPlan controller fills in
+# status.generatedNetworkRef once lab-vpls-100 exists; it never creates or modifies it.
+# No route-target, VLAN or VNI policy here: those are derived or allocated for a migrated service
+# exactly as for any other (FR-012). Cutover defaults to disabled; no automatic cutover exists.
+# Needs the optional CRD: kubectl apply -k config/crd/optional (not installed by default).
+apiVersion: agentic-netops.io/v1alpha1
+kind: MigrationPlan
+metadata:
+  name: vpls-100
+  namespace: agentic-netops-services
+spec:
+  source:
+    platform: legacy-router
+    serviceType: VPLS
+    serviceID: legacy/vpls/100
+    normalizedIntent:
+      tenant: tenant-a
+      description: bridged service across two sites
+      endpoints:
+      - {node: leaf01, attachment: ethernet-1/1}
+      - {node: leaf02, attachment: ethernet-1/1}
+  targetNetworkRef:
+    name: lab-vpls-100

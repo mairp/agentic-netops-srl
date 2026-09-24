@@ -1,0 +1,13 @@
+{
+  "serviceId": "8d4f6b0c2e3a5d7",
+  "type": "L2L3-IRB",
+  "tenant": "acme",
+  "routeTargets": {"importRT": ["target:65000:10034"], "exportRT": ["target:65000:10034"]},
+  "l2vni": 10034,
+  "l3vni": 10035,
+  "anycastGateway": {"gatewayIPv4": "10.34.0.1/24", "gatewayIPv6": "2001:db8:34::1/64"},
+  "endpoints": [
+    {"node": "leaf01", "attachment": "ethernet-1/1", "vlan": 134},
+    {"node": "leaf02", "attachment": "ethernet-1/1", "vlan": 134}
+  ]
+}

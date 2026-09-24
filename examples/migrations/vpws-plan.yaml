@@ -1,0 +1,27 @@
+# A MigrationPlan (optional, AD-29; FR-048) for a point-to-point service that arrived as VPWS. It
+# maps onto mac-vrf only as a limited equivalence — point-to-point represented by a dedicated
+# L2VNI — and only with the explicit opt-in below (default false); without it the plan records
+# Translated=False/UnsupportedFeature at spec.mappingPolicy.allowLimitedEquivalence. Exactly two
+# endpoints. The Network carries the agentic-netops.io/limited-equivalence annotation; the plan
+# references that key and never restates its value (FR-046).
+apiVersion: agentic-netops.io/v1alpha1
+kind: MigrationPlan
+metadata:
+  name: vpws-200
+  namespace: agentic-netops-services
+spec:
+  source:
+    platform: legacy-router
+    serviceType: VPWS
+    serviceID: legacy/vpws/200
+    normalizedIntent:
+      tenant: tenant-a
+      description: point-to-point circuit leaf01 to leaf02
+      endpoints:
+      - {node: leaf01, attachment: ethernet-1/2}
+      - {node: leaf02, attachment: ethernet-1/2}
+  targetNetworkRef:
+    name: lab-vpws-200
+  mappingPolicy:
+    allowLimitedEquivalence: true
+    cutover: disabled
