@@ -30,6 +30,7 @@ testautomation/video/snap/
 agents/.venv/
 ui/node_modules/
 ui/dist/
+ui/.test-build/
 __pycache__/
 .pytest_cache/
 .ruff_cache/

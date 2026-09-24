@@ -12,14 +12,15 @@
 #       export, every Network and both continuations named; (a) is captured through evidence_run;
 #       planted evidence byte-identical after the refused purge
 #   S3  --purge-intent-tier --remove-services: the only call before the scale-down is list (a), a
-#       read; supervisor + deployer scaled to zero BEFORE list (c) and BEFORE the export; `ui` absent
-#       reported and never created; exactly (c)'s Networks deleted, none before (c); export before the
+#       read; supervisor + deployer scaled to zero BEFORE list (c) and BEFORE the export; an absent `ui`
+#       (a tier provisioned before T126) reported and never created; exactly (c)'s Networks deleted, none before (c); export before the
 #       store is deleted, NFR-013 fields, unique attempt id; the usernames record before the Secret is
 #       deleted, username never password; namespace only after a re-list is empty; provisional claims
 #       (correlation id matching no Network) removed, submitted services' claims not the purge's;
 #       deny-tier-force-release + binding removed; agentic-netops-services untouched; no force-release
 #       annotation; the lab's evidence root survives; the second run is a no-op
-#   S4  no flag, empty (a): goes on, the scale-down still precedes the export
+#   S4  no flag, empty (a): goes on, the scale-down still precedes the export; a present `ui` (T126)
+#       is scaled to zero with supervisor and deployer, before the export, and removed with the workloads
 #   S5  no flag, a Network appearing between (a) and (c): refusal fallback — non-zero, named, both
 #       continuations, no delete, no export, workloads left at zero, re-provisioning named
 #   S6  export failures stop with the store intact: unqueryable within the timeout (override
@@ -107,7 +108,7 @@ setup() {
   fakes::k8s "$CL" _ namespace "$AL" "$CL"
   fakes::k8s "$CL" _ namespace "$AG" "$CL" '{"metadata":{"labels":{"agentic-netops.io/owned-by":"agentic-netops","agentic-netops.io/tier":"intent"}}}'
   fakes::k8s "$CL" _ namespace "$IN" "$CL" '{"metadata":{"labels":{"agentic-netops.io/owned-by":"agentic-netops","agentic-netops.io/tier":"intent"}}}'
-  for n in supervisor mapper allocator deployer slim agent-otel-collector; do dep "$n"; done   # no `ui` (AD-71)
+  for n in supervisor mapper allocator deployer slim agent-otel-collector; do dep "$n"; done   # no `ui` here (AD-71); S4 adds one
   fakes::k8s "$CL" "$AG" statefulset clickhouse "$CL"
   fakes::k8s "$CL" "$AG" secret operator-credentials "$CL" "$(jq -cn --arg u "$(b64 operator)" --arg p "$(b64 "$OPW")" '{data: {username: $u, password: $p}}')"
   fakes::k8s "$CL" "$AG" secret clickhouse-auth "$CL" "$(jq -cn --arg u "$(b64 otel)" --arg p "$(b64 "$CHPW")" '{data: {username: $u, password: $p}}')"
@@ -200,7 +201,7 @@ check "S3 flag: supervisor and deployer are scaled to zero (--replicas=0)" '[[ -
 check "S3 flag: the scale-down precedes the authoritative list (c)" 'lt "$scale_sup" "${netlists[1]:-}" && lt "$scale_dep" "${netlists[1]:-}"'
 check "S3 flag: the scale-down precedes the export" 'lt "$scale_sup" "$first_export" && lt "$scale_dep" "$first_export"'
 check "S3 flag: (c) is taken before the export" 'lt "${netlists[1]:-}" "$first_export"'
-check "S3 flag: ui (no Deployment until T126) is reported absent by name and never created (AD-71)" \
+check "S3 flag: an absent ui (a tier provisioned before T126) is reported absent by name and never created (AD-71)" \
   'grep -qiE "ui.*absent|absent.*ui" <<<"$out" && ! grep -qE "scale deployment ui|APPLY Deployment/ui" "$FAKE_STATE/calls.log"'
 net_deletes="$(grep -E '^kubectl .* delete networks\.fabric\.agentic-netops\.io' "$FAKE_STATE/calls.log")"
 check "S3 flag: exactly the Networks of (c) are deleted (svc-a, svc-b)" \
@@ -254,7 +255,11 @@ check "S3 second run: the planted evidence is byte-identical" 'planted_intact'
 # ================================================================== S4 — no flag, empty (a)
 setup noflag-empty
 rm -f "$FAKE_STATE/k8s/$CL/$IN/network/"*.json
+dep ui                         # the chat surface of T126, present
 run_off --purge-intent-tier
+check "S4 a present ui is scaled to zero (--replicas=0) with supervisor and deployer, before the export" \
+  'lt "$(line_of "^kubectl .* scale deployment ui .*--replicas=0")" "$(line_of "^kubectl .* exec .*JSONEachRow")"'
+check "S4 …and removed with the tier workloads" 'grep -qE "delete deployment .*\bui\b" "$FAKE_STATE/calls.log"'
 check "S4 no flag, empty (a): the purge goes on and completes" '[[ $rc -eq 0 ]] && ! exists "_/namespace/$AG"'
 check "S4 no flag, empty (a): the scale-down still precedes the export" \
   'lt "$(line_of "^kubectl .* scale deployment supervisor")" "$(line_of "^kubectl .* exec .*JSONEachRow")"'

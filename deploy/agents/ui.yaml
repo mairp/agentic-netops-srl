@@ -1,0 +1,130 @@
+# provenance: source=first-party version=v0.1.0
+# The chat surface (T126; US10; FR-102, AD-46; contracts/kubernetes-objects.md: Deployment/Service ui
+# 3000, ConfigMap ui-env, ServiceAccount intent-ui). One replica of the ui image (docker/Dockerfile.ui):
+# a static server on 3000 that serves the built application, answers GET /healthz for the probes, and
+# proxies same-origin /api/<route> to SUPERVISOR_BASE_URL — the supervisor's cluster service DNS name,
+# from ConfigMap ui-env, never baked into the image and never a credential. The browser therefore needs
+# no CORS and never learns the cluster URL; the operator's Authorization header passes through untouched
+# and the supervisor authenticates every pipeline-reaching route itself (FR-102).
+# ui-env reaches the container per key (configMapKeyRef), not by a whole-ConfigMap import, so the
+# container's environment is exactly what is named here (the allocator's convention).
+# No service-account token: the UI holds no cluster permission (ServiceAccount intent-ui,
+# deploy/rbac/serviceaccounts.yaml, automountServiceAccountToken: false there and on the pod).
+# Published on the host by Service ui, NodePort 30300 (Kind maps 127.0.0.1:13000 only —
+# config/kind/cluster.yaml): http://127.0.0.1:13000. Never an ingress controller.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ui-env
+  namespace: agentic-netops-agents
+  labels:
+    app.kubernetes.io/name: ui
+    app.kubernetes.io/part-of: agentic-netops-intent-tier
+    agentic-netops.io/tier: intent
+data:
+  # Cluster service DNS only; no user, password or token in any value.
+  SUPERVISOR_BASE_URL: "http://supervisor.agentic-netops-agents.svc:9090"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ui
+  namespace: agentic-netops-agents
+  labels:
+    app.kubernetes.io/name: ui
+    app.kubernetes.io/part-of: agentic-netops-intent-tier
+    agentic-netops.io/tier: intent
+    agentic-netops.io/identity: intent-ui
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ui
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ui
+        app.kubernetes.io/part-of: agentic-netops-intent-tier
+        agentic-netops.io/tier: intent
+        agentic-netops.io/identity: intent-ui
+    spec:
+      serviceAccountName: intent-ui
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: ui
+        # A sentinel tag (64 zeros: no build has that content hash) that never reaches the cluster:
+        # kustomization.yaml's images: override carries the content-hash tag scripts/lib/image_build.sh writes.
+        image: ui:0000000000000000000000000000000000000000000000000000000000000000
+        imagePullPolicy: Never
+        env:
+        - name: SUPERVISOR_BASE_URL
+          valueFrom:
+            configMapKeyRef:
+              name: ui-env
+              key: SUPERVISOR_BASE_URL
+              optional: false
+        ports:
+        - name: http
+          containerPort: 3000
+          protocol: TCP
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: http
+          initialDelaySeconds: 5
+          periodSeconds: 20
+          timeoutSeconds: 5
+          failureThreshold: 3
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: http
+          initialDelaySeconds: 2
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 500m
+            memory: 256Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: [ALL]
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+      volumes:
+      - name: tmp
+        emptyDir:
+          sizeLimit: 64Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ui
+  namespace: agentic-netops-agents
+  labels:
+    app.kubernetes.io/name: ui
+    app.kubernetes.io/part-of: agentic-netops-intent-tier
+spec:
+  type: NodePort
+  selector:
+    app.kubernetes.io/name: ui
+  ports:
+  - name: http
+    port: 3000
+    targetPort: http
+    protocol: TCP
+    nodePort: 30300

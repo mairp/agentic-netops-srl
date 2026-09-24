@@ -12,7 +12,7 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "test": "node --test"
+    "test": "node tests/run.mjs"
   },
   "dependencies": {
     "react": "^19.3.0",

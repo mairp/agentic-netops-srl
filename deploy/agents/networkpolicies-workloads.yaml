@@ -12,6 +12,11 @@
 #   supervisor-ingress            9090/TCP from anywhere: the operator reaches the supervisor through
 #                                 the Kind port mapping 127.0.0.1:19090 → NodePort 30990, and the
 #                                 supervisor authenticates every pipeline-reaching route itself (FR-102)
+#   ui-ingress                    3000/TCP from anywhere: the operator reaches the chat surface through
+#                                 the Kind port mapping 127.0.0.1:13000 → NodePort 30300 (T126); the ui
+#                                 holds no credential and its /api proxy reaches only the supervisor,
+#                                 whose 9090 supervisor-ingress already admits (egress: allow-egress-scoped
+#                                 admits pod-to-pod inside agentic-netops-agents and the cluster DNS)
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -72,3 +77,20 @@ spec:
   - ports:
     - protocol: TCP
       port: 9090
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ui-ingress
+  namespace: agentic-netops-agents
+  labels:
+    app.kubernetes.io/part-of: agentic-netops-intent-tier
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: ui
+  policyTypes: [Ingress]
+  ingress:
+  - ports:
+    - protocol: TCP
+      port: 3000

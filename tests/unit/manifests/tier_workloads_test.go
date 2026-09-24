@@ -12,7 +12,7 @@
 //   - slim: Service and containers expose 46357 only — 46358 is nowhere; slim-config has server TLS on
 //     (cert_file/key_file, never insecure) and the gateway password as an env reference;
 //   - the tier collector has exactly one exporter, clickhouse, with no TTL, on every pipeline;
-//   - the four agent images are `<name>:<64 hex>` with imagePullPolicy Never, overridden by the
+//   - the four agent images (and the ui's, ui_manifest_test.go) are `<name>:<64 hex>` with imagePullPolicy Never, overridden by the
 //     kustomization's images: block with a 64-hex newTag; third-party images are the lock's pinned refs;
 //   - TRANSPORT_SERVER_ENDPOINT is http://slim.agentic-netops-agents.svc:46357 in every agent;
 //   - the translator sidecar (T097, contracts/translator-api.md) is the deployer's second container and
@@ -50,9 +50,9 @@ const (
 
 var (
 	agentNames = []string{"supervisor", "mapper", "allocator", "deployer"}
-	// localImages are the first-party images built by scripts/lib/image_build.sh: the four agents and
-	// the deployer's translator sidecar.
-	localImages = append(slices.Clone(agentNames), sidecarName)
+	// localImages are the first-party images built by scripts/lib/image_build.sh: the four agents,
+	// the deployer's translator sidecar and the chat surface (ui, T126; ui_manifest_test.go).
+	localImages = append(slices.Clone(agentNames), sidecarName, "ui")
 	hashTag     = regexp.MustCompile(`^[0-9a-f]{64}$`)
 )
 
@@ -169,7 +169,7 @@ func resourceProblems(w *workload) []string {
 
 func TestTierWorkloadsDeclareRequestsAndLimits(t *testing.T) {
 	o := loadTier(t)
-	want := append(slices.Clone(agentNames), "slim", "clickhouse", "agent-otel-collector")
+	want := append(slices.Clone(agentNames), "slim", "clickhouse", "agent-otel-collector", "ui")
 	for _, n := range want {
 		w, ok := o.workloads[n]
 		if !ok {
@@ -983,6 +983,7 @@ func TestWorkloadNetworkPolicies(t *testing.T) {
 		"agent-otel-collector-ingress": {"agent-otel-collector", []int32{4318}},
 		"clickhouse-ingress":           {"clickhouse", []int32{8123, 9000}},
 		"supervisor-ingress":           {"supervisor", []int32{9090}},
+		"ui-ingress":                   {"ui", []int32{3000}},
 	}
 	if len(o.policies) != len(want) {
 		t.Errorf("deploy/agents holds %d NetworkPolicies, want %d", len(o.policies), len(want))

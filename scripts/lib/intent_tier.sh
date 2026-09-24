@@ -19,7 +19,7 @@
 #                            ALLOCATION_AUTHORITY, ALLOCATION_NAMESPACE, VLAN_POOL, VNI_POOL from
 #                            versions.lock.yaml allocationAuthority.kind and the Fabric's name) →
 #                            fabric-qualification copied from agentic-netops-system →
-#                            the four agent images and the translator sidecar's built
+#                            the four agent images, the translator sidecar's and the ui's built
 #                            (image_build::build <name> <manifest dir>,
 #                            T169: content-hash tag, kind load, kustomization images override,
 #                            image ID into evidence) → the rendered manifests applied in groups:
@@ -27,12 +27,13 @@
 #                            collector (agent-otel-collector), WAITED READY — the audit record's home
 #                            exists before anything can emit an audit event (AD-45) — then the
 #                            transport (slim), waited Ready, then the agent workloads (supervisor,
-#                            mapper, allocator, deployer), waited Ready → the supervisor's NodePort
-#                            asserted against the Kind loopback mapping (config/kind/cluster.yaml:
-#                            127.0.0.1 only) and its URL stated → the operator-credentials username —
-#                            never the password — captured through evidence_run
-#                            (operator-username-<attempt>) on every provisioning run (SC-042)
-#   No `ui` Deployment exists until T126: none is built, applied or waited on.
+#                            mapper, allocator, deployer), waited Ready, then the chat surface (ui:
+#                            ConfigMap ui-env, Deployment and Service ui, T126) — after the supervisor
+#                            it proxies to is Ready — waited Ready → the supervisor's and the ui's
+#                            NodePorts asserted against the Kind loopback mappings
+#                            (config/kind/cluster.yaml: 127.0.0.1 only) and their URLs stated → the
+#                            operator-credentials username — never the password — captured through
+#                            evidence_run (operator-username-<attempt>) on every provisioning run (SC-042)
 #
 # Down path steps (orchestrated by scripts/off.sh off::purge_intent_tier):
 #   intent_tier::list_networks <evidence id>   the Networks in agentic-netops-intent, through
@@ -40,7 +41,8 @@
 #   intent_tier::refuse <fallback:true|false> <names…>   the refusal text: each service, both
 #                                              continuations (and, on the fallback, re-provisioning)
 #   intent_tier::quiesce                       supervisor, ui, deployer → 0 replicas; an absent one is
-#                                              reported by name and never created (AD-71)
+#                                              reported by name and never created (AD-71) — e.g.
+#                                              a tier provisioned before T126 added the ui
 #   intent_tier::delete_networks <names…>      exactly those, by name
 #   intent_tier::wait_networks <names…>        up to TIER_PURGE_WAIT_SECONDS for their finalizers;
 #                                              not waiting at all on one already Deleting=True with
@@ -57,7 +59,7 @@
 # Settings (environment; defaults): TIER_PURGE_WAIT_SECONDS 300 (data-model.md §25),
 # TIER_PURGE_POLL_SECONDS 5, INTENT_TIER_WAIT_TIMEOUT (PROVISION_WAIT_TIMEOUT, else 300),
 # INTENT_TIER_MANIFEST_DIR (deploy/agents), INTENT_TIER_KIND_CONFIG (config/kind/cluster.yaml),
-# INTENT_TIER_SUPERVISOR_NODEPORT 30990, CLUSTER_NAME / KUBE_CONTEXT, KUBECTL.
+# INTENT_TIER_SUPERVISOR_NODEPORT 30990, INTENT_TIER_UI_NODEPORT 30300, CLUSTER_NAME / KUBE_CONTEXT, KUBECTL.
 # Command form: intent_tier.sh settings | requests
 # Exit: 0 ok; 1 a step failed (named); 2 usage/settings.
 
@@ -90,7 +92,7 @@ INTENT_TIER_NETWORKS="networks.fabric.agentic-netops.io"
 INTENT_TIER_CORRELATION_LABEL="agentic-netops.io/correlation-id"
 INTENT_TIER_VAP="deny-tier-force-release"
 INTENT_TIER_CLAIM_ROLE="kuid-claimer"
-INTENT_TIER_IMAGES=(supervisor mapper allocator deployer intent-translator)  # intent-translator: the deployer's sidecar (T097); the ui image has no Deployment until T126
+INTENT_TIER_IMAGES=(supervisor mapper allocator deployer intent-translator ui)  # intent-translator: the deployer's sidecar (T097); ui: the chat surface (T126)
 INTENT_TIER_AGENT_WORKLOADS=(supervisor mapper allocator deployer)
 INTENT_TIER_QUIESCE=(supervisor ui deployer)                  # the request-accepting workloads (AD-46)
 INTENT_TIER_STORE=(statefulset/clickhouse deployment/agent-otel-collector)
@@ -105,8 +107,9 @@ intent_tier::defaults() {
   : "${INTENT_TIER_MANIFEST_DIR:=$INTENT_TIER_ROOT/deploy/agents}"
   : "${INTENT_TIER_KIND_CONFIG:=$INTENT_TIER_ROOT/config/kind/cluster.yaml}"
   : "${INTENT_TIER_SUPERVISOR_NODEPORT:=30990}"
+  : "${INTENT_TIER_UI_NODEPORT:=30300}"
   local v
-  for v in TIER_PURGE_WAIT_SECONDS TIER_PURGE_POLL_SECONDS INTENT_TIER_WAIT_TIMEOUT INTENT_TIER_SUPERVISOR_NODEPORT; do
+  for v in TIER_PURGE_WAIT_SECONDS TIER_PURGE_POLL_SECONDS INTENT_TIER_WAIT_TIMEOUT INTENT_TIER_SUPERVISOR_NODEPORT INTENT_TIER_UI_NODEPORT; do
     if [[ ! "${!v}" =~ ^[0-9]+$ ]] || [[ "${!v}" -le 0 ]]; then
       log::error "intent tier: ${v} must be a positive integer, got '${!v}'"
       return 2
@@ -118,7 +121,7 @@ intent_tier::settings() {
   intent_tier::defaults || return 2
   local v
   for v in TIER_PURGE_WAIT_SECONDS TIER_PURGE_POLL_SECONDS INTENT_TIER_WAIT_TIMEOUT INTENT_TIER_MANIFEST_DIR \
-    INTENT_TIER_KIND_CONFIG INTENT_TIER_SUPERVISOR_NODEPORT; do
+    INTENT_TIER_KIND_CONFIG INTENT_TIER_SUPERVISOR_NODEPORT INTENT_TIER_UI_NODEPORT; do
     printf '%s=%s\n' "$v" "${!v}"
   done
   audit_export::settings
@@ -280,14 +283,16 @@ intent_tier::render() {
   fi
 }
 
-# intent_tier::_group <rendered file> <netpol|store|transport|agents> — that group's documents
+# intent_tier::_group <rendered file> <netpol|store|transport|agents|ui> — that group's documents
+# (ui: ConfigMap ui-env and the Deployment and Service ui — last, after the supervisor it proxies to)
 intent_tier::_group() {
   local file="$1" g="$2" expr
   case "$g" in
     netpol) expr='select(.kind == "NetworkPolicy")' ;;
     store) expr='select(.kind != "NetworkPolicy" and (.metadata.name | test("^(clickhouse|agent-otel-collector)")))' ;;
     transport) expr='select(.kind != "NetworkPolicy" and (.metadata.name | test("^slim")))' ;;
-    agents) expr='select(.kind != "NetworkPolicy" and (.metadata.name | test("^(clickhouse|agent-otel-collector|slim)") | not) and ((.kind == "Deployment" and .metadata.name == "ui") | not))' ;;
+    agents) expr='select(.kind != "NetworkPolicy" and (.metadata.name | test("^(clickhouse|agent-otel-collector|slim|ui$|ui-)") | not))' ;;
+    ui) expr='select(.kind != "NetworkPolicy" and (.metadata.name | test("^(ui$|ui-)")))' ;;
     *) return 2 ;;
   esac
   yq "$expr" "$file"
@@ -312,7 +317,7 @@ intent_tier::deploy_workloads() {
   tmp="$(mktemp -d)"
   if ! intent_tier::render >"$tmp/all.yaml"; then log::error "intent tier: rendering ${INTENT_TIER_MANIFEST_DIR} failed"; rm -rf "$tmp"; return 1; fi
   local g
-  for g in netpol store transport agents; do
+  for g in netpol store transport agents ui; do
     intent_tier::_group "$tmp/all.yaml" "$g" | sed '/^---$/{$d}' >"$tmp/$g.yaml" || { rm -rf "$tmp"; return 1; }
   done
   local w missing=()
@@ -331,29 +336,40 @@ intent_tier::deploy_workloads() {
   fi
   intent_tier::_apply_and_wait "the transport (slim)" "$tmp/transport.yaml" || rc=1
   if [[ "$rc" -eq 0 ]]; then intent_tier::_apply_and_wait "the agent workloads" "$tmp/agents.yaml" || rc=1; fi
+  if [[ "$rc" -eq 0 ]]; then intent_tier::_apply_and_wait "the chat surface (ui)" "$tmp/ui.yaml" || rc=1; fi
   rm -rf "$tmp"
   return "$rc"
 }
 
-# intent_tier::publish_check — the supervisor on 127.0.0.1 only: its NodePort is the one the Kind
-# config maps, and that mapping listens on loopback
-intent_tier::publish_check() {
-  local svc np map host addr
-  svc="$(intent_tier::k get service supervisor -n "$INTENT_TIER_AGENTS_NS" -o json 2>/dev/null)" \
-    || { log::error "intent tier: Service ${INTENT_TIER_AGENTS_NS}/supervisor is absent"; return 1; }
+# intent_tier::_published <service> <nodePort> — prints the host port: the Service is NodePort on
+# exactly that nodePort, and the Kind config maps that nodePort on 127.0.0.1 only
+intent_tier::_published() {
+  local name="$1" want="$2" svc np map host addr
+  svc="$(intent_tier::k get service "$name" -n "$INTENT_TIER_AGENTS_NS" -o json 2>/dev/null)" \
+    || { log::error "intent tier: Service ${INTENT_TIER_AGENTS_NS}/${name} is absent"; return 1; }
   np="$(jq -r '[.spec.ports[]?.nodePort | select(. != null)] | map(tostring) | join(",")' <<<"$svc")"
-  if [[ "$(jq -r '.spec.type // ""' <<<"$svc")" != NodePort || ",${np}," != *",${INTENT_TIER_SUPERVISOR_NODEPORT},"* ]]; then
-    log::error "intent tier: Service supervisor is type $(jq -r '.spec.type // "?"' <<<"$svc") with nodePort '${np:-none}'," \
-      "not NodePort ${INTENT_TIER_SUPERVISOR_NODEPORT} — the only port the Kind cluster publishes for it, on 127.0.0.1"
+  if [[ "$(jq -r '.spec.type // ""' <<<"$svc")" != NodePort || ",${np}," != *",${want},"* ]]; then
+    log::error "intent tier: Service ${name} is type $(jq -r '.spec.type // "?"' <<<"$svc") with nodePort '${np:-none}'," \
+      "not NodePort ${want} — the only port the Kind cluster publishes for it, on 127.0.0.1"
     return 1
   fi
-  map="$(NP="$INTENT_TIER_SUPERVISOR_NODEPORT" yq -o=json -I=0 '[.nodes[].extraPortMappings[]? | select(.containerPort == (strenv(NP) | tonumber))][0] // {}' "$INTENT_TIER_KIND_CONFIG" 2>/dev/null)" || map="{}"
+  map="$(NP="$want" yq -o=json -I=0 '[.nodes[].extraPortMappings[]? | select(.containerPort == (strenv(NP) | tonumber))][0] // {}' "$INTENT_TIER_KIND_CONFIG" 2>/dev/null)" || map="{}"
   host="$(jq -r '.hostPort // empty' <<<"$map")"; addr="$(jq -r '.listenAddress // empty' <<<"$map")"
   if [[ -z "$host" || "$addr" != 127.0.0.1 ]]; then
-    log::error "intent tier: ${INTENT_TIER_KIND_CONFIG#"$INTENT_TIER_ROOT"/} maps NodePort ${INTENT_TIER_SUPERVISOR_NODEPORT} on '${addr:-nothing}', not 127.0.0.1 only"
+    log::error "intent tier: ${INTENT_TIER_KIND_CONFIG#"$INTENT_TIER_ROOT"/} maps NodePort ${want} (Service ${name}) on '${addr:-nothing}', not 127.0.0.1 only"
     return 1
   fi
-  log::info "intent tier: supervisor published on loopback only — NodePort ${INTENT_TIER_SUPERVISOR_NODEPORT} → http://127.0.0.1:${host} (ui: no Deployment until T126; its 127.0.0.1 mapping is inert)"
+  printf '%s' "$host"
+}
+
+# intent_tier::publish_check — the supervisor and the chat surface on 127.0.0.1 only: each NodePort is
+# the one the Kind config maps, and that mapping listens on loopback
+intent_tier::publish_check() {
+  local host
+  host="$(intent_tier::_published supervisor "$INTENT_TIER_SUPERVISOR_NODEPORT")" || return 1
+  log::info "intent tier: supervisor published on loopback only — NodePort ${INTENT_TIER_SUPERVISOR_NODEPORT} → http://127.0.0.1:${host}"
+  host="$(intent_tier::_published ui "$INTENT_TIER_UI_NODEPORT")" || return 1
+  log::info "intent tier: ui (the chat surface) published on loopback only — NodePort ${INTENT_TIER_UI_NODEPORT} → http://127.0.0.1:${host}"
 }
 
 intent_tier::capture_username() {
@@ -379,7 +395,7 @@ intent_tier::install() {
   intent_tier::deploy_workloads || return 1
   intent_tier::publish_check || return 1
   intent_tier::capture_username || return 1
-  log::info "intent tier: Ready — store and collector, transport, $(IFS=,; echo "${INTENT_TIER_AGENT_WORKLOADS[*]}")"
+  log::info "intent tier: Ready — store and collector, transport, $(IFS=,; echo "${INTENT_TIER_AGENT_WORKLOADS[*]}"), ui"
 }
 
 # ================================================================== down path (off.sh --purge-intent-tier)

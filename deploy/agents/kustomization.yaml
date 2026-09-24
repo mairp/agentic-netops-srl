@@ -2,7 +2,8 @@
 # (scripts/lib/intent_tier.sh) into agentic-netops-agents AFTER the safety boundary of deploy/rbac/
 # (namespaces, ServiceAccounts, Roles, the four NetworkPolicies — T068–T071) is in place and proven.
 # The tier phase applies the pieces in order — the store and its collector first and waited Ready
-# (AD-45), then the transport, then the agents; `kubectl apply -k deploy/agents` applies everything
+# (AD-45), then the transport, then the agents, then the chat surface (ui, T126) that proxies to the
+# supervisor; `kubectl apply -k deploy/agents` applies everything
 # (idempotent) and is what the resources list below is for.
 #
 # Not shipped here, on purpose — each is generated or copied by the tier phase and has no literal:
@@ -23,6 +24,7 @@ resources:
   - deployer.yaml
   - mapper-catalogue.yaml
   - supervisor-prompts.yaml
+  - ui.yaml
 # The worker cards the supervisor discovers at call time (FR-071): one JSON card per file, each equal to
 # `python -m provisioning.<worker>.card` (a unit test asserts it). A fixed name — the supervisor mounts
 # ConfigMap agent-cards — so no suffix hash.
@@ -37,7 +39,7 @@ configMapGenerator:
       labels:
         app.kubernetes.io/name: agent-cards
         app.kubernetes.io/part-of: agentic-netops-intent-tier
-# The four agent images are built locally and never pulled: scripts/lib/image_build.sh (T169) writes
+# The four agent images, the translator sidecar's and the chat surface's (ui) are built locally and never pulled: scripts/lib/image_build.sh (T169) writes
 # each content-hash tag into newTag below (a kustomize image override, never a hand edit). Until a
 # build has, newTag is the 64-zero sentinel no build carries, so an unbuilt deployment fails visibly
 # (ErrImageNeverPull) — never `latest`.
@@ -51,4 +53,6 @@ images:
   - name: deployer
     newTag: "4d5bdbee564375d4a8a81149c976d3c3f31596178e6d47ded74c48faedd6343b"
   - name: intent-translator
-    newTag: "4e54ab63bfa1dd2a774e76a0139ecaa5b8bacd9df7084a08e3cc2fa1f11edaed"
+    newTag: "c7359fc738b0a57ee664a5b80cc743d93df57b65383974faf8c452450f47baa3"
+  - name: ui
+    newTag: "09a84cf6fddf798cb951bf0af115c8b0165b679acbfefc28933690ad41579911"

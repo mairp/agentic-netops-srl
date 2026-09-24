@@ -8,8 +8,10 @@
 #
 #   O1  clickhouse and agent-otel-collector are applied and waited Ready AFTER the denial probes and
 #       BEFORE the first apply of any agent workload (supervisor, mapper, allocator, deployer); slim
-#       between them; the four agent images and the translator sidecar's (intent-translator) built
-#       before any agent workload; ui neither built nor applied
+#       between them; the four agent images, the translator sidecar's (intent-translator) and the
+#       ui's built before any agent workload; the chat surface (ConfigMap ui-env, Deployment and
+#       Service ui, T126) applied AFTER every agent workload is applied and the supervisor it proxies
+#       to is waited Ready, and itself waited Ready
 #   O2  a store that never becomes Ready stops the phase non-zero with no agent workload applied
 #       (and a collector that never becomes Ready likewise)
 #   O3  failing denial probes: nothing of the tier's workloads applied
@@ -19,8 +21,9 @@
 #       from spec.overlay) with the translator sidecar's FABRIC_NODE_MAP / FABRIC_PORT_MAP / FABRIC_ASN;
 #       allocation-authority (the lock's authority kind, its claim namespace, the Fabric's two pools);
 #       fabric-qualification copied from agentic-netops-system
-#   O6  the supervisor published on 127.0.0.1 only: NodePort 30990 asserted, the URL stated; a
-#       different NodePort fails the phase
+#   O6  the supervisor and the ui published on 127.0.0.1 only: NodePorts 30990 and 30300 asserted,
+#       the URLs (http://127.0.0.1:19090, http://127.0.0.1:13000) stated; a different NodePort for
+#       either fails the phase
 #   O7  the operator-credentials username — never the password — captured through evidence_run
 #       (operator-username-<attempt>) on every provisioning run
 # shellcheck disable=SC2034,SC2207 # the variables are read inside check's eval strings
@@ -67,9 +70,10 @@ metadata: {name: $1, namespace: $AG}
 spec: {ports: [{port: 80}]}
 EOF
 }
-# fixture manifests: requests 500m+100m+100m+4x250m = 1700m CPU; 1Gi+128Mi+64Mi+4x256Mi = 2240 MiB
-manifests() { # <dir> [supervisor replicas] [supervisor nodePort]
-  local d="$1" sr="${2:-1}" np="${3:-30990}"
+# fixture manifests: requests 500m+100m+100m+4x250m+50m (ui) = 1750m CPU;
+# 1Gi+128Mi+64Mi+4x256Mi+64Mi (ui) = 2304 MiB
+manifests() { # <dir> [supervisor replicas] [supervisor nodePort] [ui nodePort]
+  local d="$1" sr="${2:-1}" np="${3:-30990}" unp="${4:-30300}"
   mkdir -p "$d"
   deploy_yaml clickhouse 500m 1Gi 1 StatefulSet >"$d/clickhouse.yaml"
   { printf 'apiVersion: v1\nkind: ConfigMap\nmetadata: {name: agent-otel-collector-config, namespace: %s}\ndata: {}\n---\n' "$AG"
@@ -80,6 +84,8 @@ manifests() { # <dir> [supervisor replicas] [supervisor nodePort]
     deploy_yaml supervisor 250m 256Mi "$sr" | sed "s/ports: \[{port: 80}\]/type: NodePort, ports: [{port: 9090, nodePort: $np}]/"; } >"$d/supervisor.yaml"
   local w
   for w in mapper allocator deployer; do deploy_yaml "$w" 250m 256Mi >"$d/$w.yaml"; done
+  { printf 'apiVersion: v1\nkind: ConfigMap\nmetadata: {name: ui-env, namespace: %s}\ndata: {SUPERVISOR_BASE_URL: "http://supervisor.%s.svc:9090"}\n---\n' "$AG" "$AG"
+    deploy_yaml ui 50m 64Mi | sed "s/ports: \[{port: 80}\]/type: NodePort, ports: [{port: 3000, nodePort: $unp}]/"; } >"$d/ui.yaml"
   printf 'apiVersion: networking.k8s.io/v1\nkind: NetworkPolicy\nmetadata: {name: allow-otlp-to-collector, namespace: %s}\nspec: {podSelector: {}}\n' "$AG" >"$d/networkpolicies-workloads.yaml"
   cat >"$d/kustomization.yaml" <<'EOF'
 apiVersion: kustomize.config.k8s.io/v1beta1
@@ -93,6 +99,7 @@ resources:
   - mapper.yaml
   - allocator.yaml
   - deployer.yaml
+  - ui.yaml
 EOF
 }
 
@@ -157,9 +164,18 @@ check "O1 …both waited Ready BEFORE the first apply of any agent workload" 'lt
 check "O1 slim (the transport) comes after the store is Ready and before the agents" 'lt "$w_ch" "$a_slim" && lt "$a_slim" "$a_agent"'
 check "O1 every agent workload is applied (supervisor, mapper, allocator, deployer)" \
   '[[ "$(grep -cE "$AGENT_APPLY" "$FAKE_STATE/calls.log")" -eq 4 ]]'
-check "O1 the four agent images and the translator sidecar's are built through image_build::build <name> <kustomization dir> before any agent workload" \
-  '[[ "$(grep -c "^BUILD .* $MAN$" "$FAKE_STATE/calls.log")" -eq 5 ]] && grep -q "^BUILD intent-translator $MAN$" "$FAKE_STATE/calls.log" && lt "$(line_of "^BUILD deployer")" "$a_agent" && lt "$(line_of "^BUILD intent-translator")" "$a_agent" && lt "$p" "$(line_of "^BUILD")"'
-check "O1 ui is neither built nor applied (no Deployment until T126)" '! grep -qE "^BUILD ui|APPLY Deployment/ui" "$FAKE_STATE/calls.log"'
+check "O1 the four agent images, the translator sidecar's and the ui's are built through image_build::build <name> <kustomization dir> before any agent workload" \
+  '[[ "$(grep -c "^BUILD .* $MAN$" "$FAKE_STATE/calls.log")" -eq 6 ]] && grep -q "^BUILD intent-translator $MAN$" "$FAKE_STATE/calls.log" && grep -q "^BUILD ui $MAN$" "$FAKE_STATE/calls.log" && lt "$(line_of "^BUILD deployer")" "$a_agent" && lt "$(line_of "^BUILD intent-translator")" "$a_agent" && lt "$(line_of "^BUILD ui ")" "$a_agent" && lt "$p" "$(line_of "^BUILD")"'
+a_ui="$(line_of '^APPLY Deployment/ui$')"; w_ui="$(line_of '^kubectl .* rollout status deployment/ui')"
+a_uienv="$(line_of '^APPLY ConfigMap/ui-env$')"; a_uisvc="$(line_of '^APPLY Service/ui$')"
+w_sup="$(line_of '^kubectl .* rollout status deployment/supervisor')"
+last_agent="$(grep -nE "$AGENT_APPLY" "$FAKE_STATE/calls.log" | tail -1 | cut -d: -f1)"
+check "O1 the ui Deployment is applied exactly once, AFTER every agent workload is applied" \
+  '[[ "$(grep -cE "^APPLY Deployment/ui$" "$FAKE_STATE/calls.log")" -eq 1 ]] && lt "$last_agent" "$a_ui"'
+check "O1 …and after the supervisor it proxies to is waited Ready" 'lt "$w_sup" "$a_ui"'
+check "O1 ConfigMap ui-env and Service ui are applied with it (after the agents), and the ui is waited Ready" \
+  'lt "$last_agent" "$a_uienv" && lt "$last_agent" "$a_uisvc" && lt "$a_ui" "$w_ui"'
+check "O1 no ui object is applied with the agent group (ui-env, Service ui)" '! lt "$a_uienv" "$w_sup" && ! lt "$a_uisvc" "$w_sup"'
 check "O1 the agents are waited Ready" 'grep -qE "rollout status deployment/supervisor" "$FAKE_STATE/calls.log" && grep -qE "rollout status deployment/deployer" "$FAKE_STATE/calls.log"'
 
 # ================================================================== O5 — site inventory, qualification
@@ -175,6 +191,7 @@ check "O5 fabric-qualification is copied from agentic-netops-system into agentic
 
 # ================================================================== O6 — published on loopback only
 check "O6 the supervisor NodePort 30990 is asserted and the loopback URL stated" 'grep -q "30990" <<<"$out" && grep -q "http://127.0.0.1:19090" <<<"$out"'
+check "O6 the ui NodePort 30300 is asserted and the loopback URL http://127.0.0.1:13000 stated" 'grep -q "30300" <<<"$out" && grep -q "http://127.0.0.1:13000" <<<"$out"'
 
 # ================================================================== O7 — the username capture
 UF="$(find "$EVIDENCE_ROOT" -name 'operator-username-*.stdout' | head -1)"
@@ -205,26 +222,35 @@ check "O3 failing denial probes: non-zero, nothing of the tier's workloads appli
 # ================================================================== O4 — the preflight
 setup preflight-ok
 phase
-check "O4 the preflight names the tier's summed requests (1700m CPU, 2240 MiB) computed from the manifests" 'grep -q "1700m" <<<"$out" && grep -q "2240 MiB" <<<"$out"'
+check "O4 the preflight names the tier's summed requests (1750m CPU, 2304 MiB) computed from the manifests" 'grep -q "1750m" <<<"$out" && grep -q "2304 MiB" <<<"$out"'
 setup preflight-short
 printf 'MemTotal: 2097152 kB\nMemAvailable: 1024000 kB\n' >"$W/meminfo"
 phase
 check "O4 a shortfall fails the phase non-zero" '[[ $rc -ne 0 ]]'
 check "O4 …before any mutation: no boundary step, no apply, no build" '! grep -qE "^(PROBES|APPLY|BUILD)" "$FAKE_STATE/calls.log" && ! grep -qE "^kubectl .* (apply|delete|scale|create|patch) " "$FAKE_STATE/calls.log"'
-check "O4 …naming the shortfall (1000 MiB available, 2240 MiB required, 1240 MiB short)" 'grep -q "1240 MiB short" <<<"$out" && grep -q "2240 MiB" <<<"$out"'
+check "O4 …naming the shortfall (1000 MiB available, 2304 MiB required, 1304 MiB short)" 'grep -q "1304 MiB short" <<<"$out" && grep -q "2304 MiB" <<<"$out"'
 setup preflight-cpu-short
 NPROC=1 phase
-check "O4 a CPU shortfall is named too (2 vCPU for 1700m, 1 available)" '[[ $rc -ne 0 ]] && grep -q "1 vCPU short" <<<"$out" && ! grep -q "^PROBES" "$FAKE_STATE/calls.log"'
+check "O4 a CPU shortfall is named too (2 vCPU for 1750m, 1 available)" '[[ $rc -ne 0 ]] && grep -q "1 vCPU short" <<<"$out" && ! grep -q "^PROBES" "$FAKE_STATE/calls.log"'
 setup preflight-not-typed
 manifests "$MAN" 3
 phase
-check "O4 the sum is computed, never typed: three supervisor replicas move it to 2200m / 2752 MiB" 'grep -q "2200m" <<<"$out" && grep -q "2752 MiB" <<<"$out"'
+check "O4 the sum is computed, never typed: three supervisor replicas move it to 2250m / 2816 MiB" 'grep -q "2250m" <<<"$out" && grep -q "2816 MiB" <<<"$out"'
 
 # ================================================================== O6 — a wrong NodePort
 setup wrong-nodeport
 manifests "$MAN" 1 31990
 phase
 check "O6 a supervisor NodePort other than 30990 (the only one Kind publishes, on 127.0.0.1) fails the phase" '[[ $rc -ne 0 ]] && grep -q "30990" <<<"$out"'
+setup wrong-ui-nodeport
+manifests "$MAN" 1 30990 31300
+phase
+check "O6 a ui NodePort other than 30300 (the only one Kind publishes for it, on 127.0.0.1) fails the phase" '[[ $rc -ne 0 ]] && grep -q "30300" <<<"$out" && grep -q "Service ui" <<<"$out"'
+setup ui-not-loopback
+yq '(.nodes[].extraPortMappings[] | select(.containerPort == 30300)).listenAddress = "0.0.0.0"' "$ROOT/config/kind/cluster.yaml" >"$W/cluster.yaml"
+INTENT_TIER_KIND_CONFIG="$W/cluster.yaml" phase
+check "O6 a Kind mapping of 30300 on anything but 127.0.0.1 fails the phase (the supervisor's still loopback)" \
+  '[[ $rc -ne 0 ]] && grep -q "http://127.0.0.1:19090" <<<"$out" && grep -q "NodePort 30300 (Service ui) on .0.0.0.0., not 127.0.0.1 only" <<<"$out"'
 
 printf '\ntier_phase_order_test: %d passed, %d failed\n' "$pass" "$fail"
 [[ "$fail" -eq 0 ]]
