@@ -1,0 +1,6 @@
+# The build context of docker/Dockerfile.ui. What is excluded here is excluded from the content-hash
+# tag too (scripts/lib/image_build.sh).
+node_modules
+dist
+tests
+*.log

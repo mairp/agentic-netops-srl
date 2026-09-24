@@ -1,0 +1,226 @@
+# provenance: source=first-party version=v0.1.0
+# The intent tier's collector (T087; FR-091, R-24, AD-45, AD-55; contracts/kubernetes-objects.md
+# §"Object inventory"; data-model.md §21). Every tier agent emits ONCE, over OTLP/HTTP, to this
+# collector (OTEL_EXPORTER_OTLP_ENDPOINT=http://agent-otel-collector.agentic-netops-agents.svc:4318).
+#
+# User Story 7 installs it with EXACTLY ONE exporter — `clickhouse`, the agent-analytics store and the
+# audit record (clickhouse.yaml). The second exporter, the forward to the fabric collector, is added by
+# User Story 12 once that collector exists; until then nothing else leaves this collector.
+#
+# The exporter creates the `otel` database's tables itself (create_schema) with `ttl: 0` — NO TTL on
+# any table, the trace table that carries the audit span events included (FR-078): the record is kept
+# for as long as the store exists and exported before anything removes it. Credentials come from the
+# generated Secret clickhouse-auth through env secretKeyRef, referenced from the configuration as the
+# collector's own `${env:VAR}` — never a literal.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: agent-otel-collector-config
+  namespace: agentic-netops-agents
+  labels:
+    app.kubernetes.io/name: agent-otel-collector
+    app.kubernetes.io/part-of: agentic-netops-intent-tier
+data:
+  config.yaml: |
+    receivers:
+      otlp:
+        protocols:
+          http:
+            endpoint: 0.0.0.0:4318
+    processors:
+      memory_limiter:
+        check_interval: 1s
+        limit_percentage: 80
+        spike_limit_percentage: 20
+      batch:
+        send_batch_size: 1024
+        timeout: 2s
+    exporters:
+      clickhouse:
+        endpoint: tcp://clickhouse.agentic-netops-agents.svc:9000
+        database: otel
+        username: "${env:CLICKHOUSE_USER}"
+        password: "${env:CLICKHOUSE_PASSWORD}"
+        create_schema: true
+        ttl: 0
+        traces_table_name: otel_traces
+        logs_table_name: otel_logs
+        timeout: 10s
+        retry_on_failure:
+          enabled: true
+          initial_interval: 1s
+          max_interval: 30s
+          max_elapsed_time: 300s
+    extensions:
+      health_check:
+        endpoint: 0.0.0.0:13133
+    service:
+      extensions: [health_check]
+      telemetry:
+        logs:
+          encoding: json
+      pipelines:
+        traces:
+          receivers: [otlp]
+          processors: [memory_limiter, batch]
+          exporters: [clickhouse]
+        metrics:
+          receivers: [otlp]
+          processors: [memory_limiter, batch]
+          exporters: [clickhouse]
+        logs:
+          receivers: [otlp]
+          processors: [memory_limiter, batch]
+          exporters: [clickhouse]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: agent-otel-collector
+  namespace: agentic-netops-agents
+  labels:
+    app.kubernetes.io/name: agent-otel-collector
+    app.kubernetes.io/part-of: agentic-netops-intent-tier
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: agent-otel-collector
+  ports:
+  - name: otlp-http
+    port: 4318
+    targetPort: otlp-http
+    protocol: TCP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agent-otel-collector
+  namespace: agentic-netops-agents
+  labels:
+    app.kubernetes.io/name: agent-otel-collector
+    app.kubernetes.io/part-of: agentic-netops-intent-tier
+    agentic-netops.io/tier: intent
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: agent-otel-collector
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: agent-otel-collector
+        app.kubernetes.io/part-of: agentic-netops-intent-tier
+        agentic-netops.io/tier: intent
+    spec:
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      # The exporter creates its schema at start-up and the collector exits when the store does not
+      # answer yet; waiting here for an authenticated `SELECT 1` (same pinned store image, same
+      # Secret) makes a joint apply converge without a crash-loop.
+      initContainers:
+      - name: wait-for-store
+        image: docker.io/clickhouse/clickhouse-server:26.8.9.10@sha256:85ddbad63bd6779d4b3c64af17a0720c85e9dc6e5fa636f80bfdbb6096bdc5ab
+        imagePullPolicy: IfNotPresent
+        command:
+        - /bin/bash
+        - -c
+        - |
+          for i in $(seq 1 150); do
+            clickhouse-client --host clickhouse.agentic-netops-agents.svc --port 9000 \
+              --database otel --query 'SELECT 1' >/dev/null 2>&1 && exit 0
+            sleep 2
+          done
+          echo "the store clickhouse did not answer an authenticated query within 300 s" >&2
+          exit 1
+        env:
+        # clickhouse-client reads these two variables itself; no credential is on the command line.
+        - name: CLICKHOUSE_USER
+          valueFrom:
+            secretKeyRef:
+              name: clickhouse-auth
+              key: username
+        - name: CLICKHOUSE_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: clickhouse-auth
+              key: password
+        resources:
+          requests:
+            cpu: 10m
+            memory: 64Mi
+          limits:
+            cpu: 200m
+            memory: 256Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: [ALL]
+        volumeMounts:
+        - name: init-tmp
+          mountPath: /tmp
+      containers:
+      - name: otelcol
+        image: docker.io/otel/opentelemetry-collector-contrib:0.161.0@sha256:fd328de2552466ad78385e1b1289c3f2402b1c45f265b252aab1955b42845ac1
+        imagePullPolicy: IfNotPresent
+        args: ["--config=/etc/otelcol/config.yaml"]
+        env:
+        - name: CLICKHOUSE_USER
+          valueFrom:
+            secretKeyRef:
+              name: clickhouse-auth
+              key: username
+        - name: CLICKHOUSE_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: clickhouse-auth
+              key: password
+        - name: GOMEMLIMIT
+          value: 200MiB
+        ports:
+        - name: otlp-http
+          containerPort: 4318
+          protocol: TCP
+        - name: health
+          containerPort: 13133
+          protocol: TCP
+        readinessProbe:
+          httpGet:
+            path: /
+            port: health
+          periodSeconds: 5
+        livenessProbe:
+          httpGet:
+            path: /
+            port: health
+          initialDelaySeconds: 10
+          periodSeconds: 20
+        resources:
+          requests:
+            cpu: 50m
+            memory: 96Mi
+          limits:
+            cpu: 500m
+            memory: 256Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: [ALL]
+        volumeMounts:
+        - name: config
+          mountPath: /etc/otelcol
+          readOnly: true
+      volumes:
+      - name: init-tmp
+        emptyDir:
+          sizeLimit: 16Mi
+      - name: config
+        configMap:
+          name: agent-otel-collector-config

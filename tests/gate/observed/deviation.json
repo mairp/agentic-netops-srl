@@ -17,5 +17,5 @@
   "reason_strings_seen": [],
   "restoration_observed": true,
   "schema": "agentic-netops.gate.deviation/v1",
-  "time_to_restoration_seconds": 25
+  "time_to_restoration_seconds": 3
 }

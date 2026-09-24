@@ -1,0 +1,227 @@
+# provenance: source=first-party version=v0.1.0
+# The provisioning supervisor (T087; C-10, C-11; FR-050–FR-054, FR-102, CD-01, AD-54;
+# contracts/kubernetes-objects.md, contracts/supervisor-http.md). One replica, strategy Recreate: the
+# durable thread checkpointer (SQLite on PVC supervisor-checkpoint, ReadWriteOnce) must never have two
+# writers. Probes: liveness GET /health (touches nothing — generous, so a slow start or a transport
+# outage never restarts it) vs readiness GET /v1/health (probes each worker over SLIM: a stopped worker
+# makes the supervisor NotReady, named on /v1/health, and NEVER restarted — threads stay resumable).
+# Mounted read-only: operator-credentials (THIS workload only; re-read on every request, so rotation
+# needs no restart — a whole-Secret volume, never subPath), llm-provider (as a volume, never
+# secretKeyRef/envFrom: the endpoint is re-read from the file on every model call, FR-106, AD-67),
+# slim-gateway + the CA of slim-tls, and the agent-cards ConfigMap (discovery at call time, FR-071).
+# No service-account token: the supervisor holds no cluster permission.
+# Published on the host by Service supervisor, NodePort 30990 (Kind maps 127.0.0.1:19090 only).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: supervisor-checkpoint
+  namespace: agentic-netops-agents
+  labels:
+    app.kubernetes.io/name: supervisor
+    app.kubernetes.io/part-of: agentic-netops-intent-tier
+    agentic-netops.io/tier: intent
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: standard
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: supervisor
+  namespace: agentic-netops-agents
+  labels:
+    app.kubernetes.io/name: supervisor
+    app.kubernetes.io/part-of: agentic-netops-intent-tier
+    agentic-netops.io/tier: intent
+    agentic-netops.io/identity: intent-supervisor
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: supervisor
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: supervisor
+        app.kubernetes.io/part-of: agentic-netops-intent-tier
+        agentic-netops.io/tier: intent
+        agentic-netops.io/identity: intent-supervisor
+    spec:
+      serviceAccountName: intent-supervisor
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: supervisor
+        # A sentinel tag (64 zeros: no build has that content hash) that never reaches the cluster:
+        # kustomization.yaml's images: override carries the content-hash tag scripts/lib/image_build.sh writes.
+        image: supervisor:0000000000000000000000000000000000000000000000000000000000000000
+        imagePullPolicy: Never
+        env:
+        - name: AGENT_COMPONENT
+          value: "supervisor"
+        # The long variable name only (contracts/a2a-transport.md); TLS + basic auth per slim.yaml.
+        - name: TRANSPORT_SERVER_ENDPOINT
+          value: "http://slim.agentic-netops-agents.svc:46357"
+        - name: SLIM_GATEWAY_DIR
+          value: "/var/run/secrets/agentic-netops/slim-gateway"
+        - name: SLIM_TLS_DIR
+          value: "/var/run/secrets/agentic-netops/slim-tls"
+        - name: LLM_PROVIDER_DIR
+          value: "/var/run/secrets/agentic-netops/llm-provider"
+        - name: OTEL_EXPORTER_OTLP_ENDPOINT
+          value: "http://agent-otel-collector.agentic-netops-agents.svc:4318"
+        - name: OTEL_SERVICE_NAME
+          value: "supervisor"
+        # slim_bindings keeps its storage under $HOME: the writable emptyDir /tmp.
+        - name: HOME
+          value: "/tmp"
+        # operator-credentials is read from its default mount path
+        # (/var/run/secrets/agentic-netops/operator-credentials, config/settings.py); the variable
+        # OPERATOR_CREDENTIALS_DIR is left unset so no credential-named env entry exists at all.
+        - name: AGENT_CARDS_DIR
+          value: "/etc/agentic-netops/agent-cards"
+        - name: SUPERVISOR_CHECKPOINT_PATH
+          value: "/var/lib/supervisor/checkpoints.sqlite"
+        # data-model.md §25 bounds, at their defaults (start-up asserts convergence < deployer call < deadline).
+        - name: SUPERVISOR_MAX_ITERATIONS
+          value: "3"
+        - name: SUPERVISOR_REQUEST_DEADLINE_SECONDS
+          value: "300"
+        - name: WORKER_CALL_TIMEOUT_SECONDS
+          value: "60"
+        - name: DEPLOYER_CALL_TIMEOUT_SECONDS
+          value: "210"
+        - name: WORKER_CALL_RETRIES
+          value: "2"
+        - name: DEPLOYER_CONVERGENCE_TIMEOUT_SECONDS
+          value: "150"
+        ports:
+        - name: http
+          containerPort: 9090
+          protocol: TCP
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: http
+          initialDelaySeconds: 20
+          periodSeconds: 20
+          timeoutSeconds: 5
+          failureThreshold: 12
+        readinessProbe:
+          httpGet:
+            path: /v1/health
+            port: http
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 10
+          failureThreshold: 3
+        resources:
+          requests:
+            cpu: 100m
+            memory: 384Mi
+          limits:
+            cpu: "1"
+            memory: 1Gi
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: [ALL]
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+        - name: checkpoint
+          mountPath: /var/lib/supervisor
+        - name: operator-credentials
+          mountPath: /var/run/secrets/agentic-netops/operator-credentials
+          readOnly: true
+        - name: llm-provider
+          mountPath: /var/run/secrets/agentic-netops/llm-provider
+          readOnly: true
+        - name: slim-gateway
+          mountPath: /var/run/secrets/agentic-netops/slim-gateway
+          readOnly: true
+        - name: slim-tls
+          mountPath: /var/run/secrets/agentic-netops/slim-tls
+          readOnly: true
+        - name: agent-cards
+          mountPath: /etc/agentic-netops/agent-cards
+          readOnly: true
+        # /suggested-prompts resolves every node and port against the site's real inventory and offers
+        # only what the qualification record shows qualified (contracts/supervisor-http.md, FR-084,
+        # FR-097) — read from the same read-only mounts the workers use, never through the API.
+        - name: site-inventory
+          mountPath: /etc/agentic-netops/site-inventory
+          readOnly: true
+        - name: fabric-qualification
+          mountPath: /etc/agentic-netops/fabric-qualification
+          readOnly: true
+      volumes:
+      - name: tmp
+        emptyDir:
+          sizeLimit: 256Mi
+      - name: checkpoint
+        persistentVolumeClaim:
+          claimName: supervisor-checkpoint
+      - name: operator-credentials
+        secret:
+          secretName: operator-credentials
+          defaultMode: 0444
+      - name: llm-provider
+        secret:
+          secretName: llm-provider
+          defaultMode: 0444
+      - name: slim-gateway
+        secret:
+          secretName: slim-gateway
+          defaultMode: 0444
+      - name: slim-tls
+        secret:
+          secretName: slim-tls
+          defaultMode: 0444
+          items:
+          - key: ca.crt
+            path: ca.crt
+      - name: agent-cards
+        configMap:
+          name: agent-cards
+          optional: false
+      - name: site-inventory
+        configMap:
+          name: site-inventory
+          optional: false
+      - name: fabric-qualification
+        configMap:
+          name: fabric-qualification
+          optional: false
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: supervisor
+  namespace: agentic-netops-agents
+  labels:
+    app.kubernetes.io/name: supervisor
+    app.kubernetes.io/part-of: agentic-netops-intent-tier
+spec:
+  type: NodePort
+  selector:
+    app.kubernetes.io/name: supervisor
+  ports:
+  - name: http
+    port: 9090
+    targetPort: http
+    protocol: TCP
+    nodePort: 30990

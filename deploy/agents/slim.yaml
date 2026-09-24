@@ -1,0 +1,238 @@
+# provenance: source=first-party version=v0.1.0
+# The SLIM transport gateway of the intent tier (T082; FR-072; contracts/a2a-transport.md
+# §"Transport", §"Authentication"; research.md D-28, R-14; docs/operations/transport-security.md).
+#
+#   Issuer slim-selfsigned → Certificate slim-ca (isCA, Secret slim-ca) → Issuer slim-ca-issuer →
+#   Certificate slim-server (Secret slim-tls: ca.crt, tls.crt, tls.key) — the in-cluster CA the
+#   agents trust (they mount slim-tls read-only and use only ca.crt).
+#   ConfigMap slim-config — the gateway's configuration: server TLS ENABLED, never insecure, with the
+#   key names T166 qualified on the pinned release (tests/gate/slim_tls_keys.sh: cert_file, key_file),
+#   and HTTP Basic authentication whose username and password come from the generated Secret
+#   slim-gateway through the gateway's own `${env:VAR}` substitution — no literal anywhere.
+#   Deployment/Service slim — data plane 46357/TCP ONLY; the controller port 46358 is neither a
+#   containerPort nor a Service port, and no NetworkPolicy admits it.
+#
+# R-14 FALLBACK, IN FORCE: the pinned release (ghcr.io/agntcy/slim:0.6.1) did NOT verify client
+# certificates — with `client_ca_file` set, T166 observed a client WITHOUT a certificate accepted
+# (evidence gate/qualifications/slim_tls_keys.json: client_certificate_verification_exposed=false).
+# So the gateway runs server TLS + the gateway password + the NetworkPolicy slim-ingress
+# (deploy/rbac/networkpolicies.yaml: 46357 from tier-labelled pods only). This is an accepted risk
+# with a stated production delta — client-certificate mTLS — never a silent downgrade:
+# docs/operations/transport-security.md. `client_ca_file` is deliberately NOT configured, because
+# configuring a setting the release ignores would claim a verification that does not happen.
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: slim-selfsigned
+  namespace: agentic-netops-agents
+  labels:
+    app.kubernetes.io/name: slim
+    app.kubernetes.io/part-of: agentic-netops-intent-tier
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: slim-ca
+  namespace: agentic-netops-agents
+  labels:
+    app.kubernetes.io/name: slim
+    app.kubernetes.io/part-of: agentic-netops-intent-tier
+spec:
+  isCA: true
+  commonName: slim-ca
+  secretName: slim-ca
+  duration: 87600h
+  renewBefore: 720h
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+  issuerRef:
+    group: cert-manager.io
+    kind: Issuer
+    name: slim-selfsigned
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: slim-ca-issuer
+  namespace: agentic-netops-agents
+  labels:
+    app.kubernetes.io/name: slim
+    app.kubernetes.io/part-of: agentic-netops-intent-tier
+spec:
+  ca:
+    secretName: slim-ca
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: slim-server
+  namespace: agentic-netops-agents
+  labels:
+    app.kubernetes.io/name: slim
+    app.kubernetes.io/part-of: agentic-netops-intent-tier
+spec:
+  secretName: slim-tls
+  commonName: slim.agentic-netops-agents.svc
+  dnsNames:
+  - slim
+  - slim.agentic-netops-agents
+  - slim.agentic-netops-agents.svc
+  - slim.agentic-netops-agents.svc.cluster.local
+  usages:
+  - server auth
+  - digital signature
+  - key encipherment
+  duration: 8760h
+  renewBefore: 720h
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+  issuerRef:
+    group: cert-manager.io
+    kind: Issuer
+    name: slim-ca-issuer
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: slim-config
+  namespace: agentic-netops-agents
+  labels:
+    app.kubernetes.io/name: slim
+    app.kubernetes.io/part-of: agentic-netops-intent-tier
+data:
+  # `${env:SLIM_GATEWAY_USERNAME}` / `${env:SLIM_GATEWAY_PASSWORD}` are resolved by the gateway at
+  # start-up from its environment, which takes them from Secret slim-gateway by secretKeyRef
+  # (observed on the pinned release: the start-up log prints `auth: Basic(Config { username:
+  # <resolved>, password: ***** })`). The two values are references, never credentials.
+  config.yaml: |
+    tracing:
+      log_level: info
+    runtime:
+      n_cores: 0
+      drain_timeout: 10s
+    services:
+      slim/0:
+        dataplane:
+          servers:
+          - endpoint: "0.0.0.0:46357"
+            tls:
+              cert_file: /var/run/secrets/agentic-netops/slim-tls/tls.crt
+              key_file: /var/run/secrets/agentic-netops/slim-tls/tls.key
+            auth:
+              basic:
+                username: "${env:SLIM_GATEWAY_USERNAME}"
+                password: "${env:SLIM_GATEWAY_PASSWORD}"
+          clients: []
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: slim
+  namespace: agentic-netops-agents
+  labels:
+    app.kubernetes.io/name: slim
+    app.kubernetes.io/part-of: agentic-netops-intent-tier
+    agentic-netops.io/tier: intent
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: slim
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: slim
+        app.kubernetes.io/part-of: agentic-netops-intent-tier
+        agentic-netops.io/tier: intent
+    spec:
+      # The gateway holds no cluster identity at all.
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: slim
+        image: ghcr.io/agntcy/slim:0.6.1@sha256:12789882e61afb2bc8d12fac4abba18ae7175ffc6c60f35b58a2aa375ccf2fe0
+        imagePullPolicy: IfNotPresent
+        command: ["/slim"]
+        args: ["--config", "/etc/slim/config.yaml"]
+        env:
+        - name: SLIM_GATEWAY_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: slim-gateway
+              key: username
+        - name: SLIM_GATEWAY_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: slim-gateway
+              key: password
+        ports:
+        # The data plane only. The controller port 46358 is not declared, not in the Service,
+        # and not admitted by any NetworkPolicy (contracts/a2a-transport.md).
+        - name: dataplane
+          containerPort: 46357
+          protocol: TCP
+        readinessProbe:
+          tcpSocket:
+            port: dataplane
+          initialDelaySeconds: 2
+          periodSeconds: 10
+        livenessProbe:
+          tcpSocket:
+            port: dataplane
+          initialDelaySeconds: 10
+          periodSeconds: 20
+          failureThreshold: 3
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 500m
+            memory: 256Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: [ALL]
+        volumeMounts:
+        - name: config
+          mountPath: /etc/slim
+          readOnly: true
+        - name: slim-tls
+          mountPath: /var/run/secrets/agentic-netops/slim-tls
+          readOnly: true
+      volumes:
+      - name: config
+        configMap:
+          name: slim-config
+      - name: slim-tls
+        secret:
+          secretName: slim-tls
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: slim
+  namespace: agentic-netops-agents
+  labels:
+    app.kubernetes.io/name: slim
+    app.kubernetes.io/part-of: agentic-netops-intent-tier
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: slim
+  ports:
+  - name: dataplane
+    port: 46357
+    targetPort: dataplane
+    protocol: TCP

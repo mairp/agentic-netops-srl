@@ -14,7 +14,8 @@
 #   * a second run is a success no-op (no destroy / delete / rm call)
 #   * the audit-record hook: store absent → no-op; store present and export failing → stops with
 #     nothing deleted; --discard-audit-record → proceeds, printed and recorded
-#   * --purge-intent-tier is reserved (exit 2, nothing touched)
+#   * --purge-intent-tier on a lab without the tier is a success no-op that leaves the lab, cluster
+#     and network (the purge itself is T174's tier_purge_test.sh); --remove-services alone is usage
 #   * the intent tier's generated Secrets (T072) are removed before the cluster, operator-credentials
 #     only after its username (never its password) is captured through evidence_run
 #   * the first-party allocation authority's namespace agentic-netops-allocation: owned → removed
@@ -47,6 +48,8 @@ setup() {
   export PATH="$W/bin:$ORIG_PATH"
   export EVIDENCE_ROOT="$W/evidence" CLAB_LABDIR_BASE="$W/labdir" AGENTIC_NETOPS_ENV_FILE="$W/no.env"
   unset EVIDENCE_DIR CLUSTER_NAME OFF_AUDIT_EXPORT_CMD || true
+  # this suite's fake store never answers: bound T088's export tightly (its default is tier_purge_test's)
+  export AUDIT_EXPORT_TIMEOUT_SECONDS=3
   fakes::network "$NET" 172.25.25.0/24 "$CL"
   local n
   for n in spine01 spine02 leaf01 leaf02; do fakes::container "clab-$LAB-$n" "$LAB" nokia_srlinux "$CL"; done
@@ -179,7 +182,7 @@ setup store-export-fails
 fakes::k8s "$CL" _ namespace agentic-netops-agents "$CL"
 fakes::k8s "$CL" agentic-netops-agents statefulset clickhouse "$CL"
 run_off
-check "audit: store present, no export available → non-zero" '[[ $rc -ne 0 ]]'
+check "audit: store present, the export failing (a store that never answers) → non-zero" '[[ $rc -ne 0 ]]'
 check "audit: the failure is named" 'grep -q "audit record: export FAILED" <<<"$out"'
 check "audit: nothing was deleted; the store is intact" \
   '[[ -z "$(deleting_calls)" && -e "$FAKE_STATE/k8s/$CL/agentic-netops-agents/statefulset/clickhouse.json" ]]'
@@ -238,12 +241,14 @@ setup alloc-absent
 run_off
 check "allocation: absent → never deleted (no delete call names it)" '[[ $rc -eq 0 ]] && ! calls | grep -q "delete namespace agentic-netops-allocation"'
 
-# ------------------------------------------------------------------ reserved flag, usage
+# ------------------------------------------------------------------ the tier purge (T088; T174 is its suite), usage
 setup purge
 run_off --purge-intent-tier
-check "purge: --purge-intent-tier is reserved → exit 2" '[[ $rc -eq 2 ]]'
-check "purge: says it is reserved for User Story 7" 'grep -q "reserved for User Story 7" <<<"$out"'
-check "purge: nothing was called at all" '[[ -z "$(calls)" ]]'
+check "purge: --purge-intent-tier with no tier installed → a success no-op" '[[ $rc -eq 0 && -z "$(deleting_calls)" ]]'
+check "purge: it removes the tier only — the lab, cluster and network stay" '[[ -e "$FAKE_STATE/kind/$CL" && -e "$FAKE_STATE/docker/networks/$NET.json" ]] && ! world_absent'
+check "purge: the planted evidence is byte-identical" 'planted_intact'
+run_off --remove-services
+check "usage: --remove-services without --purge-intent-tier → exit 2, nothing called" '[[ $rc -eq 2 && -z "$(calls)" ]]'
 run_off --bogus
 check "usage: an unknown flag → exit 2" '[[ $rc -eq 2 ]]'
 

@@ -23,6 +23,9 @@ mkdir -p "$TR/scripts" "$TR/deploy/agents" "$TR/tests/integration" "$TR/bin" "$T
 cp -r "$ROOT/scripts/lib" "$TR/scripts/lib"
 cp "$ROOT/scripts/provision.sh" "$TR/scripts/provision.sh"
 rm -f "$TR/scripts/lib/intent_secrets.sh"
+# T088's scripts/lib/intent_tier.sh is removed from this copy: this suite proves the boundary step
+# alone (tier_phase_order_test.sh drives the whole phase)
+rm -f "$TR/scripts/lib/intent_tier.sh" "$TR/scripts/lib/audit_export.sh"
 cp -r "$ROOT/deploy/rbac" "$TR/deploy/rbac"
 cp "$ROOT/versions.lock.yaml" "$TR/versions.lock.yaml"
 printf 'apiVersion: apps/v1\nkind: Deployment\nmetadata: {name: supervisor}\n' >"$TR/deploy/agents/supervisor.yaml"
@@ -99,7 +102,7 @@ phases="$(cd "$TR" && bash -c 'source scripts/provision.sh; printf "%s " "${PROV
 grep -qE 'if \[\[ "\$with_tier" == true \]\]; then' "$ROOT/scripts/provision.sh" && grep -q 'provision::phase_IntentTierReady ||' "$ROOT/scripts/provision.sh" \
   && ok "only --with-intent-tier runs it, after every default phase" || bad "flag wiring"
 grep -q 'IntentTierReady  (--with-intent-tier) its boundary step first' "$ROOT/scripts/provision.sh" \
-  && ok "the header documents the boundary step and the still-failing rest" || bad "header docs"
+  && ok "the header documents the boundary step and the still-failing rest without intent_tier.sh" || bad "header docs"
 
 echo "provision_boundary_test: $fails failure(s)"
 [[ "$fails" -eq 0 ]]

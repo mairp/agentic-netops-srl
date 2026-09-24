@@ -48,9 +48,19 @@
 #                  NetworkPolicies templated from the real management subnet, the admission policy
 #                  deny-tier-force-release, the tier's Secrets — then the denial probes
 #                  (tests/integration/boundary_probes.sh, T066) BEFORE any agent workload exists;
-#                  any denial not observed aborts the phase non-zero. The rest of the tier (its
-#                  workloads, T088, User Story 7) is not built yet: after the boundary step passes
-#                  the run still FAILS naming what is not installed — it is never silently skipped
+#                  any denial not observed aborts the phase non-zero. Around it (T088,
+#                  scripts/lib/intent_tier.sh): FIRST the extended host preflight — the fabric
+#                  threshold plus the requests summed from deploy/agents/*.yaml, failing before
+#                  anything of the tier is changed and naming the shortfall (NFR-012); AFTER the
+#                  probes: site-inventory (from the Fabric's inventory), fabric-qualification copied
+#                  into agentic-netops-agents, the four agent images built (image_build.sh), the
+#                  analytics store (clickhouse) and tier collector (agent-otel-collector) applied
+#                  and WAITED READY before any agent workload exists (AD-45), slim, then
+#                  supervisor/mapper/allocator/deployer waited Ready; the supervisor published on
+#                  127.0.0.1 only (NodePort 30990 → 127.0.0.1:19090); the operator-credentials
+#                  username (never the password) captured through evidence_run on every run.
+#                  Without scripts/lib/intent_tier.sh in the tree the run still FAILS after the
+#                  boundary step, naming what is not installed — never silently skipped
 #
 # Flags / environment:
 #   --cluster-name <name>   (env CLUSTER_NAME, default agentic-netops; context kind-<name>)
@@ -98,7 +108,7 @@ source "$PROVISION_LIB/ownership.sh"
 # shellcheck source=lib/gate.sh
 source "$PROVISION_LIB/gate.sh"
 # The lifecycle libraries (stream A1). A missing one fails the phase that needs it, naming it.
-for __lib in preflight docker_net kind containerlab lab_secrets image_build; do
+for __lib in preflight docker_net kind containerlab lab_secrets image_build intent_tier; do
   # shellcheck disable=SC1090
   if [[ -f "$PROVISION_LIB/${__lib}.sh" ]]; then source "$PROVISION_LIB/${__lib}.sh"; fi
 done
@@ -531,14 +541,26 @@ provision::boundary_step() {
 
 provision::phase_IntentTierReady() {
   log::phase IntentTierReady
+  local have_tier=false
+  declare -F intent_tier::install >/dev/null && have_tier=true
+  if [[ "$have_tier" == true ]] && ! intent_tier::preflight; then
+    log::error "--with-intent-tier: the preflight failed — nothing of the tier was changed; the intent tier was NOT installed"
+    return 1
+  fi
   if ! provision::boundary_step; then
     log::error "--with-intent-tier: the boundary step failed — no agent workload was created; the intent tier was NOT installed"
     return 1
   fi
-  log::error "--with-intent-tier: the safety boundary is applied and proven, but the rest of IntentTierReady — the tier's" \
-    "workloads (the store and collector, slim, the agents and the UI; T088, User Story 7) — is not built yet;" \
-    "the intent tier you asked for was NOT installed"
-  return 1
+  if [[ "$have_tier" != true ]]; then
+    log::error "--with-intent-tier: the safety boundary is applied and proven, but the rest of IntentTierReady — the tier's" \
+      "workloads (scripts/lib/intent_tier.sh, T088) — is not built yet in this tree;" \
+      "the intent tier you asked for was NOT installed"
+    return 1
+  fi
+  if ! intent_tier::install; then
+    log::error "--with-intent-tier: the tier's workloads did not come up (above) — the intent tier is NOT Ready"
+    return 1
+  fi
 }
 
 # ============================================================== main

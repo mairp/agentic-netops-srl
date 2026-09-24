@@ -1,0 +1,37 @@
+{
+  "capabilities": {
+    "pushNotifications": false,
+    "streaming": false
+  },
+  "defaultInputModes": [
+    "application/json",
+    "text/plain"
+  ],
+  "defaultOutputModes": [
+    "application/json",
+    "text/plain"
+  ],
+  "description": "Allocates the identifiers a confirmed Interpretation needs from the allocation authority and returns the NormalizedServiceIntent the translator consumes, with every derived value shown.",
+  "id": "devnet/provisioning/network-allocator",
+  "name": "Network allocator agent",
+  "preferredTransport": "SLIM",
+  "protocolVersion": "0.3.0",
+  "skills": [
+    {
+      "description": "Produces a NormalizedServiceIntent (contracts/normalized-service-intent.schema.json) from a confirmed Interpretation: claimed VLANs and VNIs, derived route targets.",
+      "examples": [
+        "Allocate the confirmed mac-vrf interpretation of thread 3f2b…"
+      ],
+      "id": "allocate-network-service",
+      "name": "Allocate a network service",
+      "tags": [
+        "intent",
+        "allocation",
+        "claims"
+      ]
+    }
+  ],
+  "url": "slim://devnet/provisioning/network-allocator",
+  "version": "0.1.0",
+  "x-agentic-netops-worker": "allocator"
+}

@@ -1,0 +1,176 @@
+# provenance: source=first-party version=v0.1.0
+# The agent-analytics store — and the AUDIT RECORD's home (T087; FR-078, AD-18, AD-24, AD-45;
+# contracts/kubernetes-objects.md §"Object inventory"; data-model.md §16, §21).
+#
+# Installed by the tier phase FIRST, with the tier collector (agent-otel-collector.yaml), and waited
+# Ready before any agent workload exists, so no audit event is ever emitted with nowhere to be kept.
+#
+#   StatefulSet clickhouse (one replica) with a volumeClaimTemplate `data` (storageClass standard)
+#   Service clickhouse — ClusterIP, HTTP 8123 and native 9000 (the collector's exporter speaks native)
+#   Service clickhouse-headless — the StatefulSet's governing Service
+#
+# Credentials: the generated Secret clickhouse-auth (keys username, password; T072) reaches the
+# server ONLY through env secretKeyRef (CLICKHOUSE_USER / CLICKHOUSE_PASSWORD, which the image's
+# entrypoint turns into the one user it creates) — never a default credential pair, never a literal
+# (D-23). The database `otel` is created at first start (CLICKHOUSE_DB). The trace tables are created
+# by the collector's clickhouse exporter with `ttl: 0` — NO TTL: the stored audit events are kept for
+# as long as the store exists and are exported before anything removes it (scripts/lib/audit_export.sh).
+apiVersion: v1
+kind: Service
+metadata:
+  name: clickhouse-headless
+  namespace: agentic-netops-agents
+  labels:
+    app.kubernetes.io/name: clickhouse
+    app.kubernetes.io/part-of: agentic-netops-intent-tier
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector:
+    app.kubernetes.io/name: clickhouse
+  ports:
+  - name: http
+    port: 8123
+    targetPort: http
+  - name: native
+    port: 9000
+    targetPort: native
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: clickhouse
+  namespace: agentic-netops-agents
+  labels:
+    app.kubernetes.io/name: clickhouse
+    app.kubernetes.io/part-of: agentic-netops-intent-tier
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: clickhouse
+  ports:
+  - name: http
+    port: 8123
+    targetPort: http
+  - name: native
+    port: 9000
+    targetPort: native
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: clickhouse
+  namespace: agentic-netops-agents
+  labels:
+    app.kubernetes.io/name: clickhouse
+    app.kubernetes.io/part-of: agentic-netops-intent-tier
+    agentic-netops.io/tier: intent
+spec:
+  serviceName: clickhouse-headless
+  replicas: 1
+  podManagementPolicy: OrderedReady
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: clickhouse
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: clickhouse
+        app.kubernetes.io/part-of: agentic-netops-intent-tier
+        agentic-netops.io/tier: intent
+    spec:
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 101
+        runAsGroup: 101
+        fsGroup: 101
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: clickhouse
+        image: docker.io/clickhouse/clickhouse-server:26.8.9.10@sha256:85ddbad63bd6779d4b3c64af17a0720c85e9dc6e5fa636f80bfdbb6096bdc5ab
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: CLICKHOUSE_USER
+          valueFrom:
+            secretKeyRef:
+              name: clickhouse-auth
+              key: username
+        - name: CLICKHOUSE_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: clickhouse-auth
+              key: password
+        - name: CLICKHOUSE_DB
+          value: otel
+        - name: CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT
+          value: "0"
+        ports:
+        - name: http
+          containerPort: 8123
+          protocol: TCP
+        - name: native
+          containerPort: 9000
+          protocol: TCP
+        # /ping answers without credentials; readiness additionally needs the `otel` database, which
+        # the entrypoint creates before the server listens on anything but loopback.
+        readinessProbe:
+          httpGet:
+            path: /ping
+            port: http
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          failureThreshold: 6
+        livenessProbe:
+          httpGet:
+            path: /ping
+            port: http
+          initialDelaySeconds: 30
+          periodSeconds: 20
+          failureThreshold: 6
+        resources:
+          requests:
+            cpu: 100m
+            memory: 512Mi
+          limits:
+            cpu: "1"
+            memory: 1536Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: [ALL]
+        volumeMounts:
+        - name: data
+          mountPath: /var/lib/clickhouse
+        # The entrypoint writes the one user it creates here (users.d is empty in the image).
+        - name: users-d
+          mountPath: /etc/clickhouse-server/users.d
+        - name: logs
+          mountPath: /var/log/clickhouse-server
+        - name: tmp
+          mountPath: /tmp
+      volumes:
+      - name: users-d
+        emptyDir:
+          sizeLimit: 1Mi
+      - name: logs
+        emptyDir:
+          sizeLimit: 256Mi
+      - name: tmp
+        emptyDir:
+          sizeLimit: 256Mi
+  volumeClaimTemplates:
+  - metadata:
+      name: data
+      labels:
+        app.kubernetes.io/name: clickhouse
+        app.kubernetes.io/part-of: agentic-netops-intent-tier
+    spec:
+      accessModes: [ReadWriteOnce]
+      storageClassName: standard
+      resources:
+        requests:
+          storage: 2Gi

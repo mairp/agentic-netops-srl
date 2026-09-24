@@ -36,7 +36,10 @@
 #                      env entry's `value`, inside a data/stringData blob, or an
 #                      args/command argument. Accepted: secretKeyRef / valueFrom, a
 #                      projected volume (never a literal), or a generator placeholder:
-#                      ${VAR}, $(VAR), {{ … }}, <…>, __NAME__, or empty.
+#                      ${VAR}, $(VAR), {{ … }}, <…>, __NAME__, or empty; or the consuming
+#                      program's own environment reference ${env:VAR} (the OpenTelemetry
+#                      Collector's and the SLIM gateway's syntax, the variable itself filled
+#                      by a secretKeyRef).
 #   orchestration      FR-013 (orchestration.denylist): no CronJob or workflow /
 #                      pipeline / job-engine kind, chart or image under deploy/,
 #                      config/ or in versions.lock.yaml; and across first-party
@@ -324,7 +327,7 @@ def line_of(node):
 manifests = [f for f in files if f.startswith(("deploy/", "config/")) and f.endswith((".yaml", ".yml", ".json"))]
 
 # ---------------------------------------------------------------- FR-019 / CR-008 credential literals
-PLACEHOLDER = re.compile(r"^(\$\{[A-Za-z_][A-Za-z0-9_]*\}|\$\([A-Za-z_][A-Za-z0-9_]*\)|\{\{.*\}\}|<[^<>]+>|__[A-Z0-9_]+__|)$", re.S)
+PLACEHOLDER = re.compile(r"^(\$\{[A-Za-z_][A-Za-z0-9_]*\}|\$\{env:[A-Za-z_][A-Za-z0-9_]*\}|\$\([A-Za-z_][A-Za-z0-9_]*\)|\{\{.*\}\}|<[^<>]+>|__[A-Z0-9_]+__|)$", re.S)
 CRED_SUFFIX = ("password", "passwd", "passphrase", "token", "apikey", "api_key", "api-key", "secretkey",
                "secret_key", "secret-key", "accesskey", "access_key", "access-key", "privatekey",
                "private_key", "private-key", "clientsecret", "client_secret", "client-secret",
@@ -351,7 +354,9 @@ def scan_blob(rel, node, where, decoded=None):
                     f"literal credential inside {where} (FR-019, CR-008): use a secretKeyRef, a projected volume or a generator placeholder")
             return
 
-def walk_cred(rel, node, path, in_data=False, secret_data=False):
+def walk_cred(rel, node, path, in_data=False, secret_data=False, is_secret=True):
+    # is_secret: the document is a Secret, whose data/binaryData values are base64; a ConfigMap's
+    # `data` is plain text and is scanned as it stands (only its binaryData is base64).
     if isinstance(node, yaml.MappingNode):
         m = mapping(node)
         # env entry: {name: *PASSWORD*, value: literal}
@@ -388,10 +393,10 @@ def walk_cred(rel, node, path, in_data=False, secret_data=False):
                         finding("credential-literal", rel, line_of(vn.value[j + 1]),
                                 f"literal credential after argument '{it}' (FR-019, CR-008)")
             walk_cred(rel, vn, p, in_data or k in ("data", "stringData", "binaryData"),
-                      secret_data or k in ("data", "binaryData"))
+                      secret_data or k == "binaryData" or (is_secret and k == "data"), is_secret)
     elif isinstance(node, yaml.SequenceNode):
         for j, x in enumerate(node.value):
-            walk_cred(rel, x, f"{path}[{j}]", in_data, secret_data)
+            walk_cred(rel, x, f"{path}[{j}]", in_data, secret_data, is_secret)
 
 LINE_CRED = re.compile(r"^\s*[\"']?[\w.-]*(password|passwd|token|api[-_]?key|secret[-_]?key|credential)[\"']?\s*:\s*[\"']?([^\s\"'#]+)", re.I)
 cred_files = [f for f in files if f.startswith("deploy/") and f.endswith((".yaml", ".yml", ".json"))]
@@ -407,7 +412,7 @@ for rel in cred_files:
         if d is None:
             continue
         kind = scalar(mapping(d).get("kind", (None, None))[1]) if isinstance(d, yaml.MappingNode) else None
-        walk_cred(rel, d, "", False, False)
+        walk_cred(rel, d, "", False, False, kind != "ConfigMap")
 counts["credential-literal"] = len(cred_files)
 
 # ---------------------------------------------------------------- FR-013 orchestration

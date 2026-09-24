@@ -1,0 +1,10 @@
+# The build context of the four agent images (docker/Dockerfile.{supervisor,mapper,allocator,deployer}).
+# What is excluded here is excluded from the content-hash tag too (scripts/lib/image_build.sh), so a
+# test-only or tooling-only change does not produce a new image.
+.venv
+tests
+**/__pycache__
+**/*.pyc
+.pytest_cache
+.ruff_cache
+.mypy_cache

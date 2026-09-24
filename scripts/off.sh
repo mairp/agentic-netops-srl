@@ -3,7 +3,7 @@
 # AD-64; data-model.md §2, §16).
 #
 # Usage: scripts/off.sh [--cluster-name <name>] [--preserve-evidence] [--discard-audit-record]
-#                       [--purge-intent-tier]
+#                       [--purge-intent-tier [--remove-services]]
 #   --cluster-name <name>   the cluster (and ownership value) to tear down; default CLUSTER_NAME or
 #                           agentic-netops
 #   --preserve-evidence     ADD an evidence capture, through evidence_run, of the state this
@@ -12,7 +12,25 @@
 #                           with or without this flag (AD-64)
 #   --discard-audit-record  let the teardown continue past a FAILED audit-record export (the store is
 #                           then removed with the cluster); the flag's use is printed and recorded
-#   --purge-intent-tier     reserved for User Story 7 (the tier's removal); refused here, exit 2
+#   --purge-intent-tier     remove the intent tier ONLY (T088, User Story 7) — the cluster, the lab,
+#                           the control plane and everything in agentic-netops-services stay. In order
+#                           (AD-35, AD-46): (a) the refusal-decision list of the Networks in
+#                           agentic-netops-intent, through evidence_run — a read; any present and no
+#                           --remove-services → stop non-zero having changed nothing, naming each and
+#                           both continuations; (b) supervisor, ui and deployer scaled to zero (an
+#                           absent one reported by name, never created); (c) the authoritative list —
+#                           without --remove-services a non-empty one falls back to the refusal,
+#                           nothing deleted or exported, the workloads left at zero; then the
+#                           audit-record export and the usernames record (scripts/lib/audit_export.sh;
+#                           a failure stops with the store intact unless --discard-audit-record); the
+#                           Networks of (c) deleted and waited on for up to TIER_PURGE_WAIT_SECONDS
+#                           (300) — never force-released, a stop naming each Network still Deleting and
+#                           its unreachable target or holder, the tier left in place scaled down; only
+#                           once a re-list is empty: the workloads, the tier Secrets (username captured
+#                           first), the provisional claims (correlation id matching no Network), the
+#                           borrowed claim Role/RoleBinding, deny-tier-force-release and its binding,
+#                           agentic-netops-intent, agentic-netops-agents. A second run is a no-op
+#   --remove-services       with --purge-intent-tier only: delete the tier-submitted Networks too
 #
 # Order (data-model.md §2): ownership plan (read-only; any present-but-unowned target refuses the
 # whole run with nothing deleted) → optional evidence capture → audit-record export, whenever the
@@ -28,7 +46,9 @@
 # Idempotent: every step treats an absent owned resource as success, so a second run is a success
 # no-op. Never deleted, by construction: container images (pinned or built — no image removal
 # command exists in this script or its libraries), anything under .evidence/, and any resource whose
-# ownership label is not exactly agentic-netops.io/owned-by=<cluster>.
+# ownership label is not exactly agentic-netops.io/owned-by=<cluster>. The audit-record export
+# (scripts/lib/audit_export.sh) writes audit-export-<attempt>.ndjson.gz + its record under the run's
+# EVIDENCE_DIR, bounded by AUDIT_EXPORT_TIMEOUT_SECONDS (120), and never rewrites an earlier one.
 #
 # Exit: 0 torn down (or nothing to do); 1 refused or a step failed (named); 2 usage.
 set -euo pipefail
@@ -63,6 +83,7 @@ off::usage() { sed -n '/^# Usage:/,/^# Exit:/p' "${BASH_SOURCE[0]}" | sed 's/^# 
 PRESERVE_EVIDENCE=false
 DISCARD_AUDIT=false
 PURGE_TIER=false
+REMOVE_SERVICES=false
 cluster_flag=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -71,6 +92,7 @@ while [[ $# -gt 0 ]]; do
     --preserve-evidence) PRESERVE_EVIDENCE=true; shift ;;
     --discard-audit-record) DISCARD_AUDIT=true; shift ;;
     --purge-intent-tier) PURGE_TIER=true; shift ;;
+    --remove-services) REMOVE_SERVICES=true; shift ;;
     -h|--help) off::usage; exit 0 ;;
     *) echo "off.sh: unknown argument '$1'" >&2; off::usage >&2; exit 2 ;;
   esac
@@ -83,8 +105,8 @@ LAB_NAME="${LAB_NAME:-agentic-netops-fabric}"
 MGMT_NET="${MGMT_NET:-agentic-netops-mgmt}"
 export CLUSTER_NAME LAB_NAME MGMT_NET
 
-if [[ "$PURGE_TIER" == true ]]; then
-  log::error "--purge-intent-tier is reserved for User Story 7 (the intent tier's removal, T088/T174) and is not implemented in this tree: nothing was touched"
+if [[ "$REMOVE_SERVICES" == true && "$PURGE_TIER" != true ]]; then
+  echo "off.sh: --remove-services is used only with --purge-intent-tier (the full teardown removes the cluster and every Network with it)" >&2
   exit 2
 fi
 
@@ -184,6 +206,10 @@ off::export_audit_record() {
   log::phase TeardownAuditExport
   if ! off::analytics_store_exists; then
     log::info "audit record: no analytics store (${AUDIT_STORE_NS}/${AUDIT_STORE_STS}) in this cluster — nothing to export"
+    # the usernames record of data-model.md §16 is still written before the Secret goes
+    if [[ "$HAVE_CLUSTER" == true ]] && declare -F audit_export::usernames_record >/dev/null; then
+      audit_export::usernames_record || { log::error "audit record: the usernames record failed: operator-credentials is not removed un-recorded"; return 1; }
+    fi
     off::_record_discard "no analytics store existed; nothing was discarded"
     return 0
   fi
@@ -226,8 +252,75 @@ off::capture_operator_username() {
   log::info "evidence: captured the operator username (never the password) before removing ${INTENT_SECRETS_OPERATOR}"
 }
 
+# ------------------------------------------------------------------ the tier's removal (T088)
+# off::purge_intent_tier — see --purge-intent-tier above; every step's detail is in
+# scripts/lib/intent_tier.sh. Returns non-zero on a refusal or a stop, having named it.
+off::purge_intent_tier() {
+  log::phase TierPurge
+  declare -F intent_tier::quiesce >/dev/null \
+    || { log::error "--purge-intent-tier: scripts/lib/intent_tier.sh (T088) is not in this tree: nothing was touched"; return 1; }
+  intent_tier::defaults || return 1
+  if ! kind::cluster_exists "$CLUSTER_NAME"; then
+    log::info "tier purge: no cluster ${CLUSTER_NAME} — no intent tier to remove"
+    return 0
+  fi
+  kind::_require_owned "$CLUSTER_NAME" || return 1
+  HAVE_CLUSTER=true
+  KUBE_CONTEXT="kind-${CLUSTER_NAME}"
+  export KUBE_CONTEXT
+  evidence::ensure_dir || { log::error "tier purge: no evidence directory"; return 1; }
+  export EVIDENCE_DIR
+  local attempt listing
+  local -a a=() c=() r=()
+  attempt="$(audit_export::attempt_id)"
+
+  # (a) the refusal-decision list — a read, itself a record
+  listing="$(intent_tier::list_networks "tier-purge-refusal-list-${attempt}")" || return 1
+  mapfile -t a < <(sed '/^$/d' <<<"$listing")
+  if [[ ${#a[@]} -gt 0 && "$REMOVE_SERVICES" != true ]]; then
+    intent_tier::refuse false "${a[@]}"
+    return 1
+  fi
+  # (b) the quiesce
+  intent_tier::quiesce || return 1
+  # (c) the authoritative list, after the scale-down
+  listing="$(intent_tier::list_networks "tier-purge-authoritative-list-${attempt}")" || return 1
+  mapfile -t c < <(sed '/^$/d' <<<"$listing")
+  if [[ ${#c[@]} -gt 0 && "$REMOVE_SERVICES" != true ]]; then
+    intent_tier::refuse true "${c[@]}"
+    return 1
+  fi
+  # the audit record, before anything removes the store or the operator Secret
+  off::export_audit_record || return 1
+  # the Networks of (c), and nothing else
+  log::phase TierPurgeNetworks
+  intent_tier::delete_networks "${c[@]}" || return 1
+  intent_tier::wait_networks "${c[@]}" || return 1
+  # only once a re-list is empty
+  listing="$(intent_tier::list_networks "tier-purge-relist-${attempt}")" || return 1
+  mapfile -t r < <(sed '/^$/d' <<<"$listing")
+  if [[ ${#r[@]} -gt 0 ]]; then
+    log::error "tier purge stopped: a re-list of ${INTENT_TIER_INTENT_NS} is not empty (${r[*]}) — the namespace and the rest of the tier stay; re-run once they are gone"
+    return 1
+  fi
+  log::phase TierPurgeRemove
+  intent_tier::remove_workloads || return 1
+  off::capture_operator_username || return 1
+  intent_secrets::remove || { log::error "tier purge: removing the tier's generated Secrets failed"; return 1; }
+  intent_tier::remove_claims || return 1
+  intent_tier::remove_boundary || return 1
+  intent_tier::remove_namespaces || return 1
+  log::phase TierAbsent
+  log::info "tier purge complete: no tier workload, Secret, provisional claim, admission policy or namespace remains;" \
+    "the control plane, agentic-netops-services and the lab's evidence root are untouched"
+}
+
 # ------------------------------------------------------------------ run
 main() {
+  if [[ "$PURGE_TIER" == true ]]; then
+    off::purge_intent_tier || exit 1
+    return 0
+  fi
   off::plan || exit 1
   off::capture_evidence
   off::export_audit_record || exit 1

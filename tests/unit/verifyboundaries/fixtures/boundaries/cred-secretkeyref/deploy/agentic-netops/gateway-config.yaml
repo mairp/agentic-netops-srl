@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gateway-config
+data:
+  config.yaml: |
+    auth:
+      basic:
+        username: "${env:GATEWAY_USERNAME}"
+        password: "${env:GATEWAY_PASSWORD}"   # the program's env reference, filled by a secretKeyRef

@@ -1,0 +1,74 @@
+# provenance: source=first-party version=v0.1.0
+# The ingress allowances the intent tier's workloads need beyond the four US6 policies
+# (deploy/rbac/networkpolicies.yaml — deny-all-by-default, allow-egress-scoped, slim-ingress,
+# apiserver-egress-cluster-clients), which are not modified (T087; FR-075). Each admits one port to
+# one workload from the narrowest peer set that uses it; egress is untouched (allow-egress-scoped
+# already admits pod-to-pod traffic inside agentic-netops-agents and nothing toward the management
+# CIDR). NetworkPolicies are additive allowances, so none of these can widen a denial of US6.
+#
+#   agent-otel-collector-ingress  4318/TCP (OTLP/HTTP) from tier-labelled pods — every agent emits once
+#   clickhouse-ingress            8123/TCP and 9000/TCP from the tier collector only; the audit
+#                                 export reads the store through `kubectl exec`, never the network
+#   supervisor-ingress            9090/TCP from anywhere: the operator reaches the supervisor through
+#                                 the Kind port mapping 127.0.0.1:19090 → NodePort 30990, and the
+#                                 supervisor authenticates every pipeline-reaching route itself (FR-102)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: agent-otel-collector-ingress
+  namespace: agentic-netops-agents
+  labels:
+    app.kubernetes.io/part-of: agentic-netops-intent-tier
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: agent-otel-collector
+  policyTypes: [Ingress]
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          agentic-netops.io/tier: intent
+    ports:
+    - protocol: TCP
+      port: 4318
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: clickhouse-ingress
+  namespace: agentic-netops-agents
+  labels:
+    app.kubernetes.io/part-of: agentic-netops-intent-tier
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: clickhouse
+  policyTypes: [Ingress]
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/name: agent-otel-collector
+    ports:
+    - protocol: TCP
+      port: 8123
+    - protocol: TCP
+      port: 9000
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: supervisor-ingress
+  namespace: agentic-netops-agents
+  labels:
+    app.kubernetes.io/part-of: agentic-netops-intent-tier
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: supervisor
+  policyTypes: [Ingress]
+  ingress:
+  - ports:
+    - protocol: TCP
+      port: 9090

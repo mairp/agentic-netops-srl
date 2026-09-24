@@ -1,0 +1,37 @@
+{
+  "capabilities": {
+    "pushNotifications": false,
+    "streaming": false
+  },
+  "defaultInputModes": [
+    "application/json",
+    "text/plain"
+  ],
+  "defaultOutputModes": [
+    "application/json",
+    "text/plain"
+  ],
+  "description": "Maps an operator's natural-language network request onto the datacenter construct vocabulary (vlan, mac-vrf, ip-vrf, acl) as an Interpretation, resolved against the site inventory and the fabric qualification record.",
+  "id": "devnet/provisioning/network-mapping",
+  "name": "Network mapping agent",
+  "preferredTransport": "SLIM",
+  "protocolVersion": "0.3.0",
+  "skills": [
+    {
+      "description": "Produces an Interpretation (contracts/interpretation.schema.json) from a request: the construct, the tenant, the endpoints in the device's own naming, and any missing fields or unsupported properties.",
+      "examples": [
+        "Extend vlan 100 as a mac-vrf across leaf01 ethernet-1/1 and leaf02 ethernet-1/1 for tenant blue"
+      ],
+      "id": "map-network-request",
+      "name": "Map a network request",
+      "tags": [
+        "intent",
+        "mapping",
+        "construct-vocabulary"
+      ]
+    }
+  ],
+  "url": "slim://devnet/provisioning/network-mapping",
+  "version": "0.1.0",
+  "x-agentic-netops-worker": "mapper"
+}

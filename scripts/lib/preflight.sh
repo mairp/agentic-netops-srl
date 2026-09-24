@@ -26,6 +26,7 @@
 #   PREFLIGHT_CLIENT_NODES [2]  PREFLIGHT_CLIENT_MEM_MIB [64]
 #   PREFLIGHT_KIND_VCPU [4]  PREFLIGHT_KIND_MEM_MIB [6144]   (the Kind cluster and AppsReady's apps)
 #   PREFLIGHT_EXTRA_VCPU [0] PREFLIGHT_EXTRA_MEM_MIB [0]     (a later phase's addition, e.g. the tier)
+#   PREFLIGHT_EXTRA_LABEL [extra] (how that addition is named)  PREFLIGHT_NPROC (the host vCPUs; default nproc)
 # Host views, overridable for tests: DOCKER, KIND, CONTAINERLAB (clients), `ip` and `nproc` from
 # PATH, PREFLIGHT_MEMINFO (/proc/meminfo), PREFLIGHT_CPUINFO (/proc/cpuinfo), PREFLIGHT_OSRELEASE
 # (/proc/sys/kernel/osrelease), PREFLIGHT_KIND_CONFIG, PREFLIGHT_LOCK_FILE, PREFLIGHT_SS (ss).
@@ -239,20 +240,20 @@ preflight::resources() {
   local need_mem=$(( srl_need * srl_mem + cl_need * cl_mem + kind_mem_need + x_mem ))
 
   local have_cpu have_mem_kb have_mem
-  have_cpu="$(nproc 2>/dev/null || echo 0)"
+  have_cpu="${PREFLIGHT_NPROC:-$(nproc 2>/dev/null || echo 0)}"
   have_mem_kb="$(awk '$1 == "MemAvailable:" { print $2; exit }' "${PREFLIGHT_MEMINFO:-/proc/meminfo}" 2>/dev/null || true)"
   [[ "$have_cpu" =~ ^[0-9]+$ ]] || have_cpu=0
   [[ "$have_mem_kb" =~ ^[0-9]+$ ]] || have_mem_kb=0
   have_mem=$(( have_mem_kb / 1024 ))
 
-  local breakdown="SR Linux ${srl_need}x(${srl_cpu} vCPU, ${srl_mem} MiB) [${srl_present} already running], endpoints ${cl_need}x${cl_mem} MiB, Kind cluster ${kind_cpu_need} vCPU/${kind_mem_need} MiB [cluster ${kind_note}], extra ${x_cpu} vCPU/${x_mem} MiB"
+  local breakdown="SR Linux ${srl_need}x(${srl_cpu} vCPU, ${srl_mem} MiB) [${srl_present} already running], endpoints ${cl_need}x${cl_mem} MiB, Kind cluster ${kind_cpu_need} vCPU/${kind_mem_need} MiB [cluster ${kind_note}], ${PREFLIGHT_EXTRA_LABEL:-extra} ${x_cpu} vCPU/${x_mem} MiB"
   local rc=0
   if (( have_cpu < need_cpu )); then
-    log::error "preflight: ${have_cpu} vCPU available, ${need_cpu} required — ${breakdown} (NFR-004, R-08)"
+    log::error "preflight: ${have_cpu} vCPU available, ${need_cpu} required, $(( need_cpu - have_cpu )) vCPU short — ${breakdown} (NFR-004, R-08)"
     rc=1
   fi
   if (( have_mem < need_mem )); then
-    log::error "preflight: ${have_mem} MiB of RAM available (MemAvailable), ${need_mem} MiB required — ${breakdown} (NFR-004, R-13)"
+    log::error "preflight: ${have_mem} MiB of RAM available (MemAvailable), ${need_mem} MiB required, $(( need_mem - have_mem )) MiB short — ${breakdown} (NFR-004, R-13)"
     rc=1
   fi
   [[ "$rc" -eq 0 ]] && log::info "preflight: resources ok — ${have_cpu} vCPU / ${have_mem} MiB available, ${need_cpu} vCPU / ${need_mem} MiB required (${breakdown})"

@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gateway-config
+data:
+  config.yaml: |
+    auth:
+      basic:
+        username: gateway
+        password: "Lab-Passw0rd-1"

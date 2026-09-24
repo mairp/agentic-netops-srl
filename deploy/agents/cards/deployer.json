@@ -1,0 +1,37 @@
+{
+  "capabilities": {
+    "pushNotifications": false,
+    "streaming": false
+  },
+  "defaultInputModes": [
+    "application/json",
+    "text/plain"
+  ],
+  "defaultOutputModes": [
+    "application/json",
+    "text/plain"
+  ],
+  "description": "Submits a twice-confirmed NormalizedServiceIntent as a Network in the intent namespace, or removes one, and watches it until it converges, is gone, or the convergence timeout names what it is waiting for.",
+  "id": "devnet/provisioning/network-deployer",
+  "name": "Network deployer agent",
+  "preferredTransport": "SLIM",
+  "protocolVersion": "0.3.0",
+  "skills": [
+    {
+      "description": "Creates or removes the Network of an approved assignment (idempotent on the thread) and reports progress with the Ready condition's status string and reason.",
+      "examples": [
+        "Deploy the approved assignment of thread 3f2b…"
+      ],
+      "id": "deploy-network-service",
+      "name": "Deploy a network service",
+      "tags": [
+        "intent",
+        "deployment",
+        "network"
+      ]
+    }
+  ],
+  "url": "slim://devnet/provisioning/network-deployer",
+  "version": "0.1.0",
+  "x-agentic-netops-worker": "deployer"
+}

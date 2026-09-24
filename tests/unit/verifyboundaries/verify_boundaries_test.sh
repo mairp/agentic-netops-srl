@@ -9,6 +9,8 @@
 #   FR-019/CR-008  a stringData password under deploy/ fails naming the file;
 #                  the same credential behind a secretKeyRef (and a projected
 #                  volume, a generator placeholder) passes
+#                  — and a literal password inside a ConfigMap blob fails, its
+#                  ${env:VAR} twin (the gateway's own env reference) passes
 #   FR-013         a planted CronJob fails naming the file; a Role granting
 #                  `create` on configs to another ServiceAccount fails naming the
 #                  file; the provider's own binding (and deploy/sdc/ vendored RBAC) passes
@@ -49,6 +51,8 @@ expect() {
 expect "$VB" "$FB/cred-stringdata-literal" 1 "credential: stringData password under deploy/ fails naming the file" \
   "FAIL [credential-literal] deploy/agentic-netops/device-credentials.yaml:9: literal credential in 'stringData.password'"
 expect "$VB" "$FB/cred-secretkeyref" 0 "credential: same credential via secretKeyRef, projected volume, generator placeholder passes"
+expect "$VB" "$FB/cred-configmap-blob-literal" 1 "credential: literal password inside a ConfigMap blob fails naming the file (\${env:VAR} is its passing twin)" \
+  "FAIL [credential-literal] deploy/agents/gateway-config.yaml"
 expect "$VB" "$FB/cred-env-and-args-literal" 1 "credential: literal env value and argument fail, each naming its file" \
   "FAIL [credential-literal] deploy/agents/tier-worker.yaml:13: env LLM_API_KEY carries a literal value" \
   "FAIL [credential-literal] deploy/observability/collector.yaml:11: literal credential after argument '--password'"
