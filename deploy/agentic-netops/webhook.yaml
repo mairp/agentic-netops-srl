@@ -1,0 +1,129 @@
+# provenance: source=first-party version=v0.1.0
+# The Network validating webhook (T061; contracts/crd-api.md §"Required Fabric and Network API",
+# §"The webhook fails closed"; AD-52, AD-61; FR-034, FR-097, CR-003). Served by the provider
+# (internal/webhook, cmd/srl-provider/webhook.go) on 9443 behind the Service below, with a
+# serving certificate cert-manager issues from a namespaced self-signed CA; the cainjector
+# writes that CA into the configuration's caBundle.
+#
+# The registration is the contract's, field for field: failurePolicy Fail, CREATE and UPDATE of
+# `networks` — never DELETE, never the status subresource — no timeoutSeconds (the API server's
+# default applies) and no matchConditions: the AD-61 exemption (an UPDATE leaving spec
+# unchanged, any UPDATE of a deleting object) is the handler's own first step, so while the
+# provider is down every Network create and update — metadata-only ones included — is refused,
+# and a delete is not (the finalizer holds the object). No mutating webhook exists on the group.
+# tests/envtest/network/webhook_test.go loads this file and asserts each of these.
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: srl-provider-webhook-selfsigned
+  namespace: agentic-netops-system
+  labels:
+    app.kubernetes.io/name: srl-provider
+    app.kubernetes.io/part-of: agentic-netops
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: srl-provider-webhook-ca
+  namespace: agentic-netops-system
+  labels:
+    app.kubernetes.io/name: srl-provider
+    app.kubernetes.io/part-of: agentic-netops
+spec:
+  isCA: true
+  commonName: srl-provider-webhook-ca
+  secretName: srl-provider-webhook-ca
+  duration: 87600h
+  renewBefore: 720h
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+  issuerRef:
+    group: cert-manager.io
+    kind: Issuer
+    name: srl-provider-webhook-selfsigned
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: srl-provider-webhook-ca
+  namespace: agentic-netops-system
+  labels:
+    app.kubernetes.io/name: srl-provider
+    app.kubernetes.io/part-of: agentic-netops
+spec:
+  ca:
+    secretName: srl-provider-webhook-ca
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: srl-provider-webhook
+  namespace: agentic-netops-system
+  labels:
+    app.kubernetes.io/name: srl-provider
+    app.kubernetes.io/part-of: agentic-netops
+spec:
+  secretName: srl-provider-webhook-tls
+  commonName: srl-provider-webhook.agentic-netops-system.svc
+  dnsNames:
+  - srl-provider-webhook
+  - srl-provider-webhook.agentic-netops-system
+  - srl-provider-webhook.agentic-netops-system.svc
+  - srl-provider-webhook.agentic-netops-system.svc.cluster.local
+  duration: 8760h
+  renewBefore: 720h
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+    rotationPolicy: Always
+  usages: [server auth, digital signature, key encipherment]
+  issuerRef:
+    group: cert-manager.io
+    kind: Issuer
+    name: srl-provider-webhook-ca
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: srl-provider-webhook
+  namespace: agentic-netops-system
+  labels:
+    app.kubernetes.io/name: srl-provider
+    app.kubernetes.io/part-of: agentic-netops
+spec:
+  selector:
+    app.kubernetes.io/name: srl-provider
+  ports:
+  - name: webhook
+    port: 443
+    targetPort: webhook
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: srl-provider-network-validation
+  labels:
+    app.kubernetes.io/name: srl-provider
+    app.kubernetes.io/part-of: agentic-netops
+  annotations:
+    cert-manager.io/inject-ca-from: agentic-netops-system/srl-provider-webhook
+webhooks:
+- name: networks.fabric.agentic-netops.io
+  admissionReviewVersions: [v1]
+  sideEffects: None
+  failurePolicy: Fail
+  clientConfig:
+    service:
+      name: srl-provider-webhook
+      namespace: agentic-netops-system
+      path: /validate-fabric-agentic-netops-io-v1alpha1-network
+      port: 443
+  rules:
+  - apiGroups: [fabric.agentic-netops.io]
+    apiVersions: [v1alpha1]
+    operations: [CREATE, UPDATE]
+    resources: [networks]
+    scope: Namespaced

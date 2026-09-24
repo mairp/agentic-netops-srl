@@ -1,14 +1,20 @@
 # provenance: source=first-party version=v0.1.0
 # The device schema: exactly versions.lock.yaml compatibilitySet part 4 (T036; FR-015, NFR-003).
 # provider srl.nokia.sdcio.dev, version 25.7.1; the native models only (srl_nokia/models), with
-# ietf and openconfig for import resolution and tools excluded. Two repositories, both pinned —
+# ietf and openconfig for import resolution and tools excluded. Three repositories, all pinned —
 # the YANG models by tag (part 2, v25.7.1 = badcf9977fe672437907cdae7daebb27a1361c36) and the
-# deviation patch by commit (part 3). A branch reference is forbidden (crd-api.md; make
+# deviation patch by commit (part 3), plus the first-party deviations below. A branch reference
+# is forbidden (crd-api.md; make
 # sdc-onboard refuses one naming this file). config-server v0.0.58 fetches every non-branch ref
 # as a TAG and sdcio/srlinux-yang-patch has no tags, so part 3's commit is loaded from the
 # in-cluster mirror (deploy/sdc/schema-mirror, scripts/lib/schema_mirror.sh), which asserts the
 # locked commit and serves it ONLY as refs/tags/<commit> (AD-75; versions.lock.yaml part 4
 # repositories[1].mirror). Field names are config-server v0.0.58 inv.sdcio.dev/v1alpha1 SchemaSpec.
+# A third repository, the first-party deviation modules of deploy/sdc/schema-deviations
+# (live-findings 2026-09-21-feature-guarded-must: deletes the two srl_nokia-ext:if-feature-guarded
+# musts on vxlan-interface/type that the layer applies unconditionally), is served by the same
+# mirror at the deterministic commit of that tree, tagged after it (versions.lock.yaml part 4
+# repositories[2]).
 # The mirror itself (a layer workload) stays in sdc-system; only this Schema object moved.
 # Targets and everything they use live in agentic-netops-system because config-server v0.0.58
 # lists them in the Target's namespace (AD-82 decision 2026-09-21-target-namespace).
@@ -37,3 +43,10 @@ spec:
     - {src: srl_nokia, dst: deviations}
     schema:
       models: [deviations]
+  - repoURL: http://schema-mirror.sdc-system.svc.cluster.local/git/agentic-netops-deviations.git
+    kind: tag
+    ref: 0b06d58025c8357ff6a47e90635c61b787ac8baa
+    dirs:
+    - {src: srl_nokia, dst: anops-deviations}
+    schema:
+      models: [anops-deviations]

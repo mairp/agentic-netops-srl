@@ -567,12 +567,18 @@ func TestAccessPortsPortLevelLeavesOnly(t *testing.T) {
 	want(t, l1, "/interface[name=ethernet-1/2]/admin-state", `"enable"`)
 	want(t, l1, "/interface[name=ethernet-1/2]/vlan-tagging", "false")
 	want(t, flatten(t, base["leaf02"].JSON), "/interface[name=ethernet-1/1]/vlan-tagging", "true")
+	// the port MTU on every access port too: a service subinterface's tenant
+	// ip-mtu (9348) does not fit under the device default of 9232 (live finding
+	// 2026-09-21-access-port-mtu)
+	want(t, l1, "/interface[name=ethernet-1/1]/mtu", "9412")
+	want(t, l1, "/interface[name=ethernet-1/2]/mtu", "9412")
+	want(t, flatten(t, base["leaf02"].JSON), "/interface[name=ethernet-1/1]/mtu", "9412")
 	for _, n := range []string{"leaf01", "leaf02"} {
 		f := flatten(t, base[n].JSON)
 		for p := range f {
 			for _, port := range []string{"ethernet-1/1", "ethernet-1/2"} {
 				ifc := "/interface[name=" + port + "]"
-				if strings.HasPrefix(p, ifc) && p != ifc+"/admin-state" && p != ifc+"/vlan-tagging" {
+				if strings.HasPrefix(p, ifc) && p != ifc+"/admin-state" && p != ifc+"/vlan-tagging" && p != ifc+"/mtu" {
 					t.Errorf("%s: access port %s renders %s — only its port-level leaves are the fabric's (AD-68)", n, port, p)
 				}
 			}

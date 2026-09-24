@@ -2,6 +2,7 @@ package model
 
 import (
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -83,7 +84,7 @@ func TestBuildServiceIPVRFUntagged(t *testing.T) {
 	m, err := BuildService(ServiceInput{ServiceID: "21", Construct: ConstructIPVRF, FabricASN: 65000,
 		Routed: &RoutedService{L3VNI: 10022, Attachments: []RoutedAttachment{
 			{Node: "leaf01", Port: "ethernet-1/2", IPv4: []string{"10.20.0.1/24"}},
-			{Node: "leaf02", Port: "ethernet-1/2", VLAN: 300, IPv4: []string{"10.30.0.1/24"}}}}})
+			{Node: "leaf02", Port: "ethernet-1/2", VLAN: 300, IPv4: []string{"10.30.0.1/24"}}}, IPMTU: 9348}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -198,5 +199,26 @@ func TestWritePathsServiceNoPortLevelLeaf(t *testing.T) {
 		case "/interface[name=ethernet-1/1]/admin-state", "/interface[name=ethernet-1/1]/vlan-tagging", "/interface[name=irb0]/admin-state":
 			t.Errorf("service writes fabric-owned leaf %s (AD-68)", p)
 		}
+	}
+}
+
+// An ip-vrf with no tenant ip-mtu is refused: left unset, the device applies
+// its own routed-subinterface default and drops the tenant-MTU payload
+// (data-model.md §20; found live by T065's boundary probe).
+func TestBuildServiceIPVRFNeedsIPMTU(t *testing.T) {
+	_, err := BuildService(ServiceInput{ServiceID: "22", Construct: ConstructIPVRF, FabricASN: 65000,
+		Routed: &RoutedService{L3VNI: 10023, Attachments: []RoutedAttachment{
+			{Node: "leaf01", Port: "ethernet-1/2", IPv4: []string{"10.20.0.1/24"}}}}})
+	if err == nil || !strings.Contains(err.Error(), "ip-mtu") {
+		t.Fatalf("ip-vrf without ip-mtu: err = %v, want a refusal naming ip-mtu", err)
+	}
+	m, err := BuildService(ServiceInput{ServiceID: "22", Construct: ConstructIPVRF, FabricASN: 65000,
+		Routed: &RoutedService{L3VNI: 10023, IPMTU: 9348, Attachments: []RoutedAttachment{
+			{Node: "leaf01", Port: "ethernet-1/2", IPv4: []string{"10.20.0.1/24"}}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := m.Node("leaf01").Subinterfaces[0].IPMTU; got != 9348 {
+		t.Fatalf("routed subinterface ip-mtu = %d, want 9348", got)
 	}
 }

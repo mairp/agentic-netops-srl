@@ -24,7 +24,17 @@
 # The mirror URL and tag are versions.lock.yaml compatibilitySet.schema.repositories[].mirror, and
 # deploy/sdc/onboarding/schema.yaml loads the patch from there (make sdc-onboard refuses a branch).
 #
-# Usage: schema_mirror.sh [ensure|prepare <workdir>]
+# The mirror serves a SECOND repository beside the patch: agentic-netops-deviations.git, the
+# first-party deviation modules of deploy/sdc/schema-deviations (live-findings
+# 2026-09-21-feature-guarded-must). It has no upstream: prepare builds it from the tree as ONE
+# deterministic commit (fixed author, committer, dates and message; every file mode 100644 — the
+# same tree always gives the same commit), asserts that commit equals the lock's
+# (compatibilitySet.schema.repositories[] whose repoURL is the in-tree path, kind hash, mirrored
+# under refs/tags/<commit>) — on any difference it stops non-zero naming both, nothing served —
+# and puts it into the same seed; the ConfigMap carries its commit as deviations-commit, and the
+# container asserts that repository's one ref too.
+#
+# Usage: schema_mirror.sh [ensure|prepare <workdir>|deviations-commit]
 #   env: KUBECTL, KUBE_CONTEXT, GIT (client; tests), SCHEMA_MIRROR_LOCK (default versions.lock.yaml),
 #        SCHEMA_MIRROR_TIMEOUT (s, 180), CLUSTER_NAME, EVIDENCE_DIR
 # Exit: 0 served; 1 refused or failed; 2 usage.
@@ -48,6 +58,13 @@ SCHEMA_MIRROR_NS="sdc-system"
 SCHEMA_MIRROR_NAME="schema-mirror"
 SCHEMA_MIRROR_CONFIGMAP="schema-mirror-repo"
 SCHEMA_MIRROR_REPO="srlinux-yang-patch"
+SCHEMA_MIRROR_DEV_REPO="agentic-netops-deviations"
+# the deterministic identity of the deviation repository's one commit (never change: it is part
+# of the commit hash versions.lock.yaml pins)
+SCHEMA_MIRROR_DEV_IDENT="agentic-netops-srl"
+SCHEMA_MIRROR_DEV_EMAIL="schema-deviations@agentic-netops.invalid"
+SCHEMA_MIRROR_DEV_DATE="2026-09-21T00:00:00+0000"
+SCHEMA_MIRROR_DEV_MESSAGE="agentic-netops-srl first-party schema deviations (deploy/sdc/schema-deviations)"
 SCHEMA_MIRROR_FIELD_MANAGER="agentic-netops-provision"
 
 schema_mirror::_git() { "${GIT:-git}" "$@"; }
@@ -69,6 +86,60 @@ schema_mirror::locked() {
     log::error "schema_mirror: $lock compatibilitySet.schema.repositories[] has no mirror of $repo tagged $commit (AD-75)"; return 1
   fi
   printf '%s\t%s\t%s\t%s\n' "$repo" "$commit" "$murl" "$mref"
+}
+
+# schema_mirror::locked_deviations — "<in-tree dir>\t<commit>\t<mirror repoURL>\t<mirror ref>":
+# the lock's Schema repository whose repoURL is an in-tree path (no scheme), resolved against the
+# repository root unless absolute.
+schema_mirror::locked_deviations() {
+  local lock out path commit murl mref kind
+  lock="$(schema_mirror::_lock)"
+  out="$(yq -r '[.compatibilitySet.schema.repositories[] | select(.repoURL | test("://") | not)] | .[0] // {}
+      | [(.repoURL // ""), (.kind // ""), (.ref // ""), (.mirror.repoURL // ""), (.mirror.ref // "")] | @tsv' "$lock" 2>/dev/null)" || true
+  IFS=$'\t' read -r path kind commit murl mref <<<"$out"
+  if [[ -z "$path" || "$kind" != hash || ! "$commit" =~ ^[0-9a-f]{40}$ ]]; then
+    log::error "schema_mirror: $lock compatibilitySet.schema.repositories[] has no in-tree deviation repository (repoURL a tree path, kind hash, full commit)"; return 1
+  fi
+  if [[ "$murl" != */"${SCHEMA_MIRROR_DEV_REPO}.git" || "$mref" != "$commit" ]]; then
+    log::error "schema_mirror: $lock repository $path has no mirror ${SCHEMA_MIRROR_DEV_REPO}.git tagged $commit (AD-75)"; return 1
+  fi
+  [[ "$path" == /* ]] || path="$SCHEMA_MIRROR_ROOT/$path"
+  [[ -d "$path" ]] || { log::error "schema_mirror: the deviation tree $path does not exist"; return 1; }
+  printf '%s\t%s\t%s\t%s\n' "$path" "$commit" "$murl" "$mref"
+}
+
+# schema_mirror::deviations_build <tree> <bare repo> — build the deviation repository: a bare
+# repository whose ONE ref is refs/tags/<commit>, <commit> the single deterministic commit of
+# <tree> (every file, mode 100644; fixed identity, dates and message; never signed; no hooks, no
+# user config). Prints the commit. The same tree always gives the same commit.
+schema_mirror::deviations_build() {
+  local tree="${1:?}" bare="${2:?}" idx t c
+  (
+    set -e
+    export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null
+    export GIT_AUTHOR_NAME="$SCHEMA_MIRROR_DEV_IDENT" GIT_AUTHOR_EMAIL="$SCHEMA_MIRROR_DEV_EMAIL" GIT_AUTHOR_DATE="$SCHEMA_MIRROR_DEV_DATE"
+    export GIT_COMMITTER_NAME="$SCHEMA_MIRROR_DEV_IDENT" GIT_COMMITTER_EMAIL="$SCHEMA_MIRROR_DEV_EMAIL" GIT_COMMITTER_DATE="$SCHEMA_MIRROR_DEV_DATE"
+    rm -rf "$bare"
+    git init --quiet --bare "$bare"
+    idx="$bare/deviations.index"
+    GIT_INDEX_FILE="$idx" git --git-dir="$bare" --work-tree="$tree" -c core.autocrlf=false -c core.fileMode=false add --all --force --chmod=-x .
+    t="$(GIT_INDEX_FILE="$idx" git --git-dir="$bare" write-tree)"
+    rm -f "$idx"
+    c="$(git --git-dir="$bare" commit-tree --no-gpg-sign -m "$SCHEMA_MIRROR_DEV_MESSAGE" "$t")"
+    git --git-dir="$bare" update-ref "refs/tags/$c" "$c"
+    git --git-dir="$bare" config http.receivepack false
+    printf '%s\n' "$c"
+  )
+}
+
+# schema_mirror::deviations_commit — the commit the deviation tree the lock names builds to.
+schema_mirror::deviations_commit() {
+  local path commit murl mref d c
+  IFS=$'\t' read -r path commit murl mref < <(schema_mirror::locked_deviations) || return 1
+  [[ -n "$path" ]] || return 1
+  d="$(mktemp -d "${TMPDIR:-/tmp}/schema_mirror_dev.XXXXXX")"
+  c="$(schema_mirror::deviations_build "$path" "$d/r.git")" || { rm -rf "$d"; return 1; }
+  rm -rf "$d"; printf '%s\n' "$c"
 }
 
 # schema_mirror::prepare <workdir> — clone, assert the locked commit, build the one-ref bare
@@ -97,41 +168,58 @@ schema_mirror::prepare() {
     return 1
   fi
   schema_mirror::_git --git-dir="$work/out/${SCHEMA_MIRROR_REPO}.git" config http.receivepack false || return 1
-  tar -C "$work/out" --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner -cf "$work/repo.tar" "${SCHEMA_MIRROR_REPO}.git" || return 1
-  log::info "schema_mirror: $repo at $commit ready to serve as refs/tags/$commit"
+  local dpath dcommit dmurl dmref dgot
+  IFS=$'\t' read -r dpath dcommit dmurl dmref < <(schema_mirror::locked_deviations) || return 1
+  [[ -n "$dcommit" ]] || return 1
+  dgot="$(schema_mirror::deviations_build "$dpath" "$work/out/${SCHEMA_MIRROR_DEV_REPO}.git")" \
+    || { log::error "schema_mirror: building ${SCHEMA_MIRROR_DEV_REPO}.git from $dpath failed — nothing served"; return 1; }
+  if [[ "$dgot" != "$dcommit" ]]; then
+    log::error "schema_mirror: $dpath builds to commit $dgot, versions.lock.yaml pins $dcommit — refusing to serve anything else; nothing served"
+    return 1
+  fi
+  tar -C "$work/out" --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner -cf "$work/repo.tar" \
+    "${SCHEMA_MIRROR_DEV_REPO}.git" "${SCHEMA_MIRROR_REPO}.git" || return 1
+  log::info "schema_mirror: $repo at $commit ready to serve as refs/tags/$commit; ${SCHEMA_MIRROR_DEV_REPO} at $dcommit as refs/tags/$dcommit"
   printf '%s\n' "$work/repo.tar"
 }
 
-# schema_mirror::served <commit> — the running mirror serves exactly refs/tags/<commit> (evidence).
+# schema_mirror::served <commit> [<repo>] — the running mirror serves exactly refs/tags/<commit> of
+# <repo> (default the patch repository) (evidence).
 schema_mirror::served() {
-  local commit="$1" out id="schema-mirror.ls-remote" n=1
+  local commit="$1" repo="${2:-$SCHEMA_MIRROR_REPO}" out id n=1
+  id="schema-mirror.ls-remote"; [[ "$repo" == "$SCHEMA_MIRROR_REPO" ]] || id="schema-mirror.ls-remote-$repo"
+  local base="$id"
   evidence::ensure_dir || return 1
-  while [[ -e "$EVIDENCE_DIR/$id.json" ]]; do n=$((n + 1)); id="schema-mirror.ls-remote-${n}"; done
+  while [[ -e "$EVIDENCE_DIR/$id.json" ]]; do n=$((n + 1)); id="${base}-${n}"; done
   out="$(evidence_run "$id" -- "${KUBECTL:-kubectl}" ${KUBE_CONTEXT:+--context "$KUBE_CONTEXT"} exec -n "$SCHEMA_MIRROR_NS" \
-      "deploy/$SCHEMA_MIRROR_NAME" -- git ls-remote "http://127.0.0.1:8080/git/${SCHEMA_MIRROR_REPO}.git" 2>/dev/null)" || return 1
+      "deploy/$SCHEMA_MIRROR_NAME" -- git ls-remote "http://127.0.0.1:8080/git/${repo}.git" 2>/dev/null)" || return 1
   [[ "$out" == "${commit}"$'\t'"refs/tags/${commit}" ]]
 }
 
 # schema_mirror::ensure — prepare (when needed), publish, serve, check. Idempotent.
 schema_mirror::ensure() {
-  local repo commit murl mref have timeout="${SCHEMA_MIRROR_TIMEOUT:-180}" work tar changed=false
+  local repo commit murl mref have havedev timeout="${SCHEMA_MIRROR_TIMEOUT:-180}" work tar changed=false
+  local dpath dcommit dmurl dmref
   IFS=$'\t' read -r repo commit murl mref < <(schema_mirror::locked) || return 1
   [[ -n "$commit" ]] || return 1
-  log::info "schema mirror: $repo @ $commit → $murl (tag $mref)"
+  IFS=$'\t' read -r dpath dcommit dmurl dmref < <(schema_mirror::locked_deviations) || return 1
+  [[ -n "$dcommit" ]] || return 1
+  log::info "schema mirror: $repo @ $commit → $murl (tag $mref); $dpath @ $dcommit → $dmurl (tag $dmref)"
   have="$(schema_mirror::_k get configmap "$SCHEMA_MIRROR_CONFIGMAP" -n "$SCHEMA_MIRROR_NS" -o jsonpath='{.data.locked-commit}' 2>/dev/null || true)"
-  if [[ "$have" != "$commit" ]]; then
+  havedev="$(schema_mirror::_k get configmap "$SCHEMA_MIRROR_CONFIGMAP" -n "$SCHEMA_MIRROR_NS" -o jsonpath='{.data.deviations-commit}' 2>/dev/null || true)"
+  if [[ "$have" != "$commit" || "$havedev" != "$dcommit" ]]; then
     work="$(mktemp -d "${TMPDIR:-/tmp}/schema_mirror.XXXXXX")"
     # shellcheck disable=SC2064
     trap "rm -rf '$work'" RETURN
     tar="$(schema_mirror::prepare "$work")" || return 1
     schema_mirror::_k create configmap "$SCHEMA_MIRROR_CONFIGMAP" -n "$SCHEMA_MIRROR_NS" \
-        --from-file=repo.tar="$tar" --from-literal=locked-commit="$commit" --dry-run=client -o yaml \
+        --from-file=repo.tar="$tar" --from-literal=locked-commit="$commit" --from-literal=deviations-commit="$dcommit" --dry-run=client -o yaml \
       | schema_mirror::_k label --local -f - "$(ownership::key)=$(ownership::value)" -o yaml \
       | schema_mirror::_k apply --server-side --force-conflicts --field-manager="$SCHEMA_MIRROR_FIELD_MANAGER" -f - >/dev/null \
       || { log::error "schema_mirror: writing ConfigMap $SCHEMA_MIRROR_NS/$SCHEMA_MIRROR_CONFIGMAP failed"; return 1; }
     changed=true
   else
-    log::info "schema mirror: ConfigMap $SCHEMA_MIRROR_CONFIGMAP already carries $commit — not rewritten"
+    log::info "schema mirror: ConfigMap $SCHEMA_MIRROR_CONFIGMAP already carries $commit and $dcommit — not rewritten"
   fi
   declare -F image_build::build >/dev/null || source "$SCHEMA_MIRROR_LIB/image_build.sh"
   local ref
@@ -146,13 +234,16 @@ schema_mirror::ensure() {
     || { log::error "schema_mirror: deployment/$SCHEMA_MIRROR_NAME not rolled out within ${timeout}s — see: kubectl -n $SCHEMA_MIRROR_NS logs deploy/$SCHEMA_MIRROR_NAME"; return 1; }
   schema_mirror::served "$commit" \
     || { log::error "schema_mirror: the mirror does not serve exactly refs/tags/$commit"; return 1; }
-  log::info "schema mirror: serving refs/tags/$commit (read back through git ls-remote)"
+  schema_mirror::served "$dcommit" "$SCHEMA_MIRROR_DEV_REPO" \
+    || { log::error "schema_mirror: the mirror does not serve exactly refs/tags/$dcommit of ${SCHEMA_MIRROR_DEV_REPO}.git"; return 1; }
+  log::info "schema mirror: serving refs/tags/$commit and ${SCHEMA_MIRROR_DEV_REPO} refs/tags/$dcommit (read back through git ls-remote)"
 }
 
 schema_mirror::main() {
   case "${1:-ensure}" in
     ensure) schema_mirror::ensure ;;
     prepare) shift; schema_mirror::prepare "${1:?usage: schema_mirror.sh prepare <workdir>}" ;;
+    deviations-commit) schema_mirror::deviations_commit ;;
     -h|--help) sed -n '2,/^# Exit:/p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' ;;
     *) log::error "schema_mirror: unknown command '$1'"; return 2 ;;
   esac

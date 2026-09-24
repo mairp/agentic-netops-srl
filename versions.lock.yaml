@@ -64,6 +64,18 @@ compatibilitySet:
           repoURL: http://schema-mirror.sdc-system.svc.cluster.local/git/srlinux-yang-patch.git
           kind: tag
           ref: 7410316d34f1d393b82889c0caa1b5acef80fb60
+      - repoURL: deploy/sdc/schema-deviations
+        kind: hash
+        ref: 0b06d58025c8357ff6a47e90635c61b787ac8baa
+        # First-party deviation modules (live-findings 2026-09-21-feature-guarded-must), in-tree:
+        # no upstream. scripts/lib/schema_mirror.sh builds the tree as ONE deterministic commit
+        # (fixed identity, dates, message; `schema_mirror.sh deviations-commit` prints it), asserts
+        # it equals ref, and the mirror serves it ONLY as refs/tags/<commit> (AD-75). Editing the
+        # tree changes the commit: re-pin ref and both mirror/Schema refs.
+        mirror:
+          repoURL: http://schema-mirror.sdc-system.svc.cluster.local/git/agentic-netops-deviations.git
+          kind: tag
+          ref: 0b06d58025c8357ff6a47e90635c61b787ac8baa
   deviceConfiguration: # part 5
     part: 5
     configServer:

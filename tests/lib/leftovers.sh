@@ -23,8 +23,11 @@
 #         (FR-104, T181) — a vt-scratch- or gate-labelled IdentifierPool / IdentifierClaim in
 #         agentic-netops-allocation (G11's scratch pools and claims), and runs the probe of every
 #         fault class on every node:
-#           mgmt-detached     the node's container is not on the management network
-#                             (docker network inspect <MGMT_NETWORK>)
+#           mgmt-detached     the node's management data path is down: its management link
+#                             carries no signal, or (a device) its gNMI port accepts no
+#                             connection from the host (lab::mgmt_reachable). Docker's endpoint
+#                             record is NOT the probe: on SR Linux it can be absent while the
+#                             link is bridged, and present while nothing answers.
 #           link-impairment   a netem/tbf qdisc on one of the node's links (tc qdisc, read from
 #                             the host inside the container's network namespace)
 #           device-leaf       a device-side administrative state still holding the value a
@@ -78,18 +81,19 @@ leftovers::_new_scan_id() {
 
 # leftovers::declare_fault <id> <node> <change> <probe-json> [<revert-json>]
 #   probe-json is one of
-#     {"kind":"mgmt-detached","container":"clab-…-leaf01","network":"agentic-netops-mgmt"}
+#     {"kind":"mgmt-link-down","container":"clab-…-leaf01","interface":"mgmt0","peer":"veth…"}
+#     {"kind":"mgmt-detached","container":"clab-…-leaf01","network":"agentic-netops-mgmt"}  (legacy)
 #     {"kind":"link-impairment","container":"clab-…-leaf01","interface":"e1-49"}
 #     {"kind":"device-leaf","node":"leaf01","path":"/interface[name=ethernet-1/49]/admin-state",
 #      "faulted_value":"disable"}
 #   revert-json (optional) is what leftovers::remove does to undo it, e.g.
-#     {"kind":"docker-network-connect","ip":"172.25.25.21"} | {"kind":"tc-qdisc-del"} |
+#     {"kind":"host-link-up"} | {"kind":"tc-qdisc-del"} |
 #     {"kind":"device-leaf-set","value":"enable"}
 # Written BEFORE the fault is made; the caller makes the fault only if this returns 0.
 leftovers::declare_fault() {
   local id="${1:?id}" node="${2:?node}" change="${3:?change}" probe="${4:?probe-json}" revert="${5:-null}"
   evidence::ensure_dir || return 3
-  jq -e 'type == "object" and (.kind | IN("mgmt-detached","link-impairment","device-leaf"))' \
+  jq -e 'type == "object" and (.kind | IN("mgmt-link-down","mgmt-detached","link-impairment","device-leaf"))' \
     <<<"$probe" >/dev/null || { echo "leftovers: probe must be a JSON object of a known kind: $probe" >&2; return 2; }
   local f="$EVIDENCE_DIR/declared-faults.json" tmp
   [[ -f "$f" ]] || jq -n '{schema: "agentic-netops.declared-faults/v1", faults: []}' >"$f"
@@ -125,20 +129,13 @@ leftovers::_scratch_paths() {
     | [$q, getpath($q)] | "\(.[0] | map(tostring) | join("/"))\t\(.[1])"' 2>/dev/null
 }
 
-# leftovers::_probe_mgmt — prints "<container>" for every lab container missing from MGMT_NETWORK
+# leftovers::_probe_mgmt — names every lab node whose management data path is down
+# (lab::mgmt_reachable: link carrier, and a device's gNMI port accepting from the host)
 leftovers::_probe_mgmt() {
-  local out node c
-  if ! out="$(leftovers::_run "mgmt-network" -- lab::docker network inspect "$MGMT_NETWORK")"; then
-    echo "LEFTOVER mgmt-detached network:$MGMT_NETWORK cannot inspect the management network (every node detached?)"
-    return 1
-  fi
-  local members
-  members="$(jq -r '.[0].Containers // {} | to_entries[] | .value.Name' <<<"$out" 2>/dev/null)"
-  local rc=0
+  local node why rc=0
   for node in $(lab::all_nodes); do
-    c="$(lab::container "$node")"
-    if ! grep -qxF "$c" <<<"$members"; then
-      echo "LEFTOVER mgmt-detached $node container $c is not attached to $MGMT_NETWORK"
+    if ! why="$(lab::mgmt_reachable "$node")"; then
+      echo "LEFTOVER mgmt-detached $node ${why}"
       rc=1
     fi
   done
@@ -175,13 +172,10 @@ leftovers::_probe_declared() {
   kind="$(jq -r '.probe.kind' <<<"$f")"; node="$(jq -r '.node' <<<"$f")"; id="$(jq -r '.id' <<<"$f")"
   stem="declared.${2:+$2.}${id}"
   case "$kind" in
-    mgmt-detached)
-      local c net out
-      c="$(jq -r '.probe.container' <<<"$f")"; net="$(jq -r '.probe.network // empty' <<<"$f")"
-      out="$(leftovers::_run "$stem" -- lab::docker network inspect "${net:-$MGMT_NETWORK}")" || {
-        echo "LEFTOVER declared-fault $node $id: network ${net:-$MGMT_NETWORK} cannot be inspected"; return 1; }
-      if ! jq -e --arg c "$c" '[.[0].Containers // {} | to_entries[] | .value.Name] | index($c)' <<<"$out" >/dev/null; then
-        echo "LEFTOVER declared-fault $node $id still in place: $c detached from ${net:-$MGMT_NETWORK} ($(jq -r .change <<<"$f"))"
+    mgmt-link-down|mgmt-detached)
+      local why
+      if ! why="$(lab::mgmt_reachable "$node")"; then
+        echo "LEFTOVER declared-fault $node $id still in place: ${why} ($(jq -r .change <<<"$f"))"
         return 1
       fi ;;
     link-impairment)
@@ -466,11 +460,10 @@ leftovers::remove() {
     leftovers::_probe_declared "$f" "$seq" >/dev/null && continue
     kind="$(jq -r '.revert.kind // empty' <<<"$f")"
     case "$kind" in
-      docker-network-connect)
-        local -a ipf=()
-        [[ -n "$(jq -r '.revert.ip // empty' <<<"$f")" ]] && ipf=(--ip "$(jq -r '.revert.ip' <<<"$f")")
-        leftovers::_run "$rid" -- lab::docker network connect "${ipf[@]}" \
-          "$(jq -r '.probe.network // env.MGMT_NETWORK' <<<"$f")" "$(jq -r '.probe.container' <<<"$f")" || true ;;
+      host-link-up)
+        local peer
+        peer="$(lab::mgmt_peer "$(jq -r .node <<<"$f")")" && \
+          leftovers::_run "$rid" -- "${IP:-ip}" link set "$peer" up || true ;;
       tc-qdisc-del)
         local pid
         pid="$(lab::docker inspect -f '{{.State.Pid}}' "$(jq -r '.probe.container' <<<"$f")")"

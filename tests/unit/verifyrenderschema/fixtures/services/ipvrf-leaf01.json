@@ -1,0 +1,28 @@
+{
+  "srl_nokia-network-instance:network-instance": [
+    {
+      "admin-state": "enable",
+      "name": "ipvrf-db",
+      "type": "srl_nokia-network-instance:ip-vrf",
+      "vxlan-interface": [
+        {
+          "name": "vxlan0.10400"
+        }
+      ]
+    }
+  ],
+  "srl_nokia-tunnel-interfaces:tunnel-interface": [
+    {
+      "name": "vxlan0",
+      "vxlan-interface": [
+        {
+          "index": 10400,
+          "ingress": {
+            "vni": 10400
+          },
+          "type": "srl_nokia-interfaces:routed"
+        }
+      ]
+    }
+  ]
+}

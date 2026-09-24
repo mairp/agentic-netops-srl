@@ -4,7 +4,9 @@
 # named after the commit. The image carries no repository content: scripts/lib/schema_mirror.sh
 # clones the upstream repository on the host, asserts the locked commit, and hands the one-ref
 # bare repository to the pod through the ConfigMap schema-mirror-repo; entrypoint.sh asserts it
-# again and refuses to serve anything else.
+# again and refuses to serve anything else. The same seed carries the first-party deviation
+# repository agentic-netops-deviations.git (deploy/sdc/schema-deviations as one deterministic
+# commit, live-findings 2026-09-21-feature-guarded-must), asserted against DEVIATIONS_COMMIT alike.
 # Every FROM is pinned by the digest versions.lock.yaml firstPartyImages[schema-mirror] records;
 # the image is tagged with its content hash by scripts/lib/image_build.sh (T169) and run with
 # imagePullPolicy: Never. Build context: docker/schema-mirror.

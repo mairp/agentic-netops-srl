@@ -44,14 +44,14 @@ func serviceFixtures() map[string]model.ServiceInput {
 	two := []model.Attachment{{Node: "leaf01", Port: "ethernet-1/1"}, {Node: "leaf02", Port: "ethernet-1/1"}}
 	return map[string]model.ServiceInput{
 		"vlan": {ServiceID: "vlan-100", Tenant: "t1", Construct: model.ConstructVLAN, FabricASN: 65000,
-			L2: &model.L2Segment{VLAN: 100, Attachments: two},
+			L2: &model.L2Segment{VLAN: 100, L2MTU: 9412, Attachments: two},
 			AccessLists: []model.AccessList{{Stage: model.StageIngress, Family: model.FamilyIPv4, DefaultAction: &accept,
 				Rules:    []model.ACLRule{{Name: "deny-telnet", Priority: 10, Action: model.ActionDrop, Protocol: "tcp", DestinationPort: &model.PortMatch{Lo: 23}}},
 				Bindings: []model.ACLBinding{{Node: "leaf01", Port: "ethernet-1/1", VLAN: 100}}}}},
 		"mac-vrf": {ServiceID: "l2-200", Construct: model.ConstructMACVRF, FabricASN: 65000,
-			L2: &model.L2Segment{VLAN: 200, L2VNI: 10200, Attachments: two}},
+			L2: &model.L2Segment{VLAN: 200, L2VNI: 10200, L2MTU: 9412, Attachments: two}},
 		"mac-vrf-gateway": {ServiceID: "4b7e19c2a05d3f6", Tenant: "tenant1", Construct: model.ConstructMACVRF, FabricASN: 65000,
-			L2:      &model.L2Segment{VLAN: 300, L2VNI: 10021, Attachments: two},
+			L2:      &model.L2Segment{VLAN: 300, L2VNI: 10021, L2MTU: 9412, Attachments: two},
 			Gateway: &model.Gateway{L3VNI: 10022, IPv4: []string{"10.10.0.1/24"}, IPv6: []string{"2001:db8::1/64"}, IPMTU: 9348},
 			AccessLists: []model.AccessList{{Stage: model.StageIngress, Family: model.FamilyIPv4, DefaultAction: &drop,
 				Rules: []model.ACLRule{{Name: "allow-https", Priority: 100, Action: model.ActionAccept, Protocol: "tcp",
@@ -60,7 +60,7 @@ func serviceFixtures() map[string]model.ServiceInput {
 		"ip-vrf": {ServiceID: "l3-400", Construct: model.ConstructIPVRF, FabricASN: 65000,
 			Routed: &model.RoutedService{L3VNI: 10400, Attachments: []model.RoutedAttachment{
 				{Node: "leaf01", Port: "ethernet-1/2", IPv4: []string{"10.40.0.1/24"}, IPv6: []string{"2001:db8:40::1/64"}},
-				{Node: "leaf02", Port: "ethernet-1/2", VLAN: 400, IPv4: []string{"10.41.0.1/24"}, IPv6: []string{"2001:db8:41::1/64"}}}},
+				{Node: "leaf02", Port: "ethernet-1/2", VLAN: 400, IPv4: []string{"10.41.0.1/24"}, IPv6: []string{"2001:db8:41::1/64"}}}, IPMTU: 9348},
 			AccessLists: []model.AccessList{{Stage: model.StageEgress, Family: model.FamilyIPv6, DefaultAction: &accept,
 				Rules: []model.ACLRule{{Name: "drop-range", Priority: 20, Action: model.ActionDrop, Protocol: "udp",
 					SourcePrefix: "2001:db8:1::/48", DestinationPrefix: "2001:db8:40::/64",

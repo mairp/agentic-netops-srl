@@ -86,6 +86,15 @@ spec:
           containerPort: 8080
         - name: probes
           containerPort: 8081
+        # The Network validating webhook (T061; deploy/agentic-netops/webhook.yaml).
+        - name: webhook
+          containerPort: 9443
+        volumeMounts:
+        # The webhook's serving certificate, issued by cert-manager (webhook.yaml), at the
+        # controller-runtime default the provider reads (WEBHOOK_CERT_DIR unset).
+        - name: webhook-cert
+          mountPath: /tmp/k8s-webhook-server/serving-certs
+          readOnly: true
         livenessProbe:
           httpGet:
             path: /healthz
@@ -108,3 +117,7 @@ spec:
           readOnlyRootFilesystem: true
           capabilities:
             drop: [ALL]
+      volumes:
+      - name: webhook-cert
+        secret:
+          secretName: srl-provider-webhook-tls

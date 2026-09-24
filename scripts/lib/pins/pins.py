@@ -904,6 +904,29 @@ class Verifier:
                 if kind != "hash" or mref != ref:
                     self.fail(mkey + ".ref", mfull, f"the mirror's tag must be named after the pinned commit {ref} (kind hash)")
 
+            if "://" not in url:
+                # An in-tree, first-party repository (deploy/sdc/schema-deviations): no upstream;
+                # the ref is the ONE deterministic commit scripts/lib/schema_mirror.sh builds the
+                # tree to (live-findings 2026-09-21-feature-guarded-must), served via its mirror.
+                def jt(url=url, kind=kind, ref=ref, key=key, full=full):
+                    tree = os.path.join(self.root, url)
+                    if kind != "hash" or not SHA1_RE.match(ref):
+                        self.fail(key + ".ref", full, "an in-tree repository is pinned by kind hash and a full commit")
+                        return
+                    if not os.path.isdir(tree):
+                        self.fail(key + ".repoURL", full, f"no in-tree repository directory {url}")
+                        return
+                    with tempfile.TemporaryDirectory(prefix="pins-dev-") as d:
+                        rc, out, err = run(["bash", "-c", 'source "$1"; schema_mirror::deviations_build "$2" "$3"', "_",
+                                            os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "schema_mirror.sh"), tree, os.path.join(d, "r.git")])
+                    got = out.decode().strip()
+                    if rc != 0:
+                        self.fail(key + ".ref", full, f"building {url} failed: {short_err(err)}")
+                    elif got != ref:
+                        self.fail(key + ".ref", full, f"{url} builds to commit {got}, the lock records {ref}")
+                self.job(jt)
+                continue
+
             def j(url=url, kind=kind, ref=ref, key=key, full=full, part=part):
                 if kind == "tag":
                     ok, got = self.res.tag_commit(url, ref)

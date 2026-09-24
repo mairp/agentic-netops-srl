@@ -41,6 +41,11 @@ rules:
   resources: [configmaps]
   resourceNames: [srl-provider-compatibility-set]
   verbs: [get, update, patch]
+# The admission webhook reads the qualification record, uncached (T061, FR-097).
+- apiGroups: [""]
+  resources: [configmaps]
+  resourceNames: [fabric-qualification]
+  verbs: [get]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding

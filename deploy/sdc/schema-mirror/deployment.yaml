@@ -1,9 +1,11 @@
 # provenance: source=first-party version=v0.1.0
 # The schema mirror (T184; AD-75): git smart HTTP, upload-pack only — receive-pack is refused by the
 # server and by the repository's own http.receivepack=false — from a read-only root filesystem.
-# The container refuses to start unless the seeded repository's ONLY ref is
-# refs/tags/<LOCKED_COMMIT> at LOCKED_COMMIT (docker/schema-mirror/entrypoint.sh); both the seed
-# and LOCKED_COMMIT are written by scripts/lib/schema_mirror.sh from versions.lock.yaml into the
+# The container refuses to start unless the seed holds exactly srlinux-yang-patch.git, whose ONLY
+# ref is refs/tags/<LOCKED_COMMIT> at LOCKED_COMMIT, and agentic-netops-deviations.git (the
+# first-party deviations of deploy/sdc/schema-deviations), whose ONLY ref is
+# refs/tags/<DEVIATIONS_COMMIT> (docker/schema-mirror/entrypoint.sh); the seed and both commits
+# are written by scripts/lib/schema_mirror.sh from versions.lock.yaml into the
 # ConfigMap schema-mirror-repo, after the host-side clone has asserted the same commit.
 apiVersion: apps/v1
 kind: Deployment
@@ -46,6 +48,13 @@ spec:
               key: locked-commit
         - name: REPO
           value: srlinux-yang-patch
+        - name: DEVIATIONS_COMMIT
+          valueFrom:
+            configMapKeyRef:
+              name: schema-mirror-repo
+              key: deviations-commit
+        - name: DEVIATIONS_REPO
+          value: agentic-netops-deviations
         - name: SEED
           value: /seed/repo.tar
         ports:

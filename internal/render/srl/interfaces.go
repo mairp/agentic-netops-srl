@@ -10,9 +10,11 @@ import "github.com/mairp/agentic-netops-srl/internal/model"
 //     ip-mtu = underlayIPMTU (9398), its claimed IPv4 /31 and derived IPv6 /127;
 //   - system0 and system0.0 with the IPv4 /32 — the VTEP source and router-id,
 //     the only tunnel source the platform supports — and the derived IPv6 /128;
-//   - every access port: admin-state (enable, or disable from maintenance[])
-//     and vlan-tagging from the declared mode (untaggedAccessPorts renders
-//     false), and no subinterface — those are the services' (AD-68);
+//   - every access port: admin-state (enable, or disable from maintenance[]),
+//     vlan-tagging from the declared mode (untaggedAccessPorts renders false)
+//     and mtu = portMTU — the tenant ip-mtu of a service subinterface does not
+//     fit under the device default (live finding 2026-09-21-access-port-mtu) —
+//     and no subinterface: those are the services' (AD-68);
 //   - irb0's own admin-state enable, once, on a leaf only (AD-68).
 func renderInterfaces(n *model.FabricNode) *list {
 	ifs := newList("name")
@@ -39,11 +41,15 @@ func renderInterfaces(n *model.FabricNode) *list {
 	})
 
 	for _, p := range n.AccessPorts {
-		ifs.add(container{
+		e := container{
 			"name":                               p.Name,
 			"admin-state":                        adminState(p.Enabled),
 			modInterfacesVLANs + ":vlan-tagging": p.VLANTagging,
-		})
+		}
+		if p.MTU != 0 {
+			e["mtu"] = p.MTU
+		}
+		ifs.add(e)
 	}
 	if n.IRBEnabled {
 		ifs.add(container{"name": model.IRBInterface, "admin-state": adminState(true)})

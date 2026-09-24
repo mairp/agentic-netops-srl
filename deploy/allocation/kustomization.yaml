@@ -28,4 +28,4 @@ resources:
 # build carries, so an unbuilt deployment fails visibly (ErrImageNeverPull) — never `latest`.
 images:
   - name: srl-provider
-    newTag: 95152c27545775ffa2f3d31c819954bed7babb6ce8a51f37be4841303577fd80
+    newTag: f721d19c65b4048e545554a635e485573e3c89da4e48bc62082b773b58064fbb

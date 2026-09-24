@@ -53,6 +53,9 @@ func (n *FabricNode) WritePaths() []string {
 		ifc := elem("interface", "name", p.Name)
 		w.add(ifc, "admin-state")
 		w.add(ifc, "vlan-tagging")
+		if p.MTU != 0 {
+			w.add(ifc, "mtu")
+		}
 	}
 	if n.IRBEnabled {
 		w.add(elem("interface", "name", IRBInterface), "admin-state")
@@ -129,9 +132,19 @@ func (n *ServiceNode) WritePaths() []string {
 		if s.VLAN != 0 {
 			w.add(sub, "vlan/encap/single-tagged/vlan-id")
 		}
+		if s.IPMTU != 0 {
+			w.add(sub, "ip-mtu")
+		}
+		if s.L2MTU != 0 {
+			w.add(sub, "l2-mtu")
+		}
 		for _, a := range s.IPv4 {
 			w.add(sub, "ipv4/admin-state")
 			w.add(sub, "ipv4"+elem("address", "ip-prefix", a))
+			// the model default stated, as on the fabric's routed subinterfaces:
+			// the validator evaluates the address's unnumbered must against the
+			// absent node (internal/render/srl/interfaces.go addressFamilies).
+			w.add(sub, "ipv4/unnumbered/admin-state")
 		}
 		for _, a := range s.IPv6 {
 			w.add(sub, "ipv6/admin-state")
@@ -145,6 +158,7 @@ func (n *ServiceNode) WritePaths() []string {
 		w.add(sub, "ip-mtu")
 		if len(irb.IPv4) > 0 {
 			w.add(sub, "ipv4/admin-state")
+			w.add(sub, "ipv4/unnumbered/admin-state")
 			for _, a := range irb.IPv4 {
 				addr := sub + "/ipv4" + elem("address", "ip-prefix", a)
 				w.add(addr, "anycast-gw")

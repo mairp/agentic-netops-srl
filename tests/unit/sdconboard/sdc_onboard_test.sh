@@ -33,14 +33,19 @@ case "${args[0]} ${args[1]:-}" in
   "wait "*) exit 0 ;;
   "get secret") exit "${FAKE_SECRET_RC:-0}" ;;
   "get targets.config.sdcio.dev") cat "$FAKE_TARGETS_JSON"; exit 0 ;;
-  "get schemas.inv.sdcio.dev") [[ -n "${FAKE_SCHEMA_READY:-}" ]] || exit 1; printf '%s' "$FAKE_SCHEMA_READY"; exit 0 ;;
+  "get schemas.inv.sdcio.dev") [[ -n "${FAKE_SCHEMA_READY:-}" ]] || exit 1
+    if [[ "$*" == *repositories* ]]; then printf '%s' "$FAKE_SCHEMA_REFS"; else printf '%s' "$FAKE_SCHEMA_READY"; fi; exit 0 ;;
   "delete schemas.inv.sdcio.dev") exit 0 ;;
+  "delete pod") exit 0 ;;
   "apply --server-side") cp "${args[3]}/discovery-rule.yaml" "$FAKE_APPLIED"; exit 0 ;;
 esac
 echo "fake kubectl: unexpected: $*" >&2; exit 9
 SH
 chmod +x "$TMP/kubectl"
 export KUBECTL="$TMP/kubectl" FAKE_KUBECTL_LOG="$TMP/kubectl.log" FAKE_APPLIED="$TMP/applied.yaml"
+# the refs the committed Schema manifest states — what a Schema loaded from it reports
+FAKE_SCHEMA_REFS="$(python3 -c 'import sys,yaml; d=yaml.safe_load(open(sys.argv[1])); print(" ".join(str(r["ref"]) for r in d["spec"]["repositories"]))' "$ONB/schema.yaml")"
+export FAKE_SCHEMA_REFS
 : >"$FAKE_KUBECTL_LOG"
 
 # case <name> — a copy of the committed onboarding dir to plant into.
@@ -134,8 +139,23 @@ $(cat "$FAKE_KUBECTL_LOG")"; fi
 : >"$FAKE_KUBECTL_LOG"
 out="$(FAKE_SCHEMA_READY=True bash "$SO" 2>&1)"; rc=$?
 if [[ "$rc" -eq 0 ]] && ! grep -q '^delete' "$FAKE_KUBECTL_LOG" && grep -qxF "apply --server-side -k $ONB" "$FAKE_KUBECTL_LOG"; then
-  pass "a Ready Schema is never deleted"
+  pass "a Ready Schema loaded from the manifest's refs is never deleted, and the data server is not restarted"
 else fail "ready Schema untouched (rc=$rc)" "$out
+$(cat "$FAKE_KUBECTL_LOG")"; fi
+
+# 7c — a Ready Schema loaded from OTHER refs (a repository added to the manifest) is recycled before
+#      the apply, and the data server is restarted AFTER it (its per-datastore schema cache, live
+#      finding 2026-09-21-schema-reload)
+: >"$FAKE_KUBECTL_LOG"
+out="$(FAKE_SCHEMA_READY=True FAKE_SCHEMA_REFS="v25.7.1 7410316d34f1d393b82889c0caa1b5acef80fb60" bash "$SO" 2>&1)"; rc=$?
+del="$(grep -n '^delete schemas.inv.sdcio.dev srl.nokia.sdcio.dev-25.7.1 -n agentic-netops-system --wait=true' "$FAKE_KUBECTL_LOG" | cut -d: -f1)"
+app="$(grep -n "^apply --server-side -k $ONB$" "$FAKE_KUBECTL_LOG" | cut -d: -f1)"
+rst="$(grep -n '^delete pod data-server-controller-0 -n sdc-system' "$FAKE_KUBECTL_LOG" | cut -d: -f1)"
+wt="$(grep -n '^wait pod/data-server-controller-0 -n sdc-system --for=condition=Ready' "$FAKE_KUBECTL_LOG" | cut -d: -f1)"
+if [[ "$rc" -eq 0 && -n "$del" && -n "$app" && -n "$rst" && -n "$wt" && "$del" -lt "$app" && "$app" -lt "$rst" && "$rst" -lt "$wt" ]] \
+   && grep -qF "but the manifest states" <<<"$out"; then
+  pass "a Ready Schema loaded from stale refs is recycled before the apply; the data server is restarted and waited Ready after it"
+else fail "stale Schema recycled (rc=$rc)" "$out
 $(cat "$FAKE_KUBECTL_LOG")"; fi
 
 # 8 — Secret missing

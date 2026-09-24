@@ -53,6 +53,9 @@ source "$SDC_ONBOARD_LIB/onboarding.sh"
 # 2026-09-21-target-namespace).
 SDC_ONBOARD_NAMESPACE="agentic-netops-system"
 SDC_ONBOARD_SECRET="srl-credentials"
+SDC_DATA_SERVER_NAMESPACE="sdc-system"
+SDC_DATA_SERVER_POD="data-server-controller-0"
+SDC_ONBOARD_RELOADED=0
 SDC_ONBOARD_CRDS=(schemas.inv.sdcio.dev targetconnectionprofiles.inv.sdcio.dev
   targetsyncprofiles.inv.sdcio.dev discoveryrules.inv.sdcio.dev)
 
@@ -158,17 +161,27 @@ PY
 # Schema only when its directory is absent from the schema store (pkg/reconcilers/schema
 # reconciler.go: `if !dirExists`), and a failed download leaves that directory PARTIAL: the Schema
 # then stays Ready=False for good, even after its spec is corrected, until it is deleted (its
-# finalizer removes the directory). Observed live, pass 37. A Ready Schema is never touched.
+# finalizer removes the directory). Observed live, pass 37. A Ready Schema is recycled the same way
+# only when the repository refs it was loaded from differ from the manifest's: config-server never
+# reloads a changed spec either (phase 4 pass 3, 2026-09-21-schema-reload). A Ready Schema whose refs
+# match is never touched.
 sdc_onboard::recycle_failed_schema() {
-  local dir="$1" timeout="${2:-300}" name ns st
-  while read -r ns name; do
+  local dir="$1" timeout="${2:-300}" name ns st want_refs live_refs
+  while read -r ns name want_refs; do
     [[ -n "$name" ]] || continue
     st="$(k8s_wait::_kubectl get schemas.inv.sdcio.dev "$name" -n "$ns" \
           -o 'jsonpath={.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null)" || continue
-    [[ "$st" == "False" ]] || continue
-    log::warn "Schema ${ns}/${name} reports Ready=False: deleting it so the apply reloads it (config-server never retries a failed load)"
+    if [[ "$st" == "False" ]]; then
+      log::warn "Schema ${ns}/${name} reports Ready=False: deleting it so the apply reloads it (config-server never retries a failed load)"
+    else
+      live_refs="$(k8s_wait::_kubectl get schemas.inv.sdcio.dev "$name" -n "$ns" \
+                   -o 'jsonpath={.spec.repositories[*].ref}' 2>/dev/null)" || continue
+      [[ "$live_refs" != "$want_refs" ]] || continue
+      log::warn "Schema ${ns}/${name} is loaded from refs [${live_refs}] but the manifest states [${want_refs}]: deleting it so the apply reloads it (config-server never reloads a changed spec)"
+    fi
     k8s_wait::_kubectl delete schemas.inv.sdcio.dev "$name" -n "$ns" --wait=true --timeout="${timeout}s" || {
       log::error "sdc_onboard: Schema ${ns}/${name} could not be deleted for a reload"; return 1; }
+    SDC_ONBOARD_RELOADED=1
   done < <(python3 - "$dir" "$SDC_ONBOARD_NAMESPACE" <<'PY'
 import os, sys, yaml
 for base, _, names in os.walk(sys.argv[1]):
@@ -178,9 +191,24 @@ for base, _, names in os.walk(sys.argv[1]):
         for doc in yaml.safe_load_all(open(os.path.join(base, n))):
             if isinstance(doc, dict) and doc.get("kind") == "Schema":
                 md = doc.get("metadata") or {}
-                print(md.get("namespace", sys.argv[2]), md.get("name", ""))
+                refs = " ".join(str(r.get("ref", "")) for r in (doc.get("spec") or {}).get("repositories") or [])
+                print(md.get("namespace", sys.argv[2]), md.get("name", ""), refs)
 PY
 )
+}
+
+# sdc_onboard::restart_data_server <timeout> — after a Schema was reloaded, restart the data server.
+# data-server v0.0.72 keeps a per-datastore schema cache: a Schema deleted and re-created with a new
+# repository (CreateSchema logged, the new files in the store) is still validated against the old one
+# by every existing datastore until the process restarts. Observed live, phase 4 pass 3
+# (docs/decisions/live-findings.md, 2026-09-21-schema-reload).
+sdc_onboard::restart_data_server() {
+  local timeout="$1"
+  log::warn "restarting ${SDC_DATA_SERVER_POD} in ${SDC_DATA_SERVER_NAMESPACE} so every datastore validates against the reloaded Schema"
+  k8s_wait::_kubectl delete pod "$SDC_DATA_SERVER_POD" -n "$SDC_DATA_SERVER_NAMESPACE" --wait=true --timeout="${timeout}s" || {
+    log::error "sdc_onboard: ${SDC_DATA_SERVER_POD} could not be restarted"; return 1; }
+  k8s_wait::_kubectl wait "pod/${SDC_DATA_SERVER_POD}" -n "$SDC_DATA_SERVER_NAMESPACE" --for=condition=Ready --timeout="${timeout}s" || {
+    log::error "sdc_onboard: ${SDC_DATA_SERVER_POD} not Ready within ${timeout}s after the restart"; return 1; }
 }
 
 # sdc_onboard::prepare_dir <dir> <mgmt_cidr> <tmp> — prints the directory to apply.
@@ -228,7 +256,10 @@ sdc_onboard::main() {
   fi
   sdc_onboard::recycle_failed_schema "$apply_dir" "$timeout" || return 1
   log::info "applying ${apply_dir}"
-  k8s_wait::_kubectl apply --server-side -k "$apply_dir"
+  k8s_wait::_kubectl apply --server-side -k "$apply_dir" || return 1
+  if [[ "$SDC_ONBOARD_RELOADED" == 1 ]]; then
+    sdc_onboard::restart_data_server "$timeout" || return 1
+  fi
 }
 
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then

@@ -3,12 +3,21 @@ package verify
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"reflect"
+	"regexp"
 	"strings"
 	"testing"
+	"time"
+
+	configv1alpha1 "github.com/sdcio/config-server/apis/config/v1alpha1"
+
+	"github.com/mairp/agentic-netops-srl/internal/model"
+	"github.com/mairp/agentic-netops-srl/internal/status"
 )
 
 // exposition in the collector's observed naming (G7, tests/gate/observed/
@@ -220,5 +229,320 @@ func TestCollectorConvergedCapture(t *testing.T) {
 				t.Errorf("%s %s = %v, want [%s]", n, p, v, w)
 			}
 		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// The service read-back (T058) against the collector.
+// ---------------------------------------------------------------------------
+
+// scratchServiceModel is the model of T058's live probe (vt-scratch- names,
+// which BuildService does not derive): a mac-vrf, an ip-vrf and a vlan on
+// ethernet-1/1 of leaf01 and leaf02.
+func scratchServiceModel() *model.ServiceModel {
+	m := &model.ServiceModel{ServiceID: "vt-scratch", Construct: model.ConstructMACVRF}
+	for i, node := range []string{"leaf01", "leaf02"} {
+		m.Nodes = append(m.Nodes, model.ServiceNode{Node: node,
+			Subinterfaces: []model.Subinterface{
+				{Port: "ethernet-1/1", Index: 990, Type: model.Bridged, VLAN: 990},
+				{Port: "ethernet-1/1", Index: 991, Type: model.Routed, VLAN: 991,
+					IPv4: []string{fmt.Sprintf("10.199.%d.1/24", i+1)}, IPv6: []string{fmt.Sprintf("2001:db8:199:%d::1/64", i+1)}},
+				{Port: "ethernet-1/1", Index: 992, Type: model.Bridged, VLAN: 992},
+			},
+			VXLANInterfaces: []model.VXLANInterface{{Index: 19990, Type: model.Bridged, VNI: 19990}, {Index: 19991, Type: model.Routed, VNI: 19991}},
+			NetworkInstances: []model.NetworkInstance{
+				{Name: "vt-scratch-macvrf", Type: model.MACVRF, Interfaces: []string{"ethernet-1/1.990"}, VXLANInterface: "vxlan0.19990",
+					EVPN:   &model.EVPNInstance{ID: 1, EVI: 19990, VXLANInterface: "vxlan0.19990", ECMP: 8},
+					BGPVPN: &model.BGPVPNInstance{ID: 1, ExportRT: "target:65000:19990", ImportRT: "target:65000:19990"}},
+				{Name: "vt-scratch-ipvrf", Type: model.IPVRF, Interfaces: []string{"ethernet-1/1.991"}, VXLANInterface: "vxlan0.19991",
+					EVPN:   &model.EVPNInstance{ID: 1, EVI: 19991, VXLANInterface: "vxlan0.19991", ECMP: 8},
+					BGPVPN: &model.BGPVPNInstance{ID: 1, ExportRT: "target:65000:19991", ImportRT: "target:65000:19991"}},
+				{Name: "vt-scratch-vlan", Type: model.MACVRF, Interfaces: []string{"ethernet-1/1.992"}},
+			}})
+	}
+	return m
+}
+
+func scratchServiceRun(t *testing.T, exposition string) (ServiceResult, error) {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(exposition)) }))
+	defer srv.Close()
+	cfgs := &fakeConfigs{cfgs: map[string]*configv1alpha1.Config{
+		"svc-leaf01": readyConfig("svc-leaf01", 1), "svc-leaf02": readyConfig("svc-leaf02", 1)}}
+	s := &Service{Reader: &CollectorReader{Layer: &fakeRunning{doc: []byte(`{}`)}, URL: srv.URL}, Configs: cfgs}
+	return s.VerifyService(context.Background(), ServiceInput{Model: scratchServiceModel(), TargetNamespace: "agentic-netops-system",
+		Loopbacks: map[string]string{"leaf01": "10.0.0.1", "leaf02": "10.0.0.2"},
+		Prefixes:  map[string][]string{"vt-scratch-ipvrf": {"10.199.1.0/24", "10.199.2.0/24"}},
+		Nodes:     []ServiceNodeInput{{Node: "leaf01", ConfigName: "svc-leaf01"}, {Node: "leaf02", ConfigName: "svc-leaf02"}}})
+}
+
+// TestCollectorServicesCapture: against the live capture of the converged
+// scratch services, every path of the service read-back — oper-states, the
+// device's RD/RT origins, the multicast destination and VTEP indexes (uint64,
+// converted by the collector), the local and bgp-evpn routes of both families
+// — resolves to the device's value and the pass passes on both leaves.
+func TestCollectorServicesCapture(t *testing.T) {
+	raw, err := os.ReadFile("testdata/collector-services.prom")
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := scratchServiceRun(t, string(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Passed() {
+		t.Fatalf("the converged capture must pass: %s", res.Message())
+	}
+	samples, err := ParseExposition(strings.NewReader(string(raw)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var leaf01 []Sample
+	for _, s := range samples {
+		if s.Labels["source"] == "leaf01" {
+			leaf01 = append(leaf01, s)
+		}
+	}
+	got, err := MatchState(leaf01, []string{
+		MulticastDestinationIndexPath(19990, "10.0.0.2", 19990),
+		VTEPIndexPath("10.0.0.2"),
+		RDOriginPath("vt-scratch-macvrf", 1),
+		RTOriginPath("vt-scratch-ipvrf", 1, "export"),
+		InstanceRouteActivePath("vt-scratch-ipvrf", "2001:db8:199:2::/64", RouteTypeBGPEVPN),
+		InstanceRouteActivePath("vt-scratch-ipvrf", "10.199.2.0/24", RouteTypeLocal), // remote: not local here
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string][]string{
+		MulticastDestinationIndexPath(19990, "10.0.0.2", 19990):                              {"103476342706"},
+		VTEPIndexPath("10.0.0.2"):                                                            {"103476342685"},
+		RDOriginPath("vt-scratch-macvrf", 1):                                                 {"auto-derived-from-evi"},
+		RTOriginPath("vt-scratch-ipvrf", 1, "export"):                                        {"manual"},
+		InstanceRouteActivePath("vt-scratch-ipvrf", "2001:db8:199:2::/64", RouteTypeBGPEVPN): {"true"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("MatchState:\n got %v\nwant %v", got, want)
+	}
+}
+
+// TestCollectorServicesDownCapture: with leaf01's vlan instance and
+// subinterface disabled (live capture), the pass names each object with the
+// device's own reason, decoded from the collector's integers.
+func TestCollectorServicesDownCapture(t *testing.T) {
+	up, err := os.ReadFile("testdata/collector-services.prom")
+	if err != nil {
+		t.Fatal(err)
+	}
+	down, err := os.ReadFile("testdata/collector-services-down.prom")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var lines []string
+	for _, l := range strings.Split(string(up), "\n") {
+		if strings.Contains(l, `source="leaf01"`) && (strings.Contains(l, "vt-scratch-vlan") || strings.Contains(l, `subinterface_index="992"`)) {
+			continue // replaced by the down capture
+		}
+		lines = append(lines, l)
+	}
+	res, err := scratchServiceRun(t, strings.Join(lines, "\n")+"\n"+string(down))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []struct {
+		check Check
+		frags []string
+	}{
+		{CheckNetworkInstanceOperState, []string{"network-instance vt-scratch-vlan", "reads down", "oper-down-reason admin-down"}},
+		{CheckInstanceInterfaceOperState, []string{"interface ethernet-1/1.992", "reads down", "oper-down-reason net-inst-down"}},
+		{CheckSubinterfaceOperState, []string{"subinterface ethernet-1/1.992", "reads down", "oper-down-reason admin-disabled"}},
+	} {
+		if !hasMissing(res, "leaf01", want.check, want.frags...) {
+			t.Errorf("%s not named: %s", want.check, res.Message())
+		}
+	}
+	if len(res.Missing) != 3 || res.Reason() != status.ReasonNotConverged {
+		t.Errorf("want the three vlan invariants, NotConverged; got %s: %s", res.Reason(), res.Message())
+	}
+}
+
+// TestDecodeTablesMatchCollectorConfig holds decodeValue to the event
+// processors scripts/lib/device_metrics.sh renders: every string → integer
+// replacement decodes back to its string, the catch-all to UnrecognisedValue.
+func TestDecodeTablesMatchCollectorConfig(t *testing.T) {
+	cfg := renderCollectorConfig(t)
+	leaves := map[string][]string{
+		"session-state-to-int": {"session-state"},
+		"oper-state-to-int":    {"oper-state"},
+		"active-to-int":        {"active"},
+		"reason-to-int":        {"oper-down-reason", "not-programmed-reason"},
+		"origin-to-int":        {"route-distinguisher-origin", "export-route-target-origin", "import-route-target-origin"},
+	}
+	proc := regexp.MustCompile(`^      ([a-z-]+):$`)
+	repl := regexp.MustCompile(`replace: \{apply-on: value, old: "\^(.*)\$", new: "(\d+)"\}`)
+	seen := map[string]int{}
+	cur := ""
+	for _, l := range strings.Split(cfg, "\n") {
+		if m := proc.FindStringSubmatch(l); m != nil {
+			cur = m[1]
+			continue
+		}
+		m := repl.FindStringSubmatch(l)
+		if m == nil {
+			continue
+		}
+		ls, ok := leaves[cur]
+		if !ok {
+			t.Fatalf("processor %s maps values but the reader has no table for it", cur)
+		}
+		want := m[1]
+		if want == "[^0-9].*" {
+			want = UnrecognisedValue
+		}
+		for _, leaf := range ls {
+			if got := decodeValue(leaf, m[2]); got != want {
+				t.Errorf("%s: %s encoded %s decodes to %q, want %q", cur, leaf, m[2], got, want)
+			}
+		}
+		seen[cur]++
+	}
+	for p := range leaves {
+		if seen[p] == 0 {
+			t.Errorf("processor %s not rendered", p)
+		}
+	}
+	if seen["reason-to-int"] != len(reasons) || seen["origin-to-int"] != len(origins) {
+		t.Errorf("table sizes differ: reasons %d rendered / %d decoded, origins %d / %d",
+			seen["reason-to-int"], len(reasons), seen["origin-to-int"], len(origins))
+	}
+	// the uint64 indexes are converted to integers or never exported
+	for _, v := range []string{`".*destination-index$"`, `".*vtep/index$"`, `".*oper-down-reason$"`, `".*not-programmed-reason$"`,
+		`".*route-distinguisher-origin$"`, `".*route-target-origin$"`} {
+		if !strings.Contains(cfg[strings.Index(cfg, "state-as-int:"):], v) {
+			t.Errorf("state-as-int does not convert %s", v)
+		}
+	}
+}
+
+// TestServicePathsAreSubscribed: every state path the service read-back
+// requests, for every construct, is an instance of a path the collector
+// subscribes to (same elements, keys aside) — a path not subscribed would read
+// as absent forever.
+func TestServicePathsAreSubscribed(t *testing.T) {
+	cfg := renderCollectorConfig(t)
+	sub := regexp.MustCompile(`^          - "(/.*)"$`)
+	subscribed := map[string]bool{}
+	for _, l := range strings.Split(cfg, "\n") {
+		if m := sub.FindStringSubmatch(l); m != nil {
+			subscribed[elementNames(t, m[1])] = true
+		}
+	}
+	if len(subscribed) == 0 {
+		t.Fatal("no subscription rendered")
+	}
+	gw, err := model.BuildService(model.ServiceInput{ServiceID: "g1", Construct: model.ConstructMACVRF, FabricASN: 65000,
+		L2:      &model.L2Segment{VLAN: 990, L2VNI: 19990, Attachments: []model.Attachment{{Node: "leaf01", Port: "ethernet-1/1"}, {Node: "leaf02", Port: "ethernet-1/1"}}},
+		Gateway: &model.Gateway{L3VNI: 19991, IPv4: []string{"10.10.0.1/24"}, IPv6: []string{"2001:db8:10::1/64"}, IPMTU: 1500}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	exps, err := ServiceExpectations(ServiceInput{Model: scratchServiceModel(), Loopbacks: map[string]string{"leaf01": "10.0.0.1", "leaf02": "10.0.0.2"},
+		Prefixes: map[string][]string{"vt-scratch-ipvrf": {"10.77.0.0/16"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	gexps, err := ServiceExpectations(ServiceInput{Model: gw, Loopbacks: map[string]string{"leaf01": "10.0.0.1", "leaf02": "10.0.0.2"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	n := 0
+	for _, es := range [][]StateExpectation{exps["leaf01"], gexps["leaf02"]} {
+		for _, e := range es {
+			for _, p := range []string{e.Path, e.ReasonPath} {
+				if p == "" {
+					continue
+				}
+				n++
+				if !subscribed[elementNames(t, p)] {
+					t.Errorf("%s is not subscribed by scripts/lib/device_metrics.sh", p)
+				}
+			}
+		}
+	}
+	if n < 40 {
+		t.Errorf("only %d paths checked", n)
+	}
+}
+
+func elementNames(t *testing.T, p string) string {
+	t.Helper()
+	elems, err := parsePath(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	names := make([]string, 0, len(elems))
+	for _, e := range elems {
+		names = append(names, e.name)
+	}
+	return strings.Join(names, "/")
+}
+
+func renderCollectorConfig(t *testing.T) string {
+	t.Helper()
+	if _, err := exec.LookPath("bash"); err != nil {
+		t.Skip("bash not available")
+	}
+	out, err := exec.Command("bash", "../../scripts/lib/device_metrics.sh", "render", "172.25.25.0/24").Output()
+	if err != nil {
+		t.Fatalf("device_metrics.sh render: %v", err)
+	}
+	return string(out)
+}
+
+// TestCollectorUnreachableByFreshness: the data-path half of "can this node be read" (SC-008,
+// live-findings 2026-09-21-target-unreachable). A node whose newest timestamped sample is older
+// than the limit, or that has no sample, cannot be read; a fresh one can; the timestamp the
+// exporter appends (send_timestamps) is parsed; an unreadable collector is an error.
+func TestCollectorUnreachableByFreshness(t *testing.T) {
+	now := time.UnixMilli(1790007907540)
+	fixture := strings.Join([]string{
+		`srl_nokia_interfaces:interface_oper_state{interface_name="ethernet-1/1",source="leaf01"} 1 1790007905564`, // 2 s old
+		`srl_nokia_interfaces:interface_oper_state{interface_name="ethernet-1/1",source="leaf02"} 1 1790007880000`, // 27.5 s old
+		`srl_nokia_interfaces:interface_oper_state{interface_name="ethernet-1/2",source="leaf02"} 1 1790007890000`, // newest of leaf02: 17.5 s
+		`srl_nokia_interfaces:interface_oper_state{interface_name="ethernet-1/1",source="spine02"} 1`,              // no timestamp
+	}, "\n") + "\n"
+	samples, err := ParseExposition(strings.NewReader(fixture))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if samples[0].TimestampMs != 1790007905564 || samples[3].TimestampMs != 0 {
+		t.Fatalf("timestamps parsed %d / %d", samples[0].TimestampMs, samples[3].TimestampMs)
+	}
+	got := StaleNodes(samples, []string{"leaf01", "leaf02", "spine01", "spine02"}, 12*time.Second, now)
+	if _, ok := got["leaf01"]; ok {
+		t.Errorf("leaf01's newest sample is 2 s old: reachable, got %q", got["leaf01"])
+	}
+	if !strings.Contains(got["leaf02"], "leaf02") || !strings.Contains(got["leaf02"], "18s old") {
+		t.Errorf("leaf02's newest sample is 17.5 s old: unreachable, named with its age, got %q", got["leaf02"])
+	}
+	if !strings.Contains(got["spine01"], "no sample from spine01") {
+		t.Errorf("spine01 has no sample: unreachable, got %q", got["spine01"])
+	}
+	if _, ok := got["spine02"]; ok {
+		t.Errorf("an untimestamped sample counts as fresh (the exporter's expiration bounds it), got %q", got["spine02"])
+	}
+	// negative control: the same samples judged at the time leaf02's newest was taken are fresh
+	if g := StaleNodes(samples, []string{"leaf02"}, 12*time.Second, time.UnixMilli(1790007890000)); len(g) != 0 {
+		t.Errorf("leaf02 at its own sample time must be fresh, got %v", g)
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(fixture)) }))
+	defer srv.Close()
+	r := &CollectorReader{URL: srv.URL}
+	if g, err := r.Unreachable(context.Background(), []string{"leaf01", "leaf02"}, 12*time.Second, now); err != nil || len(g) != 1 || g["leaf02"] == "" {
+		t.Errorf("Unreachable over HTTP: %v %v", g, err)
+	}
+	dead := &CollectorReader{URL: "http://127.0.0.1:1/metrics"}
+	if _, err := dead.Unreachable(context.Background(), []string{"leaf01"}, 12*time.Second, now); err == nil || !strings.Contains(err.Error(), "could not be read") {
+		t.Errorf("an unreadable collector is an error, got %v", err)
 	}
 }

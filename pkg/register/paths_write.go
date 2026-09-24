@@ -40,12 +40,15 @@ func WriteEntries() []WriteEntry {
 		w("/interface[name=*]/subinterface[index=*]/admin-state", fabAndSv, fabric, l2svc),
 		w("/interface[name=*]/subinterface[index=*]/type", svcOnly, l2svc),
 		w("/interface[name=*]/subinterface[index=*]/vlan/encap/single-tagged/vlan-id", svcOnly, l2svc),
-		w("/interface[name=*]/subinterface[index=*]/ip-mtu", fabAndSv, fabric, gateway),
+		w("/interface[name=*]/subinterface[index=*]/ip-mtu", fabAndSv, fabric, overlay),            // mac-vrf gateway irb0, ip-vrf routed
+		w("/interface[name=*]/subinterface[index=*]/l2-mtu", svcOnly, []string{"vlan", "mac-vrf"}), // bridged subinterfaces
 		w("/interface[name=*]/subinterface[index=*]/ipv4/admin-state", fabAndSv, fabric, overlay),
 		w("/interface[name=*]/subinterface[index=*]/ipv4/address[ip-prefix=*]", fabAndSv, fabric, []string{"ip-vrf"}),
 		// the model default stated: the validator evaluates the address's unnumbered must
 		// against the absent node (internal/render/srl/interfaces.go addressFamilies)
-		w("/interface[name=*]/subinterface[index=*]/ipv4/unnumbered/admin-state", fabOnly, fabric),
+		// (the fabric's routed subinterfaces, and a service's routed and irb0
+		// subinterfaces carrying an IPv4 address)
+		w("/interface[name=*]/subinterface[index=*]/ipv4/unnumbered/admin-state", fabAndSv, fabric, overlay),
 		w("/interface[name=*]/subinterface[index=*]/ipv6/admin-state", fabAndSv, fabric, overlay),
 		w("/interface[name=*]/subinterface[index=*]/ipv6/address[ip-prefix=*]", fabAndSv, fabric, []string{"ip-vrf"}),
 		// --- irb0 anycast gateway ---
@@ -65,7 +68,7 @@ func WriteEntries() []WriteEntry {
 		w("/tunnel-interface[name=*]", fabOnly, fabric),
 		w("/tunnel-interface[name=*]/vxlan-interface[index=*]/type", svcOnly, overlay),
 		w("/tunnel-interface[name=*]/vxlan-interface[index=*]/ingress/vni", svcOnly, overlay),
-		w("/tunnel-interface[name=*]/vxlan-interface[index=*]/egress/source-ip", svcOnly, gateway),
+		w("/tunnel-interface[name=*]/vxlan-interface[index=*]/egress/source-ip", svcOnly, []string{"mac-vrf"}), // bridged (L2VNI) only
 		// --- network instances ---
 		w("/network-instance[name=*]/type", fabAndSv, fabric, l2svc),
 		w("/network-instance[name=*]/admin-state", fabAndSv, fabric, l2svc),
@@ -163,6 +166,19 @@ func CheckService(m *model.ServiceModel) error {
 		}
 	}
 	return errors.Join(errs...)
+}
+
+// CheckServicePaths checks the concrete leaf paths a service render actually
+// emits (extracted from the rendered document, not from the model) against
+// the entries a service Config may write, so a service render reaching a
+// port-level or other fabric-owned leaf is uncovered (AD-68). The service
+// renderer (T057) calls it on every node before returning a document
+// (Rendered=False/RegisterUncovered).
+func CheckServicePaths(node string, paths []string) error {
+	if err := checkOwned(paths, OwnerService); err != nil {
+		return fmt.Errorf("service node %s: %w", node, err)
+	}
+	return nil
 }
 
 // checkOwned is CheckWrite restricted to the entries owner may write, so a

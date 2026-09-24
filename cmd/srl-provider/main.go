@@ -154,6 +154,13 @@ func run(ctx context.Context, lookup func(string) (string, bool), out io.Writer)
 	if err := r.SetupWithManager(mgr); err != nil {
 		return fmt.Errorf("fabric reconciler: %w", err)
 	}
+	deps := providerDeps{Settings: s, Compat: set, SDC: sdcClient, Claims: claims, APIReader: mgr.GetAPIReader()}
+	if err := setupNetwork(mgr, deps); err != nil {
+		return fmt.Errorf("network reconciler: %w", err)
+	}
+	if err := setupWebhook(mgr, lookup); err != nil {
+		return fmt.Errorf("network webhook: %w", err)
+	}
 	if err := mgr.Add(manager.RunnableFunc(func(ctx context.Context) error {
 		return publishCompatibility(ctx, direct, set)
 	})); err != nil {
@@ -169,6 +176,15 @@ func run(ctx context.Context, lookup func(string) (string, bool), out io.Writer)
 		"reconcileInterval", s.Fabric.ReconcileInterval.String(), "networkWatchScope", s.NetworkWatchScope,
 		"compatibilitySet", set.Identifier(), "allocationAuthority", claims.Authority())
 	return mgr.Start(ctx)
+}
+
+// providerDeps are what the provider's reconcilers share, built once in run.
+type providerDeps struct {
+	Settings  settings
+	Compat    *compat.Set
+	SDC       *sdc.Client
+	Claims    kuid.Claims
+	APIReader client.Reader
 }
 
 // setupOTLP installs an OTLP/gRPC trace exporter when an endpoint is set; with

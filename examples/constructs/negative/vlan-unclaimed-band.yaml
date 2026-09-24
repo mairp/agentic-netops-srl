@@ -1,0 +1,21 @@
+# NEGATIVE FIXTURE — kept out of examples/constructs/ on purpose: `kubectl apply -f
+# examples/constructs/` does not descend into this directory (no -R), so no documented bring-up
+# ever applies an object built never to be accepted (AD-50). Used by
+# tests/integration/provider_claims.sh (T172) and quickstart §8's provider-claims block.
+#
+# A vlan carrying VLAN 1500, in the allocation band 1000–4000, with no claim behind it. The
+# schema accepts it (which band a value falls in is not a CEL question); the provider's claim
+# gate refuses it: Accepted=False/AllocationConflict naming VLAN 1500 and both bands, zero
+# Configs and zero claims (AD-33).
+apiVersion: fabric.agentic-netops.io/v1alpha1
+kind: Network
+metadata:
+  name: lab-vlan-unclaimed
+  namespace: agentic-netops-services
+spec:
+  description: negative fixture — an allocation-band VLAN with no claim
+  vlans:
+  - name: v1500
+    vlan: 1500
+  attachments:
+  - {node: leaf02, attachment: ethernet-1/1, vlan: 1500}

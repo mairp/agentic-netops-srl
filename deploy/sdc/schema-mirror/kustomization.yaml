@@ -19,4 +19,4 @@ resources:
 # the first build, which no registry and no local build carries — never `latest`.
 images:
   - name: schema-mirror
-    newTag: b2b1057f60d654e3fa63064f25c2243d6037be917fa96e23b75efe7fac483ef3
+    newTag: ba4216825427c9592ea573da374ba8de8e438ee1e1760f6d02776e9eacd01520

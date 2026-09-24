@@ -1,0 +1,28 @@
+{
+  "srl_nokia-network-instance:network-instance": [
+    {
+      "admin-state": "enable",
+      "name": "macvrf-app",
+      "type": "srl_nokia-network-instance:mac-vrf",
+      "vxlan-interface": [
+        {
+          "name": "vxlan0.10200"
+        }
+      ]
+    }
+  ],
+  "srl_nokia-tunnel-interfaces:tunnel-interface": [
+    {
+      "name": "vxlan0",
+      "vxlan-interface": [
+        {
+          "index": 10200,
+          "ingress": {
+            "vni": 10200
+          },
+          "type": "srl_nokia-interfaces:bridged"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,93 @@
+{
+  "srl_nokia-acl:acl": {
+    "interface": [
+      {
+        "interface-id": "ethernet-1/1.200",
+        "interface-ref": {
+          "interface": "ethernet-1/1",
+          "subinterface": 200
+        }
+      }
+    ]
+  },
+  "srl_nokia-interfaces:interface": [
+    {
+      "name": "ethernet-1/1",
+      "subinterface": [
+        {
+          "admin-state": "enable",
+          "index": 200,
+          "l2-mtu": 9412,
+          "srl_nokia-interfaces-vlans:vlan": {
+            "encap": {
+              "single-tagged": {
+                "vlan-id": 200
+              }
+            }
+          },
+          "type": "srl_nokia-interfaces:bridged"
+        }
+      ]
+    }
+  ],
+  "srl_nokia-network-instance:network-instance": [
+    {
+      "admin-state": "enable",
+      "description": "Service app (mac-vrf)",
+      "interface": [
+        {
+          "name": "ethernet-1/1.200"
+        }
+      ],
+      "name": "macvrf-app",
+      "protocols": {
+        "bgp-evpn": {
+          "srl_nokia-bgp-evpn:bgp-instance": [
+            {
+              "admin-state": "enable",
+              "ecmp": 8,
+              "encapsulation-type": "vxlan",
+              "evi": 10200,
+              "id": 1,
+              "vxlan-interface": "vxlan0.10200"
+            }
+          ]
+        },
+        "srl_nokia-bgp-vpn:bgp-vpn": {
+          "bgp-instance": [
+            {
+              "id": 1,
+              "route-target": {
+                "export-rt": "target:65000:10200",
+                "import-rt": "target:65000:10200"
+              }
+            }
+          ]
+        }
+      },
+      "type": "srl_nokia-network-instance:mac-vrf",
+      "vxlan-interface": [
+        {
+          "name": "vxlan0.10200"
+        }
+      ]
+    }
+  ],
+  "srl_nokia-tunnel-interfaces:tunnel-interface": [
+    {
+      "name": "vxlan0",
+      "vxlan-interface": [
+        {
+          "egress": {
+            "source-ip": "use-system-ipv4-address"
+          },
+          "index": 10200,
+          "ingress": {
+            "vni": 10200
+          },
+          "type": "srl_nokia-interfaces:bridged"
+        }
+      ]
+    }
+  ]
+}

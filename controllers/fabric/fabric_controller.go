@@ -193,8 +193,16 @@ func (r *Reconciler) allFabrics(ctx context.Context, _ client.Object) []reconcil
 
 // Reconcile runs one pass over one Fabric and writes its status once, only
 // when it changed.
-func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (res ctrl.Result, rerr error) {
 	r.init()
+	// The reconcile result, latency and retry series (internal/telemetry, T059/AD-50).
+	started, outcome := time.Now(), telemetry.ResultSuccess
+	defer func() {
+		if rerr != nil {
+			outcome = telemetry.ResultError
+		}
+		telemetry.ObserveReconcile(telemetry.ControllerFabric, outcome, time.Since(started))
+	}()
 	f := &fabricv1.Fabric{}
 	if err := r.Client.Get(ctx, req.NamespacedName, f); err != nil {
 		if apierrors.IsNotFound(err) {
@@ -214,6 +222,9 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	p := &pass{r: r, f: f, log: log, now: r.Clock.Now(),
 		conds: status.For(f, &f.Status.Conditions, r.Recorder).WithNow(r.Clock.Now)}
 	res, err := p.run(ctx)
+	if p.outcome != "" {
+		outcome = p.outcome
+	}
 	f.Status.ObservedGeneration = f.Generation
 	if !equality.Semantic.DeepEqual(before, &f.Status) {
 		if uerr := r.Client.Status().Update(ctx, f); uerr != nil {
@@ -244,6 +255,9 @@ type pass struct {
 	conds *status.Conditions
 	log   logr.Logger
 	now   time.Time
+
+	// outcome is the reconcile result recorded in the metrics (telemetry.Result*).
+	outcome string
 
 	// Degraded inputs gathered on the way.
 	partial    *status.Aggregate
@@ -518,6 +532,7 @@ func (p *pass) run(ctx context.Context) (ctrl.Result, error) {
 // handled by the caller), requeued at the reconciliation interval — never by
 // the schedule.
 func (p *pass) wait(msg string) (ctrl.Result, error) {
+	p.outcome = telemetry.ResultWait
 	p.r.resetAttempts(p.f.UID)
 	if hadReportedReady(p.f) {
 		if err := p.writeReady(readyOutcome{kind: readyLeave}); err != nil {
@@ -534,6 +549,7 @@ func (p *pass) wait(msg string) (ctrl.Result, error) {
 // terminal records a terminal error (the condition was set by the caller): no
 // requeue — a new generation or a dependency change (the watches) retries it.
 func (p *pass) terminal(setErr error) (ctrl.Result, error) {
+	p.outcome = telemetry.ResultTerminal
 	p.r.resetAttempts(p.f.UID)
 	if setErr != nil {
 		return ctrl.Result{}, setErr
@@ -550,6 +566,8 @@ func (p *pass) terminal(setErr error) (ctrl.Result, error) {
 func (p *pass) transient(ctx context.Context, what string, err error) (ctrl.Result, error) {
 	r, st := p.r, p.r.Settings
 	n := r.bumpAttempts(p.f.UID)
+	p.outcome = telemetry.ResultTransient
+	telemetry.ObserveRetry(telemetry.ControllerFabric)
 	p.log.Error(err, "transient failure; retrying", "step", what, "attempt", n)
 	r.event(p.f, "Warning", EventTransientError, "%s: %v (attempt %d)", what, err, n)
 	if !hadReportedReady(p.f) {

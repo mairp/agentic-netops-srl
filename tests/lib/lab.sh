@@ -136,6 +136,65 @@ lab::kubectl() {
 
 lab::docker() { "${DOCKER:-docker}" "$@"; }
 
+# ---- the management data path (link level). containerlab renames an SR Linux container's eth0 to
+# mgmt0, so `docker network disconnect` only drops Docker's endpoint record and the mgmt0 veth
+# stays bridged (observed 2026-09-21, docs/decisions/live-findings.md 2026-09-21-mgmt-cut). A
+# cut is therefore made and probed on the link itself: the host-side peer of the container's
+# management veth is set down, and "attached" means that link carries (LOWER_UP) and, for a
+# device, that its gNMI port accepts a connection from the host.
+
+# lab::mgmt_if <node> — the container-side management interface: mgmt0 on a device, eth0 on a client
+lab::mgmt_if() { if lab::is_spine "$1" || lab::is_leaf "$1"; then echo mgmt0; else echo eth0; fi; }
+
+# lab::pid <node> — the container's init pid (non-zero) or non-zero exit
+lab::pid() {
+  local pid
+  pid="$(lab::docker inspect -f '{{.State.Pid}}' "$(lab::container "$1")" 2>/dev/null)" || return 1
+  [[ -n "$pid" && "$pid" != 0 ]] || return 1
+  printf '%s' "$pid"
+}
+
+# lab::mgmt_link <node> — the `ip -o link show` line of the container's management interface
+lab::mgmt_link() {
+  local pid
+  pid="$(lab::pid "$1")" || return 1
+  "${NSENTER:-nsenter}" -t "$pid" -n "${IP:-ip}" -o link show "$(lab::mgmt_if "$1")" 2>/dev/null
+}
+
+# lab::mgmt_carrier <node> — 0 when the management link is up and carrying (LOWER_UP)
+lab::mgmt_carrier() {
+  local l
+  l="$(lab::mgmt_link "$1")" || return 1
+  [[ "$l" == *"LOWER_UP"* ]]
+}
+
+# lab::mgmt_peer <node> — the host-side name of the management veth (from the container's @ifN)
+lab::mgmt_peer() {
+  local l idx
+  l="$(lab::mgmt_link "$1")" || return 1
+  [[ "$l" =~ @if([0-9]+) ]] || return 1
+  idx="${BASH_REMATCH[1]}"
+  "${IP:-ip}" -o link show 2>/dev/null | awk -F': ' -v i="$idx" '$1 == i { sub(/@.*/, "", $2); print $2; exit }' | grep .
+}
+
+# lab::tcp_accept <addr> <port> — 0 when a TCP connection is accepted within 3 s (no RPC is sent)
+lab::tcp_accept() {
+  if [[ -n "${LAB_TCP_ACCEPT:-}" ]]; then "$LAB_TCP_ACCEPT" "$1" "$2"; return; fi
+  timeout 3 bash -c "exec 3<>/dev/tcp/$1/$2" 2>/dev/null
+}
+
+# lab::mgmt_reachable <node> — the data-path probe: carrier on the management link and, for a
+# device, its gNMI port accepting from the host. Prints the reason on failure.
+lab::mgmt_reachable() {
+  local node="$1"
+  lab::pid "$node" >/dev/null || { echo "container $(lab::container "$node") is not running"; return 1; }
+  lab::mgmt_carrier "$node" || { echo "management link $(lab::mgmt_if "$node") of $(lab::container "$node") carries no signal"; return 1; }
+  if lab::is_spine "$node" || lab::is_leaf "$node"; then
+    lab::tcp_accept "$(lab::addr "$node")" "${GNMI_PORT:-57400}" || { echo "gNMI port $(lab::addr "$node"):${GNMI_PORT:-57400} accepts no connection from the host"; return 1; }
+  fi
+  return 0
+}
+
 # lab::jq_lib — jq definitions shared by every reader of gnmic output:
 #   strip     remove the module prefix from every object key (JSON_IETF qualifies augments)
 #   gvalues   the values of every update of a gnmic `get` (json format) response

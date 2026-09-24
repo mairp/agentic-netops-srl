@@ -43,34 +43,101 @@ source "$DEVICE_METRICS_LIB/evidence.sh"
 DEVICE_METRICS_NS="monitoring"
 DEVICE_METRICS_GNMI_PORT=57400
 # The subscribed paths: the Fabric read-back's applied-side leaves, the force-release finding
-# presence leaves, and G7's EVPN series (received-routes, bgp-evpn instance).
+# presence leaves, G7's EVPN series (received-routes, bgp-evpn instance), and the service
+# read-back's keyed leaves (T058, internal/verify/{service,macvrf,ipvrf}.go): each service's own
+# network-instance, member interfaces, subinterfaces, vxlan-interfaces and EVPN/BGP-VPN instance,
+# with the device's own down/not-programmed reasons and derivation origins; the remote VTEPs and
+# per-VTEP multicast destinations a spanning mac-vrf needs; and every network-instance's route
+# table, where a spanning ip-vrf's remote prefixes are read per prefix (never a count).
 DEVICE_METRICS_PATHS=(
   "/interface[name=*]/oper-state"
   "/interface[name=*]/subinterface[index=*]/oper-state"
+  "/interface[name=*]/subinterface[index=*]/oper-down-reason"
   "/tunnel-interface[name=*]/vxlan-interface[index=*]/oper-state"
+  "/tunnel-interface[name=*]/vxlan-interface[index=*]/oper-down-reason"
+  "/tunnel-interface[name=*]/vxlan-interface[index=*]/bridge-table/multicast-destinations/destination[vtep=*][vni=*]/destination-index"
+  "/tunnel-interface[name=*]/vxlan-interface[index=*]/bridge-table/multicast-destinations/destination[vtep=*][vni=*]/not-programmed-reason"
+  "/tunnel/vxlan-tunnel/vtep[address=*]/index"
   "/network-instance[name=*]/oper-state"
+  "/network-instance[name=*]/oper-down-reason"
+  "/network-instance[name=*]/interface[name=*]/oper-state"
+  "/network-instance[name=*]/interface[name=*]/oper-down-reason"
+  "/network-instance[name=*]/vxlan-interface[name=*]/oper-state"
+  "/network-instance[name=*]/vxlan-interface[name=*]/oper-down-reason"
   "/network-instance[name=default]/protocols/bgp/neighbor[peer-address=*]/session-state"
   "/network-instance[name=default]/protocols/bgp/neighbor[peer-address=*]/afi-safi[afi-safi-name=*]/oper-state"
   "/network-instance[name=default]/protocols/bgp/neighbor[peer-address=*]/afi-safi[afi-safi-name=*]/received-routes"
-  "/network-instance[name=default]/route-table/ipv4-unicast/route/active"
-  "/network-instance[name=default]/route-table/ipv6-unicast/route/active"
+  "/network-instance[name=*]/route-table/ipv4-unicast/route/active"
+  "/network-instance[name=*]/route-table/ipv6-unicast/route/active"
   "/network-instance[name=*]/protocols/bgp-evpn/bgp-instance[id=*]/evi"
   "/network-instance[name=*]/protocols/bgp-evpn/bgp-instance[id=*]/oper-state"
+  "/network-instance[name=*]/protocols/bgp-evpn/bgp-instance[id=*]/oper-down-reason"
+  "/network-instance[name=*]/protocols/bgp-vpn/bgp-instance[id=*]/route-distinguisher/route-distinguisher-origin"
+  "/network-instance[name=*]/protocols/bgp-vpn/bgp-instance[id=*]/route-target/export-route-target-origin"
+  "/network-instance[name=*]/protocols/bgp-vpn/bgp-instance[id=*]/route-target/import-route-target-origin"
 )
+
+# The integer encodings of the enumerated string leaves beyond the three state tables below
+# ("<code>:<value>"; internal/verify/collector.go decodeValue carries the same tables, and
+# internal/verify/collector_test.go checks the two agree against this script's render). Every
+# enum of SR Linux 25.7.1's oper-down-reason leaves the subscriptions above reach (subinterface,
+# network-instance, its interface and vxlan-interface, tunnel vxlan-interface, bgp-evpn instance)
+# and of the multicast destination's not-programmed-reason. Code 0 is any value not in the
+# table, so an unforeseen reason is still exported (present), never dropped as absent.
+DEVICE_METRICS_REASONS=(
+  1:admin-disabled 2:admin-down 3:associated-ip-vrf-down 4:associated-mac-vrf-down
+  5:bgp-vpn-instance-oper-down 6:cfm-ccm-defect 7:egress-hash-failed
+  8:esi-label-required-in-ethernet-segment 9:ethernet-segment-multiple-subinterfaces
+  10:evpn-mh-standby 11:ingress-hash-failed 12:interface-ref-missing 13:ip-addr-missing
+  14:ip-addr-overlap 15:ip-mtu-larger-than-oper-mac-vrf-mtu 16:ip-mtu-resource-exceeded
+  17:ip-mtu-too-large 18:ip-vrf-association-missing 19:irb-mac-address-not-programmed
+  20:l2-mtu-too-large 21:mac-dup-detected 22:mac-failed 23:mac-vrf-association-missing
+  24:missing-xdp-state 25:mpls-mtu-resource-exceeded 26:mpls-mtu-too-large 27:multicast-limit
+  28:net-inst-down 29:network-instance-oper-down 30:no-destination-index 31:no-evi
+  32:no-ip-config 33:no-irb-hardware-resources 34:no-local-attachment-circuit 35:no-mcid
+  36:no-mpls-label 37:no-nexthop-address 38:no-remote-attachment-circuit
+  39:no-underlay-egress-next-hop-resources 40:no-vxlan-interface 41:other 42:port-down
+  43:stp-not-forwarding 44:subif-down 45:tag-set-not-resolved 46:vrf-type-mismatch
+  47:vxlan-if-default-net-inst-source-address-missing 48:vxlan-if-default-net-inst-source-if-down
+  49:vxlan-tunnel-down 50:vxlan_interface_no_source_ip_address 51:associations-oper-down
+  52:no-associations
+)
+# the bgp-vpn instance's route-distinguisher-origin / {export,import}-route-target-origin
+DEVICE_METRICS_ORIGINS=(
+  1:auto-derived-from-evi 2:auto-derived-from-system-ip:0 3:manual 4:none
+  5:auto-derived-from-esi-bytes-1-6 6:from-export-policy 7:from-import-policy
+)
+
+# device_metrics::_transforms <code:value>… — gNMIc event-strings replace transforms, one per
+# value (anchored; every tabled value is [a-z0-9_:-] only, so none needs regex escaping), then
+# the catch-all to 0
+device_metrics::_transforms() {
+  local e
+  for e in "$@"; do
+    printf '            - replace: {apply-on: value, old: "^%s$", new: "%s"}\n' "${e#*:}" "${e%%:*}"
+  done
+  printf '            - replace: {apply-on: value, old: "^[^0-9].*$", new: "0"}\n'
+}
 
 device_metrics::_k() { k8s_wait::_kubectl "$@"; }
 # the applied gNMIc configuration (empty when there is none yet)
+device_metrics::_otel_config() {
+  device_metrics::_k get configmap device-metrics-otel -n "$DEVICE_METRICS_NS" -o jsonpath='{.data.config\.yaml}' 2>/dev/null || true
+}
+
 device_metrics::_gnmic_config() {
   device_metrics::_k get configmap device-metrics-gnmic -n "$DEVICE_METRICS_NS" -o jsonpath='{.data.gnmic\.yaml}' 2>/dev/null || true
 }
 
 device_metrics::render() {
-  local cidr="${1:-${MGMT_CIDR:-172.25.25.0/24}}" hosts name addr targets="" paths="" p
+  local cidr="${1:-${MGMT_CIDR:-172.25.25.0/24}}" hosts name addr targets="" paths="" p reasons origins
   hosts="$(onboarding::hosts "$cidr")" || return 1
   while read -r name addr; do
     [[ -n "$name" ]] && targets+="      ${name}: {address: \"${addr}:${DEVICE_METRICS_GNMI_PORT}\"}"$'\n'
   done <<<"$hosts"
   for p in "${DEVICE_METRICS_PATHS[@]}"; do paths+="          - \"${p}\""$'\n'; done
+  reasons="$(device_metrics::_transforms "${DEVICE_METRICS_REASONS[@]}")"
+  origins="$(device_metrics::_transforms "${DEVICE_METRICS_ORIGINS[@]}")"
   cat <<YAML
 apiVersion: v1
 kind: ConfigMap
@@ -88,7 +155,7 @@ ${targets}    subscriptions:
       device-state:
         mode: stream
         stream-mode: sample
-        sample-interval: 10s
+        sample-interval: 5s
         paths:
 ${paths}    outputs:
       device-metrics:
@@ -100,7 +167,7 @@ ${paths}    outputs:
         strip-leading-underscore: true
         strings-as-attributes: false
         counter-patterns: []
-        event-processors: [session-state-to-int, oper-state-to-int, active-to-int, state-as-int]
+        event-processors: [session-state-to-int, oper-state-to-int, active-to-int, reason-to-int, origin-to-int, state-as-int]
     processors:
       session-state-to-int:
         event-strings:
@@ -124,11 +191,23 @@ ${paths}    outputs:
           transforms:
             - replace: {apply-on: value, old: "^true$", new: "1"}
             - replace: {apply-on: value, old: "^false$", new: "0"}
+      reason-to-int:
+        event-strings:
+          value-names: [".*oper-down-reason$", ".*not-programmed-reason$"]
+          transforms:
+${reasons}
+      origin-to-int:
+        event-strings:
+          value-names: [".*route-distinguisher-origin$", ".*route-target-origin$"]
+          transforms:
+${origins}
       # gNMIc's otlp output skips every string value, a digit string included (v0.47.0), so the
-      # mapped state leaves are converted to integers or they are never exported
+      # mapped state leaves are converted to integers or they are never exported — and so are the
+      # uint64 indexes (the VTEP's and the multicast destination's), which JSON_IETF encodes as
+      # strings (RFC 7951 §6.1; observed on 25.7.1)
       state-as-int:
         event-convert:
-          value-names: [".*session-state$", ".*oper-state$", ".*/active$"]
+          value-names: [".*session-state$", ".*oper-state$", ".*/active$", ".*oper-down-reason$", ".*not-programmed-reason$", ".*route-distinguisher-origin$", ".*route-target-origin$", ".*destination-index$", ".*vtep/index$"]
           type: int
 YAML
 }
@@ -145,8 +224,16 @@ device_metrics::ensure() {
     | device_metrics::_k apply --server-side --field-manager=agentic-netops-provision -f - >/dev/null \
     || { log::error "device_metrics: applying ConfigMap device-metrics-gnmic failed"; return 1; }
   after="$(device_metrics::_gnmic_config | sha256sum)"
+  local otel_before otel_after
+  otel_before="$(device_metrics::_otel_config | sha256sum)"
   device_metrics::_k apply --server-side --field-manager=agentic-netops-provision -k "$DEVICE_METRICS_ROOT/deploy/observability/device-metrics" >/dev/null \
     || { log::error "device_metrics: applying deploy/observability/device-metrics failed"; return 1; }
+  otel_after="$(device_metrics::_otel_config | sha256sum)"
+  # a plain ConfigMap does not roll its Deployment: a changed collector config (e.g. metric_expiration)
+  # is loaded only by a restart
+  if [[ "$otel_before" != "$otel_after" ]] && device_metrics::_k get pods -n "$DEVICE_METRICS_NS" -l app.kubernetes.io/name=device-metrics-otel -o name 2>/dev/null | grep -q .; then
+    device_metrics::_k rollout restart deployment/device-metrics-otel -n "$DEVICE_METRICS_NS" >/dev/null || return 1
+  fi
   if [[ "$before" != "$after" ]] && device_metrics::_k get pods -n "$DEVICE_METRICS_NS" -l app.kubernetes.io/name=device-metrics-gnmic -o name 2>/dev/null | grep -q .; then
     device_metrics::_k rollout restart deployment/device-metrics-gnmic -n "$DEVICE_METRICS_NS" >/dev/null || return 1
   fi

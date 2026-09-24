@@ -1,0 +1,22 @@
+# An ip-vrf spanning both leaves: L3VNI 10130 (claimed by the provider, FR-109), attachment VLAN
+# 130 named from the naming band (an ip-vrf's attachment VLAN is never allocated, AD-51). One
+# declared prefix per attachment and family, assigned in (node, port, vlan) order: leaf01's
+# routed subinterface carries 10.130.1.1/24 and 2001:db8:130:1::1/64, leaf02's 10.130.2.1/24 and
+# 2001:db8:130:2::1/64, and each leaf learns the other's subnet as an EVPN Type-5 route.
+apiVersion: fabric.agentic-netops.io/v1alpha1
+kind: Network
+metadata:
+  name: lab-ipvrf-a
+  namespace: agentic-netops-services
+spec:
+  description: lab ip-vrf A l3vni 10130 across leaf01 and leaf02
+  routers:
+  - name: vrf-a
+    l3vni: 10130
+    routeTargets:
+      import: ["target:65000:10130"]
+      export: ["target:65000:10130"]
+    prefixes: ["10.130.1.0/24", "10.130.2.0/24", "2001:db8:130:1::/64", "2001:db8:130:2::/64"]
+  attachments:
+  - {node: leaf01, attachment: ethernet-1/1, vlan: 130, vrf: vrf-a}
+  - {node: leaf02, attachment: ethernet-1/1, vlan: 130, vrf: vrf-a}

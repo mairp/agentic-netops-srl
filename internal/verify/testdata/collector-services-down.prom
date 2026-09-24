@@ -1,0 +1,8 @@
+# Live capture (2026-09-21, SR Linux 25.7.1): vt-scratch-vlan set admin-state disable on leaf01 and
+# ethernet-1/1.992 admin-state disable — the device's own oper-down-reasons, as the collector exports them.
+srl_nokia_interfaces:interface_subinterface_oper_down_reason{interface_name="ethernet-1/1",source="leaf01",subinterface_index="992"} 1
+srl_nokia_network_instance:network_instance_interface_oper_down_reason{interface_name="ethernet-1/1.992",network_instance_name="vt-scratch-vlan",source="leaf01"} 28
+srl_nokia_network_instance:network_instance_interface_oper_state{interface_name="ethernet-1/1.992",network_instance_name="vt-scratch-vlan",source="leaf01"} 0
+srl_nokia_network_instance:network_instance_oper_down_reason{network_instance_name="vt-scratch-vlan",source="leaf01"} 2
+srl_nokia_network_instance:network_instance_oper_state{network_instance_name="vt-scratch-vlan",source="leaf01"} 0
+srl_nokia_interfaces:interface_subinterface_oper_state{interface_name="ethernet-1/1",source="leaf01",subinterface_index="992"} 0

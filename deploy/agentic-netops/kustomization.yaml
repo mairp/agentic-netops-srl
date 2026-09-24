@@ -1,7 +1,9 @@
 # deploy/agentic-netops — the first-party control plane (T042), applied by the lifecycle with
 # `kubectl apply --server-side -k deploy/agentic-netops`: the namespaces agentic-netops-system
 # and agentic-netops-services, the first-party CRDs (config/crd), the provider's
-# least-privilege identity (config/rbac) and its Deployment.
+# least-privilege identity (config/rbac), its Deployment, and the Network validating webhook
+# (webhook.yaml, T061: its cert-manager-issued serving certificate, Service and
+# ValidatingWebhookConfiguration).
 #
 # Not shipped here, on purpose: the ConfigMap srl-provider-settings. Its `drift-policy` key
 # has no default and is written by scripts/provision.sh (lab: `revertive`); a production
@@ -14,10 +16,11 @@ resources:
   - ../../config/rbac
   - deployment.yaml
   - service.yaml
+  - webhook.yaml
 # The provider image is built locally and never pulled: scripts/lib/image_build.sh (T169)
 # writes its content-hash tag into newTag below (a kustomize image override, never a hand
 # edit). Until it has, newTag is the placeholder `unbuilt`, which no registry and no local
 # build carries, so an unbuilt deployment fails visibly (ErrImageNeverPull) — never `latest`.
 images:
   - name: srl-provider
-    newTag: 95152c27545775ffa2f3d31c819954bed7babb6ce8a51f37be4841303577fd80
+    newTag: f721d19c65b4048e545554a635e485573e3c89da4e48bc62082b773b58064fbb

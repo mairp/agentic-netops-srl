@@ -29,10 +29,17 @@ package verify
 //     is answered by the object's oper-state series;
 //   - string states are exported as integers by the collector's event
 //     processors (gNMIc's OTLP output drops strings) and mapped back here with
-//     the same tables (scripts/lib/device_metrics.sh).
+//     the same tables (scripts/lib/device_metrics.sh): session-state,
+//     oper-state, active, and — for the service read-back (T058) — every
+//     oper-down-reason / not-programmed-reason and the bgp-vpn RD/RT origins
+//     (an enum value neither table knows is exported as 0, decoded
+//     UnrecognisedValue: a reason present, never one dropped as absent);
+//   - uint64 indexes (a VTEP's, a multicast destination's), which JSON_IETF
+//     encodes as strings, are converted to integers the same way and read
+//     back as their decimal value.
 //
 // Freshness: the collector's exporter drops a series not refreshed within its
-// metric_expiration (45 s, 4.5 sample intervals), so a value read here is at
+// metric_expiration (20 s, 4 sample intervals of 5 s), so a value read here is at
 // most that old. A node with no sample at all in the collector, or a collector
 // that does not answer, is a read that could not be made — the pass could not
 // run (Ready=Unknown/VerificationFailed) — never an absent value.
@@ -86,6 +93,61 @@ func (r *CollectorReader) State(ctx context.Context, t Target, paths []string) (
 	return MatchState(mine, paths)
 }
 
+// Unreachable is the data-path half of "can this node be read" (SC-008, AD-40, AD-54): a node
+// with no sample in the collector, or whose newest sample is older than maxAge at now, cannot
+// be read — the collector's subscription to it has stopped delivering. The layer's Target can
+// stay Ready for minutes after a management cut (a dead TCP session is not noticed; observed
+// 2026-09-21, docs/decisions/live-findings.md 2026-09-21-target-unreachable), so this is what
+// lets the reconcile that runs every reconciliation interval see an unreadable target within
+// SC-008's two intervals. Samples without a timestamp count as fresh (the exporter's own
+// metric_expiration then bounds their age). The error is a collector that cannot be read.
+func (r *CollectorReader) Unreachable(ctx context.Context, nodes []string, maxAge time.Duration, now time.Time) (map[string]string, error) {
+	samples, err := r.fetch(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("the device metric collector could not be read: %w", err)
+	}
+	return StaleNodes(samples, nodes, maxAge, now), nil
+}
+
+// StaleNodes returns, for each of nodes with no sample, or whose newest timestamped sample is
+// older than maxAge at now, why it cannot be read.
+func StaleNodes(samples []Sample, nodes []string, maxAge time.Duration, now time.Time) map[string]string {
+	type seen struct {
+		any    bool
+		newest int64
+	}
+	by := map[string]*seen{}
+	for _, n := range nodes {
+		by[n] = &seen{}
+	}
+	for _, s := range samples {
+		e, ok := by[s.Labels["source"]]
+		if !ok {
+			continue
+		}
+		e.any = true
+		if s.TimestampMs == 0 {
+			e.newest = -1 // untimestamped: present within the exporter's expiration
+		} else if e.newest != -1 && s.TimestampMs > e.newest {
+			e.newest = s.TimestampMs
+		}
+	}
+	out := map[string]string{}
+	for _, n := range nodes {
+		e := by[n]
+		switch {
+		case !e.any:
+			out[n] = "no sample from " + n + " in the device metric collector"
+		case e.newest > 0:
+			age := now.Sub(time.UnixMilli(e.newest))
+			if age > maxAge {
+				out[n] = fmt.Sprintf("newest sample from %s in the device metric collector is %s old (limit %s)", n, age.Round(time.Second), maxAge)
+			}
+		}
+	}
+	return out
+}
+
 func (r *CollectorReader) fetch(ctx context.Context) ([]Sample, error) {
 	hc := r.HTTP
 	if hc == nil {
@@ -111,10 +173,13 @@ type Sample struct {
 	Name   string
 	Labels map[string]string
 	Value  string
+	// TimestampMs is the sample's own timestamp (the device's notification time, exported by
+	// the collector with send_timestamps), in Unix milliseconds; 0 when the line carries none.
+	TimestampMs int64
 }
 
 var (
-	sampleLine = regexp.MustCompile(`^([a-zA-Z_:][a-zA-Z0-9_:]*)(?:\{(.*)\})?\s+(\S+)(?:\s+\S+)?$`)
+	sampleLine = regexp.MustCompile(`^([a-zA-Z_:][a-zA-Z0-9_:]*)(?:\{(.*)\})?\s+(\S+)(?:\s+(-?[0-9]+))?$`)
 	labelPair  = regexp.MustCompile(`([a-zA-Z_][a-zA-Z0-9_]*)="((?:[^"\\]|\\.)*)"`)
 	// a native module qualifier inside a gNMIc series name, e.g. "srl_nokia_bgp_evpn:"
 	moduleQualifier = regexp.MustCompile(`srl_nokia_[a-z0-9_]*?:`)
@@ -138,6 +203,9 @@ func ParseExposition(rd io.Reader) ([]Sample, error) {
 			return nil, fmt.Errorf("unparseable exposition line %q", line)
 		}
 		s := Sample{Name: m[1], Labels: map[string]string{}, Value: m[3]}
+		if m[4] != "" {
+			s.TimestampMs, _ = strconv.ParseInt(m[4], 10, 64)
+		}
 		for _, lp := range labelPair.FindAllStringSubmatch(m[2], -1) {
 			v := strings.NewReplacer(`\\`, `\`, `\"`, `"`, `\n`, "\n").Replace(lp[2])
 			s.Labels[lp[1]] = v
@@ -265,12 +333,43 @@ func MatchState(samples []Sample, paths []string) (map[string][]string, error) {
 	return out, nil
 }
 
-// The collector's integer encodings of string states (scripts/lib/device_metrics.sh).
+// The collector's integer encodings of string states (scripts/lib/device_metrics.sh;
+// TestDecodeTablesMatchCollectorConfig holds the two to the same tables).
 var (
 	sessionStates = map[int64]string{5: "established", 4: "openconfirm", 3: "opensent", 2: "active", 1: "connect", 0: "idle"}
 	operStates    = map[int64]string{1: "up", 0: "down"}
 	booleans      = map[int64]string{1: "true", 0: "false"}
+	// DEVICE_METRICS_REASONS: every oper-down-reason / not-programmed-reason
+	// enum the service read-back's subscriptions reach on SR Linux 25.7.1; 0 is
+	// a value the collector's table does not know — still a reason present.
+	reasons = map[int64]string{
+		0: UnrecognisedValue, 1: "admin-disabled", 2: "admin-down", 3: "associated-ip-vrf-down", 4: "associated-mac-vrf-down",
+		5: "bgp-vpn-instance-oper-down", 6: "cfm-ccm-defect", 7: "egress-hash-failed",
+		8: "esi-label-required-in-ethernet-segment", 9: "ethernet-segment-multiple-subinterfaces",
+		10: "evpn-mh-standby", 11: "ingress-hash-failed", 12: "interface-ref-missing", 13: "ip-addr-missing",
+		14: "ip-addr-overlap", 15: "ip-mtu-larger-than-oper-mac-vrf-mtu", 16: "ip-mtu-resource-exceeded",
+		17: "ip-mtu-too-large", 18: "ip-vrf-association-missing", 19: "irb-mac-address-not-programmed",
+		20: "l2-mtu-too-large", 21: "mac-dup-detected", 22: "mac-failed", 23: "mac-vrf-association-missing",
+		24: "missing-xdp-state", 25: "mpls-mtu-resource-exceeded", 26: "mpls-mtu-too-large", 27: "multicast-limit",
+		28: "net-inst-down", 29: "network-instance-oper-down", 30: "no-destination-index", 31: "no-evi",
+		32: "no-ip-config", 33: "no-irb-hardware-resources", 34: "no-local-attachment-circuit", 35: "no-mcid",
+		36: "no-mpls-label", 37: "no-nexthop-address", 38: "no-remote-attachment-circuit",
+		39: "no-underlay-egress-next-hop-resources", 40: "no-vxlan-interface", 41: "other", 42: "port-down",
+		43: "stp-not-forwarding", 44: "subif-down", 45: "tag-set-not-resolved", 46: "vrf-type-mismatch",
+		47: "vxlan-if-default-net-inst-source-address-missing", 48: "vxlan-if-default-net-inst-source-if-down",
+		49: "vxlan-tunnel-down", 50: "vxlan_interface_no_source_ip_address", 51: "associations-oper-down",
+		52: "no-associations",
+	}
+	// DEVICE_METRICS_ORIGINS: the bgp-vpn instance's RD / RT origin enums.
+	origins = map[int64]string{
+		0: UnrecognisedValue, 1: "auto-derived-from-evi", 2: "auto-derived-from-system-ip:0", 3: "manual", 4: "none",
+		5: "auto-derived-from-esi-bytes-1-6", 6: "from-export-policy", 7: "from-import-policy",
+	}
 )
+
+// UnrecognisedValue is the decoded form of an enumerated leaf whose device
+// value the collector's table does not carry (encoded 0).
+const UnrecognisedValue = "unrecognised-value"
 
 func decodeValue(leaf, v string) string {
 	f, err := strconv.ParseFloat(v, 64)
@@ -286,6 +385,10 @@ func decodeValue(leaf, v string) string {
 		table = operStates
 	case "active":
 		table = booleans
+	case "oper-down-reason", "not-programmed-reason":
+		table = reasons
+	case "route-distinguisher-origin", "export-route-target-origin", "import-route-target-origin":
+		table = origins
 	}
 	if s, ok := table[n]; ok && float64(n) == f {
 		return s

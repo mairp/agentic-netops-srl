@@ -1,0 +1,22 @@
+# A mac-vrf spanning both leaves: VLAN 120 (naming band, AD-33) extended over the fabric by
+# L2VNI 10120 (allocation band 10000–20000). No claim manifest is shipped: the provider claims
+# the stated L2VNI itself before it writes any Config (FR-109). Route targets are derived,
+# target:<fabricASN>:<l2vni>, and stated here only as the schema allows — never chosen.
+apiVersion: fabric.agentic-netops.io/v1alpha1
+kind: Network
+metadata:
+  name: lab-macvrf
+  namespace: agentic-netops-services
+spec:
+  description: lab mac-vrf vlan 120 l2vni 10120 across leaf01 and leaf02
+  bridgeDomains:
+  - name: bd120
+    vlan: 120
+    l2vni: 10120
+    evpn:
+      routeTargets:
+        import: ["target:65000:10120"]
+        export: ["target:65000:10120"]
+  attachments:
+  - {node: leaf01, attachment: ethernet-1/1, vlan: 120}
+  - {node: leaf02, attachment: ethernet-1/1, vlan: 120}

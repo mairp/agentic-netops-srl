@@ -1,0 +1,109 @@
+{
+  "srl_nokia-acl:acl": {
+    "interface": [
+      {
+        "interface-id": "ethernet-1/1.400",
+        "interface-ref": {
+          "interface": "ethernet-1/1",
+          "subinterface": 400
+        }
+      }
+    ]
+  },
+  "srl_nokia-interfaces:interface": [
+    {
+      "name": "ethernet-1/1",
+      "subinterface": [
+        {
+          "admin-state": "enable",
+          "index": 400,
+          "ip-mtu": 9348,
+          "ipv4": {
+            "address": [
+              {
+                "ip-prefix": "10.40.2.1/24"
+              }
+            ],
+            "admin-state": "enable",
+            "unnumbered": {
+              "admin-state": "disable"
+            }
+          },
+          "ipv6": {
+            "address": [
+              {
+                "ip-prefix": "2001:db8:40:2::1/64"
+              }
+            ],
+            "admin-state": "enable"
+          },
+          "srl_nokia-interfaces-vlans:vlan": {
+            "encap": {
+              "single-tagged": {
+                "vlan-id": 400
+              }
+            }
+          },
+          "type": "srl_nokia-interfaces:routed"
+        }
+      ]
+    }
+  ],
+  "srl_nokia-network-instance:network-instance": [
+    {
+      "admin-state": "enable",
+      "description": "Service db (ip-vrf)",
+      "interface": [
+        {
+          "name": "ethernet-1/1.400"
+        }
+      ],
+      "name": "ipvrf-db",
+      "protocols": {
+        "bgp-evpn": {
+          "srl_nokia-bgp-evpn:bgp-instance": [
+            {
+              "admin-state": "enable",
+              "ecmp": 8,
+              "encapsulation-type": "vxlan",
+              "evi": 10400,
+              "id": 1,
+              "vxlan-interface": "vxlan0.10400"
+            }
+          ]
+        },
+        "srl_nokia-bgp-vpn:bgp-vpn": {
+          "bgp-instance": [
+            {
+              "id": 1,
+              "route-target": {
+                "export-rt": "target:65000:10400",
+                "import-rt": "target:65000:10400"
+              }
+            }
+          ]
+        }
+      },
+      "type": "srl_nokia-network-instance:ip-vrf",
+      "vxlan-interface": [
+        {
+          "name": "vxlan0.10400"
+        }
+      ]
+    }
+  ],
+  "srl_nokia-tunnel-interfaces:tunnel-interface": [
+    {
+      "name": "vxlan0",
+      "vxlan-interface": [
+        {
+          "index": 10400,
+          "ingress": {
+            "vni": 10400
+          },
+          "type": "srl_nokia-interfaces:routed"
+        }
+      ]
+    }
+  ]
+}

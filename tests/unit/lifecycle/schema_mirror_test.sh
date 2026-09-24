@@ -12,6 +12,13 @@
 #   4. the committed lock names a mirror tagged after compatibilitySet.deviationPatch.commit,
 #      the committed Schema loads that URL by tag, the Deployment is read-only and bounded, and
 #      the image's entrypoint refuses a seed whose ref is not the locked commit
+#   5. the first-party deviation repository (live-findings 2026-09-21-feature-guarded-must): the
+#      tree builds to ONE deterministic commit (a copy elsewhere, other mtimes and an executable
+#      bit give the same commit; fixed identity and dates); a tree that differs from the lock's
+#      commit is refused naming both commits, nothing served; the seed holds it with one ref; the
+#      committed lock pins what deploy/sdc/schema-deviations builds to, the committed Schema loads
+#      it from the mirror by that tag, and the entrypoint refuses a wrong DEVIATIONS_COMMIT or an
+#      unexpected repository in the seed
 # shellcheck disable=SC2015  # `cond && pass … || fail …` is safe: pass always returns 0
 set -uo pipefail
 
@@ -36,7 +43,12 @@ PINNED="$(git -C "$UP" rev-parse HEAD)"
 echo b >"$UP/f"; git -C "$UP" commit -q -am two
 OTHER="$(git -C "$UP" rev-parse HEAD)"
 
-lock() {  # <file> <mirror ref>
+# the first-party deviation tree fixture and the commit it builds to
+DEVTREE="$TMP/devtree"; mkdir -p "$DEVTREE/srl_nokia/models/x"
+printf 'module d { }\n' >"$DEVTREE/srl_nokia/models/x/d.yang"
+DEVC="$(bash -c 'source "$1"; schema_mirror::deviations_build "$2" "$3"' _ "$SM" "$DEVTREE" "$TMP/devc.git")"
+
+lock() {  # <file> <mirror ref> [<deviations commit>]
   cat >"$1" <<EOF
 compatibilitySet:
   deviationPatch:
@@ -53,6 +65,13 @@ compatibilitySet:
           repoURL: http://schema-mirror.sdc-system.svc.cluster.local/git/srlinux-yang-patch.git
           kind: tag
           ref: $2
+      - repoURL: $DEVTREE
+        kind: hash
+        ref: ${3:-$DEVC}
+        mirror:
+          repoURL: http://schema-mirror.sdc-system.svc.cluster.local/git/agentic-netops-deviations.git
+          kind: tag
+          ref: ${3:-$DEVC}
 EOF
 }
 lock "$TMP/lock.yaml" "$PINNED"
@@ -127,12 +146,56 @@ grep -qF 'git-receive-pack' "$ROOT/docker/schema-mirror/lighttpd.conf" && grep -
 # the entrypoint refuses a seed whose only ref is not the locked commit (run with a stub lighttpd)
 mkdir -p "$TMP/ep/bin"; printf '#!/bin/sh\necho SERVING\n' >"$TMP/ep/bin/lighttpd"; chmod +x "$TMP/ep/bin/lighttpd"
 ep() { (cd "$TMP/ep" && sed 's#/srv/git#'"$TMP"'/ep/srv#g' "$ROOT/docker/schema-mirror/entrypoint.sh" >ep.sh \
-  && PATH="$TMP/ep/bin:$PATH" SEED="$tarp" LOCKED_COMMIT="$1" sh ep.sh 2>&1); }
+  && PATH="$TMP/ep/bin:$PATH" SEED="${EP_SEED:-$tarp}" LOCKED_COMMIT="$1" DEVIATIONS_COMMIT="${2:-$DEVC}" sh ep.sh 2>&1); }
 out="$(ep "$OTHER")"; rc=$?
 [[ "$rc" -ne 0 ]] && grep -qF "refusing to serve" <<<"$out" && grep -qF "$OTHER" <<<"$out" && ! grep -q SERVING <<<"$out" \
   && pass "entrypoint: a seed whose ref is not LOCKED_COMMIT is refused, nothing served" || fail "entrypoint wrong commit (rc=$rc)" "$out"
 rm -rf "$TMP/ep/srv"; out="$(ep "$PINNED")"; rc=$?
 [[ "$rc" -eq 0 ]] && grep -q SERVING <<<"$out" && pass "entrypoint: the locked seed is served (negative control)" || fail "entrypoint locked (rc=$rc)" "$out"
+
+# 5 — the first-party deviation repository
+DEVCOPY="$TMP/elsewhere/devtree"; mkdir -p "$(dirname "$DEVCOPY")"; cp -r "$DEVTREE" "$DEVCOPY"
+touch -d '2001-01-01' "$DEVCOPY/srl_nokia/models/x/d.yang"; chmod +x "$DEVCOPY/srl_nokia/models/x/d.yang"
+c2="$(bash -c 'source "$1"; schema_mirror::deviations_build "$2" "$3"' _ "$SM" "$DEVCOPY" "$TMP/devc2.git")"
+ident="$(git -c core.warnAmbiguousRefs=false --git-dir="$TMP/devc.git" log -1 --date=format:%z --format='%an <%ae> %at %ad|%cn <%ce> %ct' "$DEVC")"
+[[ "$DEVC" =~ ^[0-9a-f]{40}$ && "$c2" == "$DEVC" && "$ident" == "agentic-netops-srl <schema-deviations@agentic-netops.invalid> 1789948800 +0000|agentic-netops-srl <schema-deviations@agentic-netops.invalid> 1789948800" ]] \
+  && pass "deviation tree → one deterministic commit $DEVC (another path, mtime and mode give the same; fixed identity and dates)" \
+  || fail "deviation commit not deterministic" "first=$DEVC copy=$c2 ident=$ident"
+if [[ -f "$TMP/srv/agentic-netops-deviations.git/HEAD" ]]; then
+  drefs="$(git --git-dir="$TMP/srv/agentic-netops-deviations.git" for-each-ref --format='%(refname) %(objectname)')"
+  dls="$(git ls-remote "file://$TMP/srv/agentic-netops-deviations.git")"
+  dfile="$(git --git-dir="$TMP/srv/agentic-netops-deviations.git" show "$DEVC:srl_nokia/models/x/d.yang" 2>/dev/null)"
+  [[ "$drefs" == "refs/tags/$DEVC $DEVC" && "$dls" == "$DEVC"$'\t'"refs/tags/$DEVC" && "$dfile" == "module d { }" \
+     && "$(git --git-dir="$TMP/srv/agentic-netops-deviations.git" config http.receivepack)" == false ]] \
+    && pass "the seed carries agentic-netops-deviations.git with only refs/tags/$DEVC, the tree's content, receive-pack off" \
+    || fail "deviation seed content" "refs=$drefs ls-remote=$dls file=$dfile"
+else fail "the seed carries no agentic-netops-deviations.git"; fi
+BADC="$(printf '%040d' 7)"
+lock "$TMP/lock-dev-bad.yaml" "$PINNED" "$BADC"
+out="$(SCHEMA_MIRROR_LOCK="$TMP/lock-dev-bad.yaml" bash "$SM" prepare "$TMP/work5" 2>&1)"; rc=$?
+[[ "$rc" -ne 0 ]] && grep -qF "$DEVC" <<<"$out" && grep -qF "$BADC" <<<"$out" && grep -qF "nothing served" <<<"$out" && [[ ! -e "$TMP/work5/repo.tar" ]] \
+  && pass "a deviation tree that does not build to the locked commit is refused naming both ($DEVC, $BADC), nothing served" \
+  || fail "deviation commit mismatch (rc=$rc)" "$out"
+dlock="$(yq -r '.compatibilitySet.schema.repositories[] | select(.repoURL == "deploy/sdc/schema-deviations") | [.kind, .ref, .mirror.repoURL, .mirror.kind, .mirror.ref] | join(" ")' "$L")"
+read -r dk dref dmurl dmk dmref <<<"$dlock"
+dbuilt="$(SCHEMA_MIRROR_LOCK="$L" bash "$SM" deviations-commit 2>&1)"
+S="$ROOT/deploy/sdc/onboarding/schema.yaml"
+dsch="$(yq -r ".spec.repositories[] | select(.repoURL == \"$dmurl\") | [.kind, .ref, .dirs[0].src, .dirs[0].dst, (.schema.models | join(\",\"))] | join(\" \")" "$S")"
+read -r sk sr ssrc sdst smodels <<<"$dsch"
+[[ "$dk" == hash && "$dref" == "$dbuilt" && "$dmk" == tag && "$dmref" == "$dref" && "$dmurl" == */agentic-netops-deviations.git \
+   && "$sk" == tag && "$sr" == "$dref" && "$ssrc" == srl_nokia && "$smodels" == "$sdst" && "$sdst" != deviations && "$sdst" != . ]] \
+  && pass "the committed lock pins the commit deploy/sdc/schema-deviations builds to ($dbuilt), mirrored by that tag; the Schema loads it from $dmurl into $sdst" \
+  || fail "committed deviation pin disagrees" "lock=$dlock built=$dbuilt schema=$dsch"
+[[ "$(yq -r '.spec.template.spec.containers[0].env[] | select(.name == "DEVIATIONS_COMMIT") | .valueFrom.configMapKeyRef.key' "$D")" == deviations-commit ]] \
+  && pass "mirror Deployment takes DEVIATIONS_COMMIT from the ConfigMap" || fail "mirror Deployment has no DEVIATIONS_COMMIT from the ConfigMap"
+rm -rf "$TMP/ep/srv"; out="$(ep "$PINNED" "$BADC")"; rc=$?
+[[ "$rc" -ne 0 ]] && grep -qF "refusing to serve" <<<"$out" && grep -qF "$BADC" <<<"$out" && ! grep -q SERVING <<<"$out" \
+  && pass "entrypoint: a deviation repository whose ref is not DEVIATIONS_COMMIT is refused" || fail "entrypoint wrong deviation commit (rc=$rc)" "$out"
+mkdir -p "$TMP/extra"; tar -C "$TMP/extra" -xf "$tarp"; git init -q --bare "$TMP/extra/other.git"
+tar -C "$TMP/extra" -cf "$TMP/extra.tar" .
+rm -rf "$TMP/ep/srv"; out="$(EP_SEED="$TMP/extra.tar" ep "$PINNED")"; rc=$?
+[[ "$rc" -ne 0 ]] && grep -qF "other.git" <<<"$out" && ! grep -q SERVING <<<"$out" \
+  && pass "entrypoint: a seed holding an unexpected repository is refused" || fail "entrypoint extra repository (rc=$rc)" "$out"
 
 if [[ "$FAILS" -gt 0 ]]; then echo "schema_mirror_test: $FAILS FAILED"; exit 1; fi
 echo "schema_mirror_test: PASS"

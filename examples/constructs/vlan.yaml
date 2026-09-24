@@ -1,24 +1,16 @@
-# A local VLAN (the vlan construct): one vlans[] entry, VLAN 110 named from the naming band
-# 100–999, no overlay (contracts/network-spec.md §1–§2).
+# A vlan (the local broadcast domain): VLAN 110, named from the naming band 100–999 (AD-33), on
+# leaf01 ethernet-1/1. Applied with cluster tooling into agentic-netops-services — never the
+# intent tier's namespace (AD-26). No claim is shipped and none is needed: a vlan has no VNI and
+# a naming-band VLAN is never claimed (FR-109, AD-33). See README.md for the device objects.
 apiVersion: fabric.agentic-netops.io/v1alpha1
 kind: Network
 metadata:
-  name: migr-1a2b3c4d5e6f701
-  namespace: agentic-netops-intent
-  labels:
-    agentic-netops.io/correlation-id: 0c1d2e3f405162738495a6b7c8d9eaf0
-    agentic-netops.io/tier: intent
-  annotations:
-    agentic-netops.io/translator: agentic-netops-migration-translator
-    agentic-netops.io/translator-version: v0.1.0
-    agentic-netops.io/mapping-version: v0.1.0
-    agentic-netops.io/migration-input-hash: sha256:3f7a9c1e5b2d4f6081a3c5e7092b4d6f8a1c3e5079b2d4f6a8c1e3f5071b3d5f
-    agentic-netops.io/tenant: acme
-    agentic-netops.io/service-type: vlan
+  name: lab-vlan
+  namespace: agentic-netops-services
 spec:
-  description: Service 1a2b3c4d5e6f701 (vlan)
+  description: lab vlan 110 on leaf01 ethernet-1/1
   vlans:
-  - {name: vlan-1a2b3c4d5e6f701, vlan: 110}
+  - name: v110
+    vlan: 110
   attachments:
   - {node: leaf01, attachment: ethernet-1/1, vlan: 110}
-  - {node: leaf02, attachment: ethernet-1/1, vlan: 110}

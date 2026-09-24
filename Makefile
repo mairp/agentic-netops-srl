@@ -45,6 +45,7 @@ TARGETS := \
 	show-evpn \
 	show-allocations \
 	show-rendered-config \
+	test-traffic \
 	test-reverify \
 	test-envtest \
 	test-agents \
@@ -97,26 +98,26 @@ test-static: ## T025: go vet, Go unit + golden tests, the path-register guard, e
 	@echo "== offline shell suites: scripts/ci/test_shell.sh (tests/unit/**/*_test.sh)"
 	scripts/ci/test_shell.sh
 
-test-idempotence:
-	$(not_implemented)
+test-idempotence: ## T064: zero Config generation advance and no new device commit on a second apply (SC-006)
+	tests/integration/idempotence.sh
 
-test-managed-drift:
-	$(not_implemented)
+test-managed-drift: ## T064: managed-path drift restored under the revertive policy, as G13 observed (SC-007)
+	bash tests/integration/managed_drift.sh run
 
-test-unmanaged-path:
-	$(not_implemented)
+test-unmanaged-path: ## T064: an unmanaged path is left alone
+	bash tests/integration/unmanaged_path.sh run
 
-test-target-failure:
-	$(not_implemented)
+test-target-failure: ## T064: one leaf cut → Ready=Unknown/Degraded=True VerificationFailed within two intervals (SC-008)
+	bash tests/integration/target_failure.sh run
 
-test-service-delete:
-	$(not_implemented)
+test-service-delete: ## T064: deletion removes every Config and device object, read back
+	tests/integration/service_delete.sh
 
-test-delete-unreachable:
-	$(not_implemented)
+test-delete-unreachable: ## T064: deletion blocks on an unreachable target; FORCE_RELEASE=1 adds the force-release mode (SC-043)
+	bash tests/integration/delete_unreachable.sh run $(if $(FORCE_RELEASE),--force-release)
 
-test-provider-claims:
-	$(not_implemented)
+test-provider-claims: ## T172: provider claims per VNI before any Config; AllocationConflict for VNI and VLAN (SC-045)
+	tests/integration/provider_claims.sh
 
 test-acceptance:
 	$(not_implemented)
@@ -135,8 +136,8 @@ wait-targets: ## T036: every discovered Target Ready
 wait-fabric: ## T051: the default Fabric reports Ready=True
 	tests/integration/fabric_verify.sh wait-fabric
 
-wait-services:
-	$(not_implemented)
+wait-services: ## T064: every Network under examples/constructs/ reports Ready=True
+	tests/integration/wait_services.sh
 
 wait-observability:
 	$(not_implemented)
@@ -145,8 +146,8 @@ wait-observability:
 verify-fabric-control-plane: ## T051: sessions + EVPN family, loopbacks, reflector config integrity, reflection probe
 	tests/integration/fabric_verify.sh verify-fabric-control-plane
 
-verify-services:
-	$(not_implemented)
+verify-services: ## T064: SC-004 route half, keyed per service, after its declarative negative control
+	tests/integration/verify_services.sh
 
 # --- Operator read-outs
 show-bgp: ## T051: BGP sessions per node
@@ -158,12 +159,16 @@ show-evpn: ## T051: EVPN family state and received routes (reported, not asserte
 show-allocations: ## T051: the Fabric's allocations and the authority's claims
 	tests/integration/fabric_verify.sh show-allocations
 
-show-rendered-config: ## T051: the generated fabric Configs
+show-rendered-config: ## T051/T064: the generated fabric Configs, then every service's Configs
 	tests/integration/fabric_verify.sh show-rendered-config
+	tests/integration/show_rendered_config.sh
+
+test-traffic: ## T065: cross-leaf L2, intra-ip-vrf L3, isolation, MTU boundary; three clean runs (SC-005)
+	bash tests/integration/traffic.sh run
 
 # --- Scheduled re-verification and offline suites (FR-107, FR-020)
-test-reverify:
-	$(not_implemented)
+test-reverify: ## T167: scheduled re-verification, maintenance and cannot-run halves (SC-044)
+	bash tests/integration/reverify.sh run
 
 test-envtest: ## T025: setup-envtest at the go.mod pin, then go test -tags envtest ./tests/envtest/...
 	scripts/ci/test_envtest.sh

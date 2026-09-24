@@ -1,0 +1,46 @@
+{
+  "srl_nokia-acl:acl": {
+    "interface": [
+      {
+        "interface-id": "ethernet-1/1.110",
+        "interface-ref": {
+          "interface": "ethernet-1/1",
+          "subinterface": 110
+        }
+      }
+    ]
+  },
+  "srl_nokia-interfaces:interface": [
+    {
+      "name": "ethernet-1/1",
+      "subinterface": [
+        {
+          "admin-state": "enable",
+          "index": 110,
+          "l2-mtu": 9412,
+          "srl_nokia-interfaces-vlans:vlan": {
+            "encap": {
+              "single-tagged": {
+                "vlan-id": 110
+              }
+            }
+          },
+          "type": "srl_nokia-interfaces:bridged"
+        }
+      ]
+    }
+  ],
+  "srl_nokia-network-instance:network-instance": [
+    {
+      "admin-state": "enable",
+      "description": "Service web (vlan)",
+      "interface": [
+        {
+          "name": "ethernet-1/1.110"
+        }
+      ],
+      "name": "vlan-web",
+      "type": "srl_nokia-network-instance:mac-vrf"
+    }
+  ]
+}

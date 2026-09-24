@@ -7,7 +7,8 @@
 #   - a device datastore carrying one vt-scratch- instance
 #   - a cluster carrying one gate-labelled Config
 #   - a cluster carrying one gate-labelled scratch namespace
-#   - a node missing from the management network
+#   - a node missing from the management network — probed on the data path (link carrier and,
+#     for a device, a TCP accept on its gNMI port), never on Docker's endpoint record
 #   - (first-party authority, T181) a vt-scratch- IdentifierPool and a gate-labelled
 #     IdentifierClaim in agentic-netops-allocation; a cluster that does not serve the kinds
 #     (kuid selected) is scanned clean
@@ -62,7 +63,7 @@ cat >"$BIN/docker" <<'SH'
 # fake docker: network inspect from $FAKE/network.json; inspect -f pid → 4242; exec … ip -o link
 case "$1" in
   network) cat "$FAKE/network.json" ;;
-  inspect) echo 4242 ;;
+  inspect) c="${@: -1}"; cat "$FAKE/pid.$c" 2>/dev/null || echo 4242 ;;
   exec) c="$2"; cat "$FAKE/links.$c" 2>/dev/null || printf '1: lo: <LOOPBACK,UP> mtu 65536\n2: eth1@if5: <UP> mtu 9348\n' ;;
   *) echo "fake docker: unexpected $*" >&2; exit 1 ;;
 esac
@@ -70,8 +71,24 @@ SH
 cat >"$BIN/nsenter" <<'SH'
 #!/usr/bin/env bash
 # fake nsenter: -t PID -n <cmd…> → run cmd
-while [[ "$1" == -* ]]; do case "$1" in -t) shift 2 ;; *) shift ;; esac; done
+while [[ "$1" == -* ]]; do case "$1" in -t) export FAKE_PID="$2"; shift 2 ;; *) shift ;; esac; done
 exec "$@"
+SH
+cat >"$BIN/ip" <<'SH'
+#!/usr/bin/env bash
+# fake ip (inside a container's netns via fake nsenter): the management link carries unless
+# $FAKE/nocarrier.<pid> exists
+case "$*" in
+  "-o link show mgmt0"|"-o link show eth0")
+    if [[ -f "$FAKE/nocarrier.${FAKE_PID:-}" ]]; then echo "9: $4@if10: <BROADCAST,MULTICAST,UP> mtu 1514 state LOWERLAYERDOWN"
+    else echo "9: $4@if10: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1514 state UP"; fi ;;
+  *) exit 1 ;;
+esac
+SH
+cat >"$BIN/tcp-accept" <<'SH'
+#!/usr/bin/env bash
+# fake TCP accept probe: refused when $FAKE/refuse.<addr> exists
+[[ ! -f "$FAKE/refuse.$1" ]]
 SH
 cat >"$BIN/tc" <<'SH'
 #!/usr/bin/env bash
@@ -81,7 +98,8 @@ chmod +x "$BIN"/*
 
 NODES_NET='{"Containers":{}}'
 reset_lab() {
-  rm -f "$FAKE"/gnmic/* "$FAKE/configs.json" "$FAKE/qdisc" "$FAKE"/links.* "$FAKE/gnmic.calls" "$FAKE/allocation.json"
+  rm -f "$FAKE"/gnmic/* "$FAKE/configs.json" "$FAKE/qdisc" "$FAKE"/links.* "$FAKE/gnmic.calls" "$FAKE/allocation.json" \
+    "$FAKE"/pid.* "$FAKE"/nocarrier.* "$FAKE"/refuse.*
   local n containers="{}"
   for n in spine01 spine02 leaf01 leaf02 client01 client02; do
     containers="$(jq -c --arg n "clab-agentic-netops-fabric-$n" '. + {("id-" + $n): {Name: $n}}' <<<"$containers")"
@@ -96,7 +114,7 @@ scan() {
   env -u EVIDENCE_DIR PATH="$BIN:$PATH" FAKE="$FAKE" \
     EVIDENCE_ROOT="$TMP/evidence" EVIDENCE_CLUSTER=agentic-netops EVIDENCE_CLUSTER_UID=uid-1 \
     EVIDENCE_LAB=agentic-netops-fabric EVIDENCE_DEVICE_IMAGE_DIGEST="$DIGEST" EVIDENCE_TOPOLOGY=/nonexistent \
-    CLUSTER_NAME=agentic-netops LAB_NAME=agentic-netops-fabric SRL_USER=admin SRL_PASS='NokiaSrl1!' \
+    CLUSTER_NAME=agentic-netops LAB_NAME=agentic-netops-fabric LAB_TCP_ACCEPT=tcp-accept SRL_USER=admin SRL_PASS='NokiaSrl1!' \
     bash -c "set -uo pipefail; source '$ROOT/tests/lib/leftovers.sh'; ${1:-:}; leftovers::scan; echo rc=\$?" 2>&1
 }
 
@@ -156,16 +174,49 @@ else
   fail "a cluster carrying one gate-labelled scratch namespace refuses the start naming it" "$out"
 fi
 
-# --- 5. a node missing from the management network
+# --- 5. a node whose management data path is down (link carries no signal)
 reset_lab
-jq '.[0].Containers |= with_entries(select(.value.Name != "clab-agentic-netops-fabric-leaf01"))' \
+echo 4243 >"$FAKE/pid.clab-agentic-netops-fabric-leaf01"; : >"$FAKE/nocarrier.4243"
+out="$(scan)"
+if grep -qx 'rc=1' <<<"$out" && grep -q '^LEFTOVER mgmt-detached leaf01 management link mgmt0' <<<"$out" \
+   && [[ "$(grep -c '^LEFTOVER' <<<"$out")" -eq 1 ]]; then
+  pass "a node whose management link carries no signal refuses the start naming it (and only it)"
+else
+  fail "a node whose management link carries no signal refuses the start naming it (and only it)" "$out"
+fi
+
+# --- 5b. a device whose link carries but whose gNMI port accepts nothing from the host
+reset_lab
+: >"$FAKE/refuse.172.25.25.22"
+out="$(scan)"
+if grep -qx 'rc=1' <<<"$out" && grep -q '^LEFTOVER mgmt-detached leaf02 gNMI port 172.25.25.22:57400' <<<"$out"; then
+  pass "a device whose gNMI port accepts no connection from the host refuses the start naming it"
+else
+  fail "a device whose gNMI port accepts no connection from the host refuses the start naming it" "$out"
+fi
+
+# --- 5c. regression (2026-09-21): Docker's endpoint record lacks a node whose data path is up —
+#         the record is not the probe, so the lab starts
+reset_lab
+jq '.[0].Containers |= with_entries(select(.value.Name != "clab-agentic-netops-fabric-leaf02"))' \
   "$FAKE/network.json" >"$FAKE/net.tmp" && mv "$FAKE/net.tmp" "$FAKE/network.json"
 out="$(scan)"
-if grep -qx 'rc=1' <<<"$out" && grep -q '^LEFTOVER mgmt-detached leaf01 ' <<<"$out" \
-   && [[ "$(grep -c '^LEFTOVER' <<<"$out")" -eq 1 ]]; then
-  pass "a node missing from the management network refuses the start naming it (and only it)"
+if grep -qx 'rc=0' <<<"$out" && ! grep -q '^LEFTOVER' <<<"$out"; then
+  pass "a node absent from Docker's endpoint record but reachable on its data path is not a leftover"
 else
-  fail "a node missing from the management network refuses the start naming it (and only it)" "$out"
+  fail "a node absent from Docker's endpoint record but reachable on its data path is not a leftover" "$out"
+fi
+
+# --- 5d. a declared mgmt-link-down fault still in place refuses the start naming it
+reset_lab
+echo 4244 >"$FAKE/pid.clab-agentic-netops-fabric-leaf02"; : >"$FAKE/nocarrier.4244"
+out="$(scan "leftovers::declare_fault vt-scratch-tf-mgmt-leaf02 leaf02 'management link set down' \
+  '{\"kind\":\"mgmt-link-down\",\"container\":\"clab-agentic-netops-fabric-leaf02\",\"interface\":\"mgmt0\",\"peer\":\"veth1\"}' \
+  '{\"kind\":\"host-link-up\"}'")"
+if grep -qx 'rc=1' <<<"$out" && grep -q '^LEFTOVER declared-fault leaf02 vt-scratch-tf-mgmt-leaf02 still in place' <<<"$out"; then
+  pass "a declared mgmt-link-down fault still in place refuses the start naming it"
+else
+  fail "a declared mgmt-link-down fault still in place refuses the start naming it" "$out"
 fi
 
 # --- 6. declared faults: written before, and a fault still in place refuses the start

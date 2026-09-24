@@ -2,6 +2,7 @@
   "srl_nokia-interfaces:interface": [
     {
       "admin-state": "enable",
+      "mtu": 9412,
       "name": "ethernet-1/1",
       "srl_nokia-interfaces-vlans:vlan-tagging": true
     },

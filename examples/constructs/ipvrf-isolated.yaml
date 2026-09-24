@@ -1,0 +1,20 @@
+# A second ip-vrf, isolated from lab-ipvrf-a: its own L3VNI 10140 and route targets, attachment
+# VLAN 140 on the same ports. Nothing is exchanged between the two routed instances — the
+# traffic suite (tests/integration/traffic.sh) asserts that isolation.
+apiVersion: fabric.agentic-netops.io/v1alpha1
+kind: Network
+metadata:
+  name: lab-ipvrf-b
+  namespace: agentic-netops-services
+spec:
+  description: lab ip-vrf B l3vni 10140 across leaf01 and leaf02, isolated from ip-vrf A
+  routers:
+  - name: vrf-b
+    l3vni: 10140
+    routeTargets:
+      import: ["target:65000:10140"]
+      export: ["target:65000:10140"]
+    prefixes: ["10.140.1.0/24", "10.140.2.0/24", "2001:db8:140:1::/64", "2001:db8:140:2::/64"]
+  attachments:
+  - {node: leaf01, attachment: ethernet-1/1, vlan: 140, vrf: vrf-b}
+  - {node: leaf02, attachment: ethernet-1/1, vlan: 140, vrf: vrf-b}

@@ -1,5 +1,5 @@
 # The OpenTelemetry Collector of the device metric pipeline: OTLP in (from gNMIc), Prometheus out.
-# metric_expiration bounds a sample's age: a series not refreshed within 45 s (4.5 sample intervals)
+# metric_expiration bounds a sample's age: a series not refreshed within 20 s (4 sample intervals of 5 s)
 # is dropped, so the Fabric read-back never reads a device value older than that as current.
 apiVersion: v1
 kind: ConfigMap
@@ -17,7 +17,8 @@ data:
       prometheus:
         endpoint: 0.0.0.0:8889
         translation_strategy: UnderscoreEscapingWithoutSuffixes
-        metric_expiration: 45s
+        metric_expiration: 20s
+        send_timestamps: true
     extensions:
       health_check: {endpoint: 0.0.0.0:13133}
     service:

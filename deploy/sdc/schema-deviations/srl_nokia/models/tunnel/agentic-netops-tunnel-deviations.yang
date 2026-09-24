@@ -1,0 +1,40 @@
+// provenance: source=first-party version=v0.1.0
+module agentic-netops-tunnel-deviations {
+  yang-version 1.1;
+  namespace "urn:agentic-netops.io:srlinux:tunnel-interfaces:deviations";
+  prefix anops-tun-dev;
+
+  import srl_nokia-tunnel-interfaces {
+    prefix srl_nokia-tun;
+  }
+
+  organization
+    "agentic-netops-srl";
+  description
+    "First-party schema deviation for the device-configuration layer (docs/decisions/live-findings.md,
+     2026-09-21-feature-guarded-must). srl_nokia-tunnel-interfaces guards two musts on
+     vxlan-interface/type with srl_nokia-ext:if-feature (not evpn-vxlan-mac-vrf / not evpn-vxlan-ifl):
+     on a device that HAS those features the musts do not apply. The pinned data-server ignores the
+     extension and evaluates them unconditionally, refusing every bridged and routed vxlan-interface
+     and failing the whole per-target transaction. Gate item G3 asserts both features on every node,
+     so deleting exactly these two musts makes the layer's schema say what the device enforces; the
+     unguarded must (bridged or routed only) is kept, and G10's must-reject set is re-run against it.";
+
+  revision 2026-09-21 {
+    description
+      "Initial deviation.";
+  }
+
+  deviation "/srl_nokia-tun:tunnel-interface/srl_nokia-tun:vxlan-interface/srl_nokia-tun:type" {
+    deviate delete {
+      must "not(.='srl_nokia-if:bridged')" {
+        error-message "unsupported type.";
+      }
+    }
+    deviate delete {
+      must "not(.='srl_nokia-if:routed')" {
+        error-message "unsupported type.";
+      }
+    }
+  }
+}

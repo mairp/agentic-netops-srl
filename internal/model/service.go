@@ -86,6 +86,10 @@ type L2Segment struct {
 	VLAN        uint32
 	L2VNI       uint32 // zero for a `vlan` construct
 	Attachments []Attachment
+	// L2MTU is bridgedL2MTU (data-model.md §20: 9412), stated on every bridged
+	// subinterface; left unset the device default (9232) drops a tenant-MTU
+	// frame (live finding 2026-09-21-access-port-mtu). 0 = not rendered.
+	L2MTU uint32
 }
 
 // Gateway is the anycast gateway of a mac-vrf with integrated routing.
@@ -110,6 +114,10 @@ type RoutedAttachment struct {
 type RoutedService struct {
 	L3VNI       uint32
 	Attachments []RoutedAttachment
+	// IPMTU is the tenant IP MTU stated on every routed subinterface
+	// (data-model.md §20: 9348 = port MTU − 64). Left unset the device applies
+	// its own subinterface default, far below the tenant MTU.
+	IPMTU uint32
 }
 
 // PortMatch is a transport port match: a single port (Lo only) or a range.
@@ -159,6 +167,8 @@ type Subinterface struct {
 	VLAN  uint32 // 0 = untagged, no vlan container
 	IPv4  []string
 	IPv6  []string
+	IPMTU uint32 // routed subinterfaces only; 0 = not rendered
+	L2MTU uint32 // bridged subinterfaces only; 0 = not rendered
 }
 
 // Name is `<port>.<index>`.
@@ -418,7 +428,7 @@ func (b *serviceBuilder) bridged(niName string, vx *VXLANInterface, ov *overlayP
 			return fmt.Errorf("attachment needs node and port")
 		}
 		n := b.node(a.Node)
-		s := Subinterface{Port: a.Port, Index: idx, Type: Bridged, VLAN: l2.VLAN}
+		s := Subinterface{Port: a.Port, Index: idx, Type: Bridged, VLAN: l2.VLAN, L2MTU: l2.L2MTU}
 		n.Subinterfaces = append(n.Subinterfaces, s)
 		ni := b.instance(n, niName, MACVRF)
 		ni.Interfaces = append(ni.Interfaces, s.Name())
@@ -488,6 +498,9 @@ func (b *serviceBuilder) ipvrf() error {
 	if len(r.Attachments) == 0 {
 		return fmt.Errorf("ip-vrf needs at least one attachment")
 	}
+	if r.IPMTU == 0 {
+		return fmt.Errorf("ip-vrf needs an explicit ip-mtu on its routed subinterfaces")
+	}
 	ni, err := IPVRFName(b.in.ServiceID)
 	if err != nil {
 		return err
@@ -512,7 +525,7 @@ func (b *serviceBuilder) ipvrf() error {
 		}
 		n := b.node(a.Node)
 		s := Subinterface{Port: a.Port, Index: idx, Type: Routed, VLAN: a.VLAN,
-			IPv4: sortedCopy(a.IPv4), IPv6: sortedCopy(a.IPv6)}
+			IPv4: sortedCopy(a.IPv4), IPv6: sortedCopy(a.IPv6), IPMTU: r.IPMTU}
 		n.Subinterfaces = append(n.Subinterfaces, s)
 		inst := b.instance(n, ni, IPVRF)
 		inst.Interfaces = append(inst.Interfaces, s.Name())

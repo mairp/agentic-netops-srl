@@ -9,6 +9,7 @@ require (
 	github.com/henderiw/iputil v0.0.0-20231218081610-37f78ad9c81c
 	github.com/kform-dev/choreo v0.0.21-0.20241226164553-fde3b818f2d4
 	github.com/kuidio/kuid v0.0.13
+	github.com/prometheus/client_golang v1.24.0
 	github.com/sdcio/config-server v0.0.58
 	go.opentelemetry.io/otel v1.39.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc v1.39.0
@@ -95,7 +96,6 @@ require (
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/pjbgf/sha1cd v0.3.2 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
-	github.com/prometheus/client_golang v1.24.0 // indirect
 	github.com/prometheus/client_model v0.6.2 // indirect
 	github.com/prometheus/common v0.70.0 // indirect
 	github.com/prometheus/procfs v0.21.1 // indirect

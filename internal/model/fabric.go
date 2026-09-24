@@ -101,6 +101,11 @@ type AccessPort struct {
 	Name        string
 	Enabled     bool
 	VLANTagging bool
+	// MTU is portMTU (9412): the tenant IP MTU of a service subinterface
+	// (9348) does not fit under the device's default port MTU (9232), which
+	// holds a routed subinterface down with ip-mtu-too-large (live finding
+	// 2026-09-21-access-port-mtu).
+	MTU uint32
 }
 
 // RoutedPort is a fabric port with its routed subinterface 0.
@@ -344,7 +349,7 @@ func BuildFabric(in FabricInput) (*FabricModel, error) {
 		for _, p := range inv.AccessPorts {
 			access[p] = true
 			fn.AccessPorts = append(fn.AccessPorts, AccessPort{
-				Name: p, Enabled: !maint[inv.Node+"|"+p], VLANTagging: !untagged[p],
+				Name: p, Enabled: !maint[inv.Node+"|"+p], VLANTagging: !untagged[p], MTU: in.MTU.PortMTU,
 			})
 		}
 		for p := range untagged {
