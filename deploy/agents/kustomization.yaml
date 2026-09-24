@@ -46,14 +46,14 @@ configMapGenerator:
 # (ErrImageNeverPull) — never `latest`.
 images:
   - name: supervisor
-    newTag: "df992064cfcff64961106871b3e362c0c3ba8eee12327ecf1381290aa82445d2"
+    newTag: "1b77728e269114e2186732f239de616659f9f14c18867f35d13f3ce2114a96df"
   - name: mapper
-    newTag: "fec9749e3af3d6f339bb30bd302a8f1d56163d0f0ece1a4fe649c5776dac8eca"
+    newTag: "98d3d32a8718f65c5c2b18a2e3c679efa8c9c2939ebbc89138c7ee59e628c136"
   - name: allocator
-    newTag: "e3b27d7e199d1931f93ee4aafc93a9aeacc679e0f570a689426aeb47ee1370be"
+    newTag: "ed7ad4fcd04334ee97570f4fbd0f5e21f231a27051dcaed5714b4065ea3ac8c7"
   - name: deployer
-    newTag: "f5513deb7369956094393b0a55aecf98bb5f7a4863af71ef398d8e273d6efdec"
+    newTag: "23dae9a12663f8e7be7937876284174bb2022eff1a373e3d81a4892fdcb55029"
   - name: intent-translator
-    newTag: "dc8ae3a7c6dfee76854bf60928e50580bf720ed6a91704ab76c5e970b3cade81"
+    newTag: "70a76a2c737970b09237f75d44e4c86ab64934a11bf9f978beb4d48aa454452e"
   - name: ui
     newTag: "09a84cf6fddf798cb951bf0af115c8b0165b679acbfefc28933690ad41579911"

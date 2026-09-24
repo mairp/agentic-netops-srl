@@ -1,0 +1,53 @@
+{
+  "schema": "agentic-netops.suggested-prompts/v1",
+  "source": "T139; FR-084, FR-097, R-30; contracts/supervisor-http.md §GET /suggested-prompts",
+  "rules": [
+    "construct names only: vlan, mac-vrf, ip-vrf, acl",
+    "every node and port in the device's own naming, and served only when it resolves in the site inventory",
+    "served only when every key in requires is qualified in the fabric qualification record (absent = unqualified)"
+  ],
+  "prompts": [
+    {
+      "shape": "vlan",
+      "construct": "vlan",
+      "requires": ["vlan", "vlan.bridged-subinterface"],
+      "endpoints": [{"node": "leaf01", "port": "ethernet-1/1"}],
+      "prompt": "Create vlan 120 on leaf01 ethernet-1/1 for tenant acme"
+    },
+    {
+      "shape": "mac-vrf",
+      "construct": "mac-vrf",
+      "requires": ["mac-vrf"],
+      "endpoints": [{"node": "leaf01", "port": "ethernet-1/1"}, {"node": "leaf02", "port": "ethernet-1/1"}],
+      "prompt": "Extend vlan 100 as a mac-vrf across leaf01 ethernet-1/1 and leaf02 ethernet-1/1 for tenant blue"
+    },
+    {
+      "shape": "ip-vrf",
+      "construct": "ip-vrf",
+      "requires": ["ip-vrf", "ip-vrf.evpn-type5-ipv4"],
+      "endpoints": [{"node": "leaf01", "port": "ethernet-1/1"}],
+      "prompt": "Create an ip-vrf for tenant initech carrying 10.50.0.0/24 at leaf01 ethernet-1/1 vlan 200"
+    },
+    {
+      "shape": "gateway",
+      "construct": "mac-vrf",
+      "requires": ["mac-vrf", "mac-vrf.anycast-gateway-ipv4"],
+      "endpoints": [{"node": "leaf01", "port": "ethernet-1/1"}, {"node": "leaf02", "port": "ethernet-1/1"}],
+      "prompt": "Extend vlan 130 as a mac-vrf across leaf01 ethernet-1/1 and leaf02 ethernet-1/1 with an anycast gateway 10.30.0.1/24 for tenant blue"
+    },
+    {
+      "shape": "acl",
+      "construct": "acl",
+      "requires": ["acl", "acl.ingress-ipv4"],
+      "endpoints": [{"node": "leaf01", "port": "ethernet-1/1"}],
+      "prompt": "Add an ingress ipv4 acl on leaf01 ethernet-1/1 vlan 120 for tenant acme that permits tcp to port 443 and denies everything else"
+    },
+    {
+      "shape": "acl-on-service",
+      "construct": "vlan",
+      "requires": ["vlan", "vlan.bridged-subinterface", "acl", "acl.ingress-ipv4"],
+      "endpoints": [{"node": "leaf01", "port": "ethernet-1/1"}],
+      "prompt": "Create vlan 140 on leaf01 ethernet-1/1 for tenant acme with an ingress ipv4 acl that denies udp to port 53"
+    }
+  ]
+}

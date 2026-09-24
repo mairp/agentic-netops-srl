@@ -52,6 +52,7 @@ RESOLUTION: dict[str, str] = {
     "l2vni": "mac-vrf",
     "l3vni": "ip-vrf",
     "accesslist": "acl",
+    # migration aliases (input only; folded onto a construct, never offered or emitted as a type)
     "vpls": "mac-vrf",
     "vpws": "mac-vrf",
     "eline": "mac-vrf",
@@ -66,6 +67,7 @@ def construct_key(name: str) -> str:
     return re.sub(r"[-_ .+]", "", name.lower())
 
 
+# A construct mention, the migration aliases included (recognized on input only, FR-044).
 _CONSTRUCT_MENTION = re.compile(
     r"\b(mac[-_ .]?vrf|ip[-_ .]?vrf|l2vni|l3vni|access[-_ ]?list|acl|vpls|vpws|e[-_ ]?line"
     r"|l3vpn|l2l3[-_ ]?irb|irb|vlan)\b(?!\s*[-=:]?\s*\d)"

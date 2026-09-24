@@ -2,8 +2,9 @@
 
 Serves the four constructs and nothing else — six shapes: a vlan, a mac-vrf across two leaves, an
 ip-vrf, the gateway composition, a standalone acl on an attachment, and an acl attached to a
-service in the same request. Every node and port comes from the site inventory the provisioning
-script writes (``SITE_INVENTORY_DIR/inventory.json``, the ``Fabric`` inventory:
+service in the same request, authored in ``suggested_prompts.json`` beside this module (T139). A
+prompt is served only when every (node, port) it names resolves in the site inventory the
+provisioning script writes (``SITE_INVENTORY_DIR/inventory.json``, the ``Fabric`` inventory:
 ``{"nodes": [{"name": "leaf01", "role": "leaf", "accessPorts": ["ethernet-1/1", …]}, …]}``),
 in the device's own naming; nothing is invented. A prompt is offered only when the qualification
 record (``FABRIC_QUALIFICATION_DIR``, one file per flat key, ``qualified``/``unqualified``) shows
@@ -87,47 +88,62 @@ def qualified(qualification_dir: Path, key: str) -> bool:
         return False
 
 
-def _port(leaf: Leaf, index: int) -> str:
-    return leaf.ports[min(index, len(leaf.ports) - 1)]
+SUGGESTED_PROMPTS_FILE = Path(__file__).resolve().parent / "suggested_prompts.json"
+CONSTRUCTS = ("vlan", "mac-vrf", "ip-vrf", "acl")
+
+
+def load_suggestions(path: Path | None = None) -> list[dict[str, Any]]:
+    """The authored suggestion set (``suggested_prompts.json``, T139): six shapes, each with its
+    construct, the qualification keys it uses and the (node, port) endpoints its text names."""
+    document = json.loads(Path(path or SUGGESTED_PROMPTS_FILE).read_text(encoding="utf-8"))
+    return list(document["prompts"])
+
+
+def resolves(entry: dict[str, Any], leaves: list[Leaf]) -> bool:
+    """Every endpoint of ``entry`` is a leaf's access port in the site inventory, and appears in
+    the prompt text in the device's own naming."""
+    ports = {leaf.name: set(leaf.ports) for leaf in leaves}
+    text = entry.get("prompt", "")
+    endpoints = entry.get("endpoints") or []
+    return bool(endpoints) and all(
+        e.get("port") in ports.get(e.get("node"), set()) and f"{e['node']} {e['port']}" in text
+        for e in endpoints
+    )
 
 
 def suggested_prompts(inventory_dir: Path, qualification_dir: Path) -> dict[str, Any]:
     leaves = load_leaves(inventory_dir)
     if not leaves:
-        return {"prompts": [], "note": (
-            f"no site inventory with leaf access ports at {Path(inventory_dir) / INVENTORY_FILE}; "
-            "prompts are only offered on the site's real nodes and ports")}
-    a = leaves[0]
-    b = leaves[1] if len(leaves) > 1 else None
-    candidates: list[tuple[str, str, list[str], str]] = [
-        ("vlan", "vlan", ["vlan"],
-         f"Create vlan 120 on {a.name} {_port(a, 1)} for tenant acme"),
+        return {
+            "prompts": [],
+            "note": (
+                "no site inventory with leaf access ports at "
+                f"{Path(inventory_dir) / INVENTORY_FILE}; "
+                "prompts are only offered on the site's real nodes and ports"
+            ),
+        }
+    prompts = [
+        {"shape": e["shape"], "construct": e["construct"], "prompt": e["prompt"]}
+        for e in load_suggestions()
+        if e.get("construct") in CONSTRUCTS
+        and resolves(e, leaves)
+        and all(qualified(qualification_dir, k) for k in e.get("requires", []))
     ]
-    if b is not None:
-        candidates += [
-            ("mac-vrf", "mac-vrf", ["mac-vrf"],
-             f"Extend vlan 100 as a mac-vrf across {a.name} {_port(a, 0)} and {b.name} "
-             f"{_port(b, 0)} for tenant blue"),
-            ("gateway", "mac-vrf", ["mac-vrf", "mac-vrf.anycast-gateway-ipv4"],
-             f"Extend vlan 130 as a mac-vrf across {a.name} {_port(a, 2)} and {b.name} "
-             f"{_port(b, 2)} with an anycast gateway 10.30.0.1/24 for tenant blue"),
-        ]
-    candidates += [
-        ("ip-vrf", "ip-vrf", ["ip-vrf", "ip-vrf.evpn-type5-ipv4"],
-         f"Create an ip-vrf for tenant initech carrying 10.50.0.0/24 at {a.name} "
-         f"{_port(a, 3)} vlan 200"),
-        ("acl", "acl", ["acl", "acl.ingress-ipv4"],
-         f"Add an ingress ipv4 acl on {a.name} {_port(a, 1)} vlan 120 for tenant acme that "
-         "permits tcp to port 443 and denies everything else"),
-        ("acl-on-service", "vlan", ["vlan", "acl", "acl.ingress-ipv4"],
-         f"Create vlan 140 on {a.name} {_port(a, 3)} for tenant acme with an ingress ipv4 acl "
-         "that denies udp to port 53"),
-    ]
-    prompts = [{"shape": shape, "construct": construct, "prompt": text}
-               for shape, construct, keys, text in candidates
-               if all(qualified(qualification_dir, k) for k in keys)]
     return {"prompts": prompts}
 
 
-__all__ = ["PACKAGED_PROMPTS", "PROMPTS_ENV", "load_leaves", "load_prompt", "prompt_names",
-           "prompts_dir", "qualified", "render", "suggested_prompts"]
+__all__ = [
+    "CONSTRUCTS",
+    "PACKAGED_PROMPTS",
+    "PROMPTS_ENV",
+    "SUGGESTED_PROMPTS_FILE",
+    "load_leaves",
+    "load_prompt",
+    "load_suggestions",
+    "prompt_names",
+    "prompts_dir",
+    "qualified",
+    "render",
+    "resolves",
+    "suggested_prompts",
+]

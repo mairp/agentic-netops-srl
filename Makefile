@@ -79,8 +79,9 @@ verify-render-schema: ## T047: validate every fabric golden offline against the 
 verify-compat: ## T050: published compatibility set = versions.lock.yaml; one allocation authority; first-party images by content hash
 	scripts/ci/verify_compat.sh
 
-verify-boundaries: ## T025: SC-017 three boundaries + reference-artefact checks, FR-108, FR-019/CR-008, FR-013
+verify-boundaries: ## T025: SC-017 three boundaries + reference-artefact checks, FR-108, FR-019/CR-008, FR-013; T142: SC-033 vocabulary scan
 	scripts/ci/verify_boundaries.sh
+	scripts/ci/verify_vocabulary.sh
 
 verify-provenance-headers: ## T025: every vendored asset carries source, version and digest (SC-017b)
 	scripts/ci/verify_provenance_headers.sh
