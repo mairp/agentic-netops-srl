@@ -1,0 +1,2 @@
+#!/bin/sh
+echo "X.Org X Server 21.1.16"

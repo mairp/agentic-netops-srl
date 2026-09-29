@@ -1,11 +1,10 @@
 # Working prompts for spec-kit passes — local scratch, not shared.
 /prompts/
 
-# Spec-kit artefacts, the unattended-run tooling's state and its generated test plan — local, not shared.
+# Spec-kit artefacts and the unattended-run tooling's state — local, not shared.
 specs/
 .mixture-of-loops/
 .specstride/
-testautomation/004-agentic-netops-composite/
 
 # Upstream reference clones kept for research (each is its own git repository) — never build inputs.
 /config-server/
@@ -15,13 +14,8 @@ testautomation/004-agentic-netops-composite/
 
 # Build outputs and run-captured evidence (T001) — evidence is written by the
 # run that produces it and never checked in as a substitute for a run.
-bin/
+/bin/
 .evidence/
-
-# Walkthrough takes and captures are local; the recording tooling is tracked.
-testautomation/video/takes/
-testautomation/video/shots/
-testautomation/video/snap/
 
 *.log
 .env
@@ -40,3 +34,8 @@ lab/clab-*/
 
 # stray `go build` output at the repository root (built binaries belong in bin/)
 /intent-translator
+
+# Not part of the lab: spec-kit tooling, the walkthrough recorder and local debug captures.
+.specify/
+testautomation/
+debug/

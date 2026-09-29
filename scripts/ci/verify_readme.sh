@@ -341,8 +341,11 @@ if ev is not None:
                 fail("timings", f"README.md:{i + 1}", f"{m.group(0)!r} is not a timing the evidence file measured")
 
 # ---- quickstart ------------------------------------------------------------------------------
-quick = quick_p.read_text() if quick_p.exists() else ""
-qs = section_lines("Quickstart")
+# specs/ is local to the working copy (.gitignore): without quickstart.md there is nothing to compare
+quick = quick_p.read_text() if quick_p.exists() else None
+if quick is None:
+    print("NOTE quickstart: specs/ is absent from this working copy; the Quickstart comparison runs where it is present")
+qs = section_lines("Quickstart") if quick is not None else []
 fence = False
 for n, l in qs:
     if l.lstrip().startswith("```"):

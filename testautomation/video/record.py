@@ -11,8 +11,10 @@ changing only what the platform forces (contracts/readme-and-walkthrough.md §3)
     docs/DEMO_VIDEO.md — the driver refuses to start when its prompts differ from that file;
   * the leaf proof is read-only `sr_cli` `info from state` reads (leafproof.py) in place of
     `redis-cli` / `vtysh` / `bridge`;
-  * the console has no agent-topology canvas, so the canvas-fit assertion becomes the same
-    assertion on the conversation: the card the viewer must read lies inside the viewport.
+  * the console is the predecessor's layout (agent-topology canvas above the conversation), so
+    the canvas-fit assertion is kept: the canvas is zoomed OUT until the whole topology
+    (supervisor, three workers, controllers, fabric) lies inside the canvas viewport; and the
+    card the viewer must read lies inside the viewport.
 
 Framing rules kept as they are (2026-09-07, the predecessor's fixed driver):
   * the terminal is never CSS-zoomed; ttyd's own fontSize sizes xterm to the 1920x1080 page,
@@ -279,6 +281,38 @@ class Driver:
         self.meta["operator_username"] = user
         log("console logged in (credential not logged)")
 
+    # ---------- canvas helpers (the predecessor's, unchanged) ----------
+    @staticmethod
+    def canvas_boxes(u) -> tuple[list, list]:
+        return u.evaluate(
+            "(() => { const v = document.querySelector('.graph-viewport'); const f = document.querySelector('.topology-flow');"
+            " const rv = v.getBoundingClientRect(), rf = f.getBoundingClientRect();"
+            " return [[rv.x, rv.y, rv.width, rv.height], [rf.x, rf.y, rf.width, rf.height]]; })()")
+
+    def canvas_fits(self, u, margin: float = 6.0) -> bool:
+        (vx, vy, vw, vh), (fx, fy, fw, fh) = self.canvas_boxes(u)
+        return (fx >= vx - margin and fy >= vy - margin and fx + fw <= vx + vw + margin
+                and fy + fh <= vy + vh + margin and vx >= 0 and vy >= 0 and vx + vw <= 1921 and vy + vh <= 1081)
+
+    def fit_canvas(self, u, tag: str):
+        """Zoom the agent canvas OUT until the whole topology lies inside the canvas viewport.
+        Fails the take if it cannot be made to fit at the minimum zoom."""
+        zout = u.get_by_label("Zoom out canvas")
+        for _ in range(16):
+            if self.canvas_fits(u) or zout.is_disabled():
+                break
+            zout.click()
+            time.sleep(0.55)
+        (vx, vy, vw, vh), (fx, fy, fw, fh) = self.canvas_boxes(u)
+        zoom = u.get_by_label("Reset canvas view").inner_text().strip()
+        ok = self.canvas_fits(u)
+        self.meta.setdefault("canvas_frames", []).append(
+            {tag: {"viewport": [vx, vy, vw, vh], "flow": [fx, fy, fw, fh], "zoom": zoom, "ok": ok}})
+        if not ok:
+            raise TakeFailure(f"framing[{tag}-canvas]: topology {[fx, fy, fw, fh]} does not fit the canvas "
+                              f"viewport {[vx, vy, vw, vh]} at zoom {zoom}")
+        log(f"framing[{tag}-canvas]: ok (zoom {zoom}, flow {fw:.0f}x{fh:.0f} in viewport {vw:.0f}x{vh:.0f})")
+
     # ---------- terminal helpers ----------
     @staticmethod
     def term_lines(t) -> list[str]:
@@ -426,6 +460,8 @@ class Driver:
         log(f"sent ({pid})")
 
         mapper = self.wait_confirmation(u, "mapper", n_map)
+        # the conversation has expanded and the canvas shrank: keep the whole topology in frame
+        self.fit_canvas(u, f"{pid}-mapper")
         interp = u.locator('[data-testid="stage-card"][data-stage="mapper"]').last
         self.show(u, interp if interp.count() else mapper, f"{pid}-mapper")
         self.show(u, mapper, f"{pid}-mapper-confirm")
@@ -602,6 +638,7 @@ class Driver:
 
             if self.args.smoke:
                 self.show(u, u.get_by_test_id("prompt-input"), "smoke-console")
+                self.fit_canvas(u, "smoke-canvas")
                 self.frame_check(u, "smoke-console", {"Request": u.get_by_test_id("prompt-input"),
                                                       "New conversation": u.get_by_test_id("new-thread")})
                 self.shot(u, "smoke-console")
@@ -630,6 +667,7 @@ class Driver:
             try:
                 if self.args.overview > 0:
                     self.show(u, u.get_by_test_id("prompt-input"), "overview")
+                    self.fit_canvas(u, "overview")
                     self.shot(u, "overview-layout")
                     settle = self.args.overview - (time.time() - rec_t0)
                     if settle > 0:

@@ -12,4 +12,3 @@
 /agents/common/guards/                   @mairp
 /agents/provisioning/deployer/           @mairp
 /deploy/rbac/                            @mairp
-/.specify/memory/constitution.md         @mairp

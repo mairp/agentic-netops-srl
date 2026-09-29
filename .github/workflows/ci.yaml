@@ -47,6 +47,10 @@ jobs:
           fi
           docker pull "${refs[0]}"
           echo "PROMETHEUS_IMAGE=${refs[0]}" >> "$GITHUB_ENV"
+      - name: Download modules (retried — the module proxy occasionally drops a stream)
+        run: |
+          for i in 1 2 3 4; do go mod download && exit 0; echo "go mod download failed (attempt $i); retrying in $((i*15))s" >&2; sleep $((i*15)); done
+          exit 1
       - name: go build ./...
         run: go build ./...
       - name: Offline gates

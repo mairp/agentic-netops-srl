@@ -31,7 +31,11 @@ from common.schemas.normalized_service_intent import NormalizedServiceIntent
 from common.schemas.stream import DeploymentReport, parse_chunk
 
 REPO = Path(__file__).resolve().parents[3]
-CONTRACTS = REPO / "specs" / "004-agentic-netops-composite" / "contracts"
+# The two JSON Schemas are wire contracts this package implements, so they ship with it
+# (common/schemas/contracts/). specs/ is local to the working copy (.gitignore); where it is present,
+# the shipped copies must equal the specification's byte for byte (test_contract_copies_match_spec).
+CONTRACTS = REPO / "agents" / "common" / "schemas" / "contracts"
+SPEC_CONTRACTS = REPO / "specs" / "004-agentic-netops-composite" / "contracts"
 INTERPRETATION_SCHEMA = json.loads((CONTRACTS / "interpretation.schema.json").read_text())
 NSI_SCHEMA = json.loads((CONTRACTS / "normalized-service-intent.schema.json").read_text())
 
@@ -548,3 +552,11 @@ def test_deployment_report_passes_ready_strings_and_refuses_removal_verified() -
             "progress": [{"status": "VERIFIED", "resource": "Network/x", "ready": "Unknown",
                           "reason": "VerificationFailed"}],
         })
+
+
+@pytest.mark.parametrize("name", ["interpretation.schema.json", "normalized-service-intent.schema.json"])
+def test_contract_copies_match_spec(name: str) -> None:
+    spec = SPEC_CONTRACTS / name
+    if not spec.exists():
+        pytest.skip("specs/ is absent from this working copy (local, git-ignored)")
+    assert (CONTRACTS / name).read_bytes() == spec.read_bytes(), f"{name} drifted from the specification"
