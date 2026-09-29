@@ -42,11 +42,11 @@ its subinterface, the `ip-vrf` with its VXLAN interface and its route for `10.55
 before recording started. The prompts and every command line are frozen in
 [docs/DEMO_VIDEO.md](docs/DEMO_VIDEO.md).
 
-<!-- ASSET-URL-PLACEHOLDER: the operator uploads the 6x cut as a GitHub asset and replaces this line with its URL -->
+https://github.com/user-attachments/assets/e558ded9-d8a1-4fad-a4bb-2bb77c3ed9fc
 
 Every "deployed" claim in the recording was re-verified from `kubectl` JSON; the collected evidence is in
 [`docs/media/agentic-netops-srl-intent-tier-demo-evidence.json`](docs/media/agentic-netops-srl-intent-tier-demo-evidence.json).
-From Enter to deployed took 24.4 s for the vlan, 27.3 s for the ip-vrf and 33.4 s
+From Enter to deployed took 29.7 s for the vlan, 37.1 s for the ip-vrf and 35.0 s
 for the mac-vrf.
 
 ## The lab
@@ -54,7 +54,9 @@ for the mac-vrf.
 ![Fabric topology](docs/images/lab-topology.png)
 
 Two spines (`ixr-d3l`), two leaves (`ixr-d2l`) and two Linux clients in containerlab, wired as a
-Clos in the device's own port names ([lab/topology.clab.yml](lab/topology.clab.yml)). The underlay
+Clos in the device's own port names ([lab/topology.clab.yml](lab/topology.clab.yml)); the badges
+are the SR Linux `ethernet-1/N` port numbers. client02 has a second, untagged link on leaf02
+`ethernet-1/2`. The underlay
 is dual-stack eBGP on every fabric link. The overlay is iBGP EVPN from each leaf to both spines,
 which reflect it, with VXLAN sourced from `system0.0`.
 
@@ -66,14 +68,17 @@ the OpenTelemetry Collector, Prometheus stores it, and Grafana renders it
 
 ![Operator console](docs/images/agent-ui.png)
 
-The operator console during the recorded run, logged in, with the mapper's interpretation shown
-before anything is allocated. The console's scenario cards are what the supervisor serves on
-`GET /suggested-prompts`: they use construct vocabulary and name only ports this site has
+The operator console during the recorded run (the ip-vrf prompt), logged in, with the mapper's
+interpretation shown as JSON before anything is allocated. The sidebar shows each agent's readiness
+from `/v1/health` and the A2A transport over AGNTCY SLIM; the canvas lights the agent the NDJSON
+stream is on and animates the SLIM traffic while it talks. Every card carries the request's
+correlation id. The **Suggested prompts** menu is what the supervisor serves on
+`GET /suggested-prompts`: construct vocabulary naming only ports this site has
 ([agents/supervisors/provisioning/suggested_prompts.json](agents/supervisors/provisioning/suggested_prompts.json)).
 
 ![Deployment outcome](docs/images/agent-ui-outcome.png)
 
-The end of the same transaction. The outcome is reported as deployed only because every apply
+The end of a transaction (the mac-vrf prompt). The outcome is reported as deployed only because every apply
 succeeded and the `Network` then reported `Ready=True`. When convergence is still in flight at the
 deployer's watch bound, the console says so, names the resource and ends in progress. It does not
 report a success it has not observed.
@@ -204,11 +209,10 @@ config/           generated CRDs, RBAC, the Kind cluster
 deploy/           cert-manager, SDC, KUID, allocation, provider, RBAC, observability, agents
 lab/              containerlab topology, bootstrap configs, client setup
 agents/           intent tier: supervisor, mapper, allocator, deployer, guards, tests and corpora
-ui/               the operator console (login gate and conversation)
+ui/               the operator console (login gate, agent-to-agent canvas, conversation)
 docker/           the first-party Dockerfiles, every FROM by digest
 scripts/          provision.sh, off.sh, lib/ (lifecycle phases, pins, evidence), ci/ (checks)
 tests/            unit, golden, envtest, gate, integration and end-to-end suites
-testautomation/   the walkthrough driver and its acceptance (video/)
 examples/         fabric, construct and migration examples
 docs/             operator, operations and runbook guides; reference; decisions; media; images
 versions.lock.yaml  every image, binary and host tool pin; enforced by `make verify-pins`
