@@ -8,21 +8,30 @@
 // A final chunk renders its redacted message rather than its status token; a removal's final at
 // PROVISIONING is in progress with what is outstanding — never converged, never an error card.
 
+import { Check, CircleAlert, CircleHelp, LoaderCircle } from 'lucide-react'
 import type { FinalChunk, ProgressChunk } from '../api/stream.ts'
 import { CorrelationChip } from './CorrelationChip.tsx'
-import { finalView, progressView } from './format.ts'
+import { finalView, progressView, type Tone } from './format.ts'
+
+function ToneIcon({ tone }: { tone: Tone }) {
+  if (tone === 'success') return <Check size={13} />
+  if (tone === 'progress') return <LoaderCircle size={13} className="spin-slow" />
+  if (tone === 'failure') return <CircleAlert size={13} />
+  return <CircleHelp size={13} />
+}
 
 export function Progress({ chunk }: { chunk: ProgressChunk }) {
   const view = progressView(chunk)
   return (
     <div
-      className={`progress tone-${view.tone}`}
+      className={`feed-line progress tone-${view.tone}`}
       data-testid="progress"
       data-ready={chunk.ready ?? ''}
       data-reason={chunk.reason ?? ''}
       data-tone={view.tone}
       role="status"
     >
+      <ToneIcon tone={view.tone} />
       <span className="progress-title">{view.title}</span>
       <span className="progress-detail">{view.detail}</span>
     </div>
@@ -32,16 +41,15 @@ export function Progress({ chunk }: { chunk: ProgressChunk }) {
 export function FinalOutcome({ chunk }: { chunk: FinalChunk }) {
   const view = finalView(chunk)
   return (
-    <section className={`card final tone-${view.tone}`} data-testid="final" data-status={chunk.status} data-tone={view.tone}>
-      <header className="card-head">
-        <h3>{view.title}</h3>
+    <section className={`event-card final-event tone-${view.tone}`} data-testid="final" data-status={chunk.status} data-tone={view.tone}>
+      <header className="event-card-heading">
+        <ToneIcon tone={view.tone} />
+        <h3 className="event-stage">{view.title}</h3>
+        <CorrelationChip id={chunk.correlation_id} />
       </header>
       <p className="final-message" data-testid="final-message">
         {view.text}
       </p>
-      <footer className="card-foot">
-        <CorrelationChip id={chunk.correlation_id} />
-      </footer>
     </section>
   )
 }

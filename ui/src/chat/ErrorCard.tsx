@@ -12,14 +12,15 @@ export function ErrorCard({ chunk }: { chunk: ErrorChunk }) {
     : `The ${stageLabel(chunk.stage)} step failed`
   return (
     <section
-      className="card error-card"
+      className="event-card failure-event error-card"
       data-testid="error-card"
       data-stage={chunk.stage}
       data-client={chunk.client ? 'true' : undefined}
       role="alert"
     >
-      <header className="card-head">
-        <h3>{title}</h3>
+      <header className="event-card-heading">
+        <h3 className="event-stage">{title}</h3>
+        <CorrelationChip id={chunk.correlation_id} full />
       </header>
       <OutOfBandNote value={chunk.out_of_band} />
       <p className="error-reason" data-testid="error-reason">
@@ -28,9 +29,6 @@ export function ErrorCard({ chunk }: { chunk: ErrorChunk }) {
       {chunk.retryable ? (
         <p className="muted">The thread stays open: you can retry or amend the request.</p>
       ) : null}
-      <footer className="card-foot">
-        <CorrelationChip id={chunk.correlation_id} />
-      </footer>
     </section>
   )
 }

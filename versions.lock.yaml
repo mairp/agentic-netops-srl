@@ -315,4 +315,4 @@ firstPartyImages:
     from:
       - {ref: node, track: 20-alpine, tag: "20.20.2-alpine", digest: "sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293"}
     dependencyLocks:
-      - {path: ui/package-lock.json, sha256: "ad424b3b611bba3bd7747d15ff9b0e52ce66947f197b38d4b44865420b318bd6"}
+      - {path: ui/package-lock.json, sha256: "47417b4fdaeb4ce54189b275c8e5be5e83026235ad3d880d816d9e78e71f4483"}

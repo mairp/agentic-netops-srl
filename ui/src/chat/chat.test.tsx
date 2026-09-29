@@ -179,10 +179,10 @@ test('StageCard is a labelled step with its payload readable', () => {
   assert.match(html, /data-stage="mapper"/)
   const t = text(html)
   assert.match(t, /Interpretation/)
-  assert.match(t, /service_type mac-vrf/)
-  assert.match(t, /vlan 100/)
+  assert.match(t, /"service_type": "mac-vrf"/)
+  assert.match(t, /"vlan": 100/)
   assert.match(t, /"node": "leaf01"/)
-  assert.match(html, /<dl class="payload"/)
+  assert.match(html, /<pre class="payload" data-testid="stage-payload"/)
   assert.match(html, /data-correlation-id="4bf92f/)
 
   const deployer = renderToStaticMarkup(
@@ -254,7 +254,9 @@ test('a transcript marks the mapper ACL on its confirmation and keeps a decline 
 test('CorrelationChip shows the id with a copy button', () => {
   const html = renderToStaticMarkup(<CorrelationChip id={CID} />)
   assert.match(html, new RegExp(`data-correlation-id="${CID}"`))
-  assert.match(html, /<button[^>]*>Copy<\/button>/)
+  assert.match(html, new RegExp(`title="correlation ${CID}"`))
+  assert.match(html, new RegExp(`<button[^>]*aria-label="Copy correlation id ${CID}"`))
+  assert.match(text(html), new RegExp(`^${CID.slice(0, 8)}$`))
 })
 
 test('SuggestedPrompts lists each prompt as a button', () => {
