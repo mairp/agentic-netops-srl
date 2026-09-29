@@ -3,6 +3,7 @@
 // an access list states the evaluation order, the usable priority range and what happens to
 // unmatched traffic; that statement is also set apart as an "Access list" note.
 
+import { Check, X } from 'lucide-react'
 import type { ConfirmationRequestChunk } from '../api/stream.ts'
 import { CorrelationChip } from './CorrelationChip.tsx'
 import { aclStatement, stageLabel } from './format.ts'
@@ -27,57 +28,59 @@ export function Confirmation({ chunk, acl = false, answer, active = false, onCon
   const disabled = !active || answer !== undefined
   return (
     <section
-      className={`card confirmation${answer ? ` answered answered-${answer}` : ''}`}
+      className={`event-card confirmation-event${answer ? ` answered answered-${answer}` : ''}`}
       data-testid="confirmation"
       data-stage={chunk.stage}
       data-answer={answer ?? ''}
       aria-label={`${label} confirmation`}
     >
-      <header className="card-head">
-        <h3>Confirm — {label}</h3>
-      </header>
-      <p className="confirm-prompt" data-testid="confirmation-prompt">
-        {chunk.prompt}
-      </p>
-      {acl || statement ? (
-        <aside className="acl-note" data-testid="acl-note">
-          <strong>Access list</strong>
-          <span>
-            {statement ??
-              'This request carries an access list; the supervisor did not state its evaluation order here.'}
+      <div className="confirmation-copy">
+        <header className="event-card-heading">
+          <h3 className="event-stage">Approval requested — {label}</h3>
+          <CorrelationChip id={chunk.correlation_id} />
+        </header>
+        <p className="confirm-prompt" data-testid="confirmation-prompt">
+          {chunk.prompt}
+        </p>
+        {acl || statement ? (
+          <aside className="acl-note" data-testid="acl-note">
+            <strong>Access list</strong>
+            <span>
+              {statement ??
+                'This request carries an access list; the supervisor did not state its evaluation order here.'}
+            </span>
+          </aside>
+        ) : null}
+      </div>
+      <div className="confirmation-actions">
+        {answer ? (
+          <span className={`answer answer-${answer}`} data-testid="confirmation-answer">
+            {answer === 'confirmed' ? 'You confirmed.' : 'You declined.'}
           </span>
-        </aside>
-      ) : null}
-      <div className="actions">
-        <button
-          type="button"
-          className="btn btn-primary"
-          data-testid="confirm-button"
-          disabled={disabled}
-          onClick={onConfirm}
-        >
-          Confirm
-        </button>
+        ) : null}
         {chunk.refusable !== false ? (
           <button
             type="button"
-            className="btn btn-secondary"
+            className="secondary-button"
             data-testid="decline-button"
             disabled={disabled}
             onClick={onDecline}
           >
+            <X size={15} />
             Decline
           </button>
         ) : null}
-        {answer ? (
-          <span className="answer" data-testid="confirmation-answer">
-            {answer === 'confirmed' ? 'You confirmed.' : 'You declined.'}
-          </span>
-        ) : null}
+        <button
+          type="button"
+          className="primary-button"
+          data-testid="confirm-button"
+          disabled={disabled}
+          onClick={onConfirm}
+        >
+          <Check size={15} />
+          Confirm
+        </button>
       </div>
-      <footer className="card-foot">
-        <CorrelationChip id={chunk.correlation_id} />
-      </footer>
     </section>
   )
 }
