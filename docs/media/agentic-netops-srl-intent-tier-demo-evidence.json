@@ -1,5 +1,5 @@
 {
- "generated_utc": "2026-09-29T12:32:15.757+00:00",
+ "generated_utc": "2026-09-29T19:19:19.517+00:00",
  "take": "final",
  "run": {
   "command": "testautomation/video/accept.py --take final",
@@ -17,24 +17,24 @@
  "video": {
   "width": 1920,
   "height": 1080,
-  "duration": 782.366667
+  "duration": 851.033333
  },
  "prompts": [
   {
    "id": "A",
    "prompt": "Provision a vlan 172 on leaf01 ethernet-1/1 for tenant acme",
    "construct": "vlan",
-   "correlation_id": "b05625ac058c6062a4910db97def89bb",
-   "checked_utc": "2026-09-29T12:32:16.593+00:00",
-   "seconds_enter_to_deployed": 24.4,
-   "dom_outcome_text": "Completed\n\nNetwork/migr-09c4c302b65d4ad converged (Ready=True)\n\ncorrelation\nb05625ac058c6062a4910db97def89bb\nCopy",
-   "t_enter_utc": "2026-09-29T12:19:28.910+00:00",
+   "correlation_id": "d64d7896ca51ddf34c88168b86279849",
+   "checked_utc": "2026-09-29T19:19:20.544+00:00",
+   "seconds_enter_to_deployed": 29.7,
+   "dom_outcome_text": "Completed\nd64d7896\n\nNetwork/migr-db1be9c3f0dc4a3 converged (Ready=True)",
+   "t_enter_utc": "2026-09-29T19:05:09.142+00:00",
    "outcome_screenshots": [
     "final-A-outcome-05.png"
    ],
-   "network": "migr-09c4c302b65d4ad",
+   "network": "migr-db1be9c3f0dc4a3",
    "ready_condition": {
-    "lastTransitionTime": "2026-09-29T12:19:52Z",
+    "lastTransitionTime": "2026-09-29T19:05:37Z",
     "message": "read-back passed on both sides",
     "observedGeneration": 1,
     "reason": "AsExpected",
@@ -51,6 +51,7 @@
     "AsExpected",
     "AsExpected",
     "NotConverged",
+    "NotConverged",
     "AsExpected",
     "IntentSubmitted"
    ],
@@ -61,21 +62,21 @@
    },
    "commands": {
     "A-leaf1": {
-     "cmd": "docker exec clab-agentic-netops-fabric-leaf01 sr_cli \"info from state network-instance vlan-09c4c302b65d4ad oper-state\"",
+     "cmd": "docker exec clab-agentic-netops-fabric-leaf01 sr_cli \"info from state network-instance vlan-db1be9c3f0dc4a3 oper-state\"",
      "rc": 0,
-     "fact": "vlan-09c4c302b65d4ad (the bridged network instance of the vlan) is up",
+     "fact": "vlan-db1be9c3f0dc4a3 (the bridged network instance of the vlan) is up",
      "shown": true
     },
     "A-leaf2": {
-     "cmd": "docker exec clab-agentic-netops-fabric-leaf01 sr_cli \"info from state network-instance vlan-09c4c302b65d4ad interface *\"",
+     "cmd": "docker exec clab-agentic-netops-fabric-leaf01 sr_cli \"info from state network-instance vlan-db1be9c3f0dc4a3 interface *\"",
      "rc": 0,
-     "fact": "vlan-09c4c302b65d4ad holds ethernet-1/1.172",
+     "fact": "vlan-db1be9c3f0dc4a3 holds ethernet-1/1.172",
      "shown": true
     },
     "A-leaf3": {
-     "cmd": "docker exec clab-agentic-netops-fabric-leaf01 sr_cli \"info from state network-instance vlan-09c4c302b65d4ad vxlan-interface *\"",
+     "cmd": "docker exec clab-agentic-netops-fabric-leaf01 sr_cli \"info from state network-instance vlan-db1be9c3f0dc4a3 vxlan-interface *\"",
      "rc": 0,
-     "fact": "vlan-09c4c302b65d4ad has no vxlan-interface",
+     "fact": "vlan-db1be9c3f0dc4a3 has no vxlan-interface",
      "shown": true
     },
     "A-leaf4": {
@@ -85,15 +86,15 @@
      "shown": true
     },
     "A-cmd1": {
-     "cmd": "kubectl -n agentic-netops-intent get networks.fabric.agentic-netops.io -l agentic-netops.io/correlation-id=b05625ac058c6062a4910db97def89bb -o custom-columns=NAME:.metadata.name,CONSTRUCT:'.metadata.annotations.agentic-netops\\.io/service-type',PRINCIPAL:'.metadata.annotations.agentic-netops\\.io/intent-principal',READY:'.status.conditions[?(@.type==\"Ready\")].status',REASON:'.status.conditions[?(@.type==\"Ready\")].reason'",
+     "cmd": "kubectl -n agentic-netops-intent get networks.fabric.agentic-netops.io -l agentic-netops.io/correlation-id=d64d7896ca51ddf34c88168b86279849 -o custom-columns=NAME:.metadata.name,CONSTRUCT:'.metadata.annotations.agentic-netops\\.io/service-type',PRINCIPAL:'.metadata.annotations.agentic-netops\\.io/intent-principal',READY:'.status.conditions[?(@.type==\"Ready\")].status',REASON:'.status.conditions[?(@.type==\"Ready\")].reason'",
      "rc": 0
     },
     "A-cmd2": {
-     "cmd": "kubectl -n agentic-netops-intent get events --field-selector involvedObject.name=migr-09c4c302b65d4ad",
+     "cmd": "kubectl -n agentic-netops-intent get events --field-selector involvedObject.name=migr-db1be9c3f0dc4a3",
      "rc": 0
     },
     "A-cmd3": {
-     "cmd": "kubectl -n agentic-netops-intent get networks.fabric.agentic-netops.io migr-09c4c302b65d4ad -o jsonpath='{.spec}' | python3 -m json.tool | head -40",
+     "cmd": "kubectl -n agentic-netops-intent get networks.fabric.agentic-netops.io migr-db1be9c3f0dc4a3 -o jsonpath='{.spec}' | python3 -m json.tool | head -40",
      "rc": 0
     }
    }
@@ -102,18 +103,17 @@
    "id": "B",
    "prompt": "Deploy an ip-vrf between leaf01 ethernet-1/1 vlan 255 and leaf02 ethernet-1/1 vlan 255 for tenant initech with prefix 10.55.0.0/24",
    "construct": "ip-vrf",
-   "correlation_id": "4c1edb894d91985c05c889a825ee682f",
-   "checked_utc": "2026-09-29T12:32:23.409+00:00",
-   "seconds_enter_to_deployed": 27.3,
-   "dom_outcome_text": "Completed\n\nNetwork/migr-8fef37439a644dd converged (Ready=True)\n\ncorrelation\n4c1edb894d91985c05c889a825ee682f\nCopy",
-   "t_enter_utc": "2026-09-29T12:22:26.279+00:00",
+   "correlation_id": "bc036ad9872a40779a37789da16b5ad8",
+   "checked_utc": "2026-09-29T19:19:27.150+00:00",
+   "seconds_enter_to_deployed": 37.1,
+   "dom_outcome_text": "Completed\nbc036ad9\n\nNetwork/migr-5e746027da4e4c0 converged (Ready=True)",
+   "t_enter_utc": "2026-09-29T19:08:18.011+00:00",
    "outcome_screenshots": [
-    "final-B-outcome-15.png",
     "final-B-outcome-16.png"
    ],
-   "network": "migr-8fef37439a644dd",
+   "network": "migr-5e746027da4e4c0",
    "ready_condition": {
-    "lastTransitionTime": "2026-09-29T12:22:52Z",
+    "lastTransitionTime": "2026-09-29T19:08:52Z",
     "message": "read-back passed on both sides",
     "observedGeneration": 1,
     "reason": "AsExpected",
@@ -144,21 +144,21 @@
    },
    "commands": {
     "B-leaf1": {
-     "cmd": "docker exec clab-agentic-netops-fabric-leaf01 sr_cli \"info from state network-instance ipvrf-8fef37439a644dd oper-state\"",
+     "cmd": "docker exec clab-agentic-netops-fabric-leaf01 sr_cli \"info from state network-instance ipvrf-5e746027da4e4c0 oper-state\"",
      "rc": 0,
-     "fact": "leaf01: ipvrf-8fef37439a644dd is up",
+     "fact": "leaf01: ipvrf-5e746027da4e4c0 is up",
      "shown": true
     },
     "B-leaf2": {
-     "cmd": "docker exec clab-agentic-netops-fabric-leaf01 sr_cli \"info from state network-instance ipvrf-8fef37439a644dd interface *\"",
+     "cmd": "docker exec clab-agentic-netops-fabric-leaf01 sr_cli \"info from state network-instance ipvrf-5e746027da4e4c0 interface *\"",
      "rc": 0,
-     "fact": "leaf01: ipvrf-8fef37439a644dd holds routed ethernet-1/1.255",
+     "fact": "leaf01: ipvrf-5e746027da4e4c0 holds routed ethernet-1/1.255",
      "shown": true
     },
     "B-leaf3": {
-     "cmd": "docker exec clab-agentic-netops-fabric-leaf01 sr_cli \"info from state network-instance ipvrf-8fef37439a644dd vxlan-interface *\"",
+     "cmd": "docker exec clab-agentic-netops-fabric-leaf01 sr_cli \"info from state network-instance ipvrf-5e746027da4e4c0 vxlan-interface *\"",
      "rc": 0,
-     "fact": "leaf01: ipvrf-8fef37439a644dd holds vxlan0.10000",
+     "fact": "leaf01: ipvrf-5e746027da4e4c0 holds vxlan0.10000",
      "shown": true
     },
     "B-leaf4": {
@@ -168,33 +168,33 @@
      "shown": true
     },
     "B-leaf5": {
-     "cmd": "docker exec clab-agentic-netops-fabric-leaf01 sr_cli \"info from state network-instance ipvrf-8fef37439a644dd route-table ipv4-unicast route 10.55.0.0/24 id * route-type * route-owner * origin-network-instance * active\"",
+     "cmd": "docker exec clab-agentic-netops-fabric-leaf01 sr_cli \"info from state network-instance ipvrf-5e746027da4e4c0 route-table ipv4-unicast route 10.55.0.0/24 id * route-type * route-owner * origin-network-instance * active\"",
      "rc": 0,
-     "fact": "leaf01: 10.55.0.0/24 is an active route in ipvrf-8fef37439a644dd's route table",
+     "fact": "leaf01: 10.55.0.0/24 is an active route in ipvrf-5e746027da4e4c0's route table",
      "shown": true
     },
     "B-leaf6": {
-     "cmd": "docker exec clab-agentic-netops-fabric-leaf02 sr_cli \"info from state network-instance ipvrf-8fef37439a644dd oper-state\"",
+     "cmd": "docker exec clab-agentic-netops-fabric-leaf02 sr_cli \"info from state network-instance ipvrf-5e746027da4e4c0 oper-state\"",
      "rc": 0,
-     "fact": "leaf02: ipvrf-8fef37439a644dd is up",
+     "fact": "leaf02: ipvrf-5e746027da4e4c0 is up",
      "shown": true
     },
     "B-leaf7": {
-     "cmd": "docker exec clab-agentic-netops-fabric-leaf02 sr_cli \"info from state network-instance ipvrf-8fef37439a644dd interface *\"",
+     "cmd": "docker exec clab-agentic-netops-fabric-leaf02 sr_cli \"info from state network-instance ipvrf-5e746027da4e4c0 interface *\"",
      "rc": 0,
-     "fact": "leaf02: ipvrf-8fef37439a644dd holds routed ethernet-1/1.255",
+     "fact": "leaf02: ipvrf-5e746027da4e4c0 holds routed ethernet-1/1.255",
      "shown": true
     },
     "B-leaf8": {
-     "cmd": "docker exec clab-agentic-netops-fabric-leaf02 sr_cli \"info from state network-instance ipvrf-8fef37439a644dd vxlan-interface *\"",
+     "cmd": "docker exec clab-agentic-netops-fabric-leaf02 sr_cli \"info from state network-instance ipvrf-5e746027da4e4c0 vxlan-interface *\"",
      "rc": 0,
-     "fact": "leaf02: ipvrf-8fef37439a644dd holds vxlan0.10000",
+     "fact": "leaf02: ipvrf-5e746027da4e4c0 holds vxlan0.10000",
      "shown": true
     },
     "B-leaf9": {
-     "cmd": "docker exec clab-agentic-netops-fabric-leaf02 sr_cli \"info from state network-instance ipvrf-8fef37439a644dd route-table ipv4-unicast route 10.55.0.0/24 id * route-type * route-owner * origin-network-instance * active\"",
+     "cmd": "docker exec clab-agentic-netops-fabric-leaf02 sr_cli \"info from state network-instance ipvrf-5e746027da4e4c0 route-table ipv4-unicast route 10.55.0.0/24 id * route-type * route-owner * origin-network-instance * active\"",
      "rc": 0,
-     "fact": "leaf02: 10.55.0.0/24 is an active route in ipvrf-8fef37439a644dd's route table",
+     "fact": "leaf02: 10.55.0.0/24 is an active route in ipvrf-5e746027da4e4c0's route table",
      "shown": true
     },
     "B-leaf10": {
@@ -204,15 +204,15 @@
      "shown": true
     },
     "B-cmd1": {
-     "cmd": "kubectl -n agentic-netops-intent get networks.fabric.agentic-netops.io -l agentic-netops.io/correlation-id=4c1edb894d91985c05c889a825ee682f -o custom-columns=NAME:.metadata.name,CONSTRUCT:'.metadata.annotations.agentic-netops\\.io/service-type',PRINCIPAL:'.metadata.annotations.agentic-netops\\.io/intent-principal',READY:'.status.conditions[?(@.type==\"Ready\")].status',REASON:'.status.conditions[?(@.type==\"Ready\")].reason'",
+     "cmd": "kubectl -n agentic-netops-intent get networks.fabric.agentic-netops.io -l agentic-netops.io/correlation-id=bc036ad9872a40779a37789da16b5ad8 -o custom-columns=NAME:.metadata.name,CONSTRUCT:'.metadata.annotations.agentic-netops\\.io/service-type',PRINCIPAL:'.metadata.annotations.agentic-netops\\.io/intent-principal',READY:'.status.conditions[?(@.type==\"Ready\")].status',REASON:'.status.conditions[?(@.type==\"Ready\")].reason'",
      "rc": 0
     },
     "B-cmd2": {
-     "cmd": "kubectl -n agentic-netops-intent get events --field-selector involvedObject.name=migr-8fef37439a644dd",
+     "cmd": "kubectl -n agentic-netops-intent get events --field-selector involvedObject.name=migr-5e746027da4e4c0",
      "rc": 0
     },
     "B-cmd3": {
-     "cmd": "kubectl -n agentic-netops-intent get networks.fabric.agentic-netops.io migr-8fef37439a644dd -o jsonpath='{.spec}' | python3 -m json.tool | head -40",
+     "cmd": "kubectl -n agentic-netops-intent get networks.fabric.agentic-netops.io migr-5e746027da4e4c0 -o jsonpath='{.spec}' | python3 -m json.tool | head -40",
      "rc": 0
     }
    }
@@ -221,18 +221,17 @@
    "id": "C",
    "prompt": "Extend vlan154 as a mac-vrf across leaf01 ethernet-1/1 and leaf02 ethernet-1/1 for tenant blue",
    "construct": "mac-vrf",
-   "correlation_id": "74d1f8145f5e921e0de33ac43342ccbf",
-   "checked_utc": "2026-09-29T12:32:37.843+00:00",
-   "seconds_enter_to_deployed": 33.4,
-   "dom_outcome_text": "Completed\n\nNetwork/migr-ba5e1ea6d12a4b8 converged (Ready=True)\n\ncorrelation\n74d1f8145f5e921e0de33ac43342ccbf\nCopy",
-   "t_enter_utc": "2026-09-29T12:27:15.770+00:00",
+   "correlation_id": "b18cdd315fe8a4099ad7742f93b3537e",
+   "checked_utc": "2026-09-29T19:19:41.732+00:00",
+   "seconds_enter_to_deployed": 35.0,
+   "dom_outcome_text": "Completed\nb18cdd31\n\nNetwork/migr-ad7aa3ab12c24ec converged (Ready=True)",
+   "t_enter_utc": "2026-09-29T19:13:41.726+00:00",
    "outcome_screenshots": [
-    "final-C-outcome-30.png",
     "final-C-outcome-33.png"
    ],
-   "network": "migr-ba5e1ea6d12a4b8",
+   "network": "migr-ad7aa3ab12c24ec",
    "ready_condition": {
-    "lastTransitionTime": "2026-09-29T12:27:47Z",
+    "lastTransitionTime": "2026-09-29T19:14:14Z",
     "message": "read-back passed on both sides",
     "observedGeneration": 1,
     "reason": "AsExpected",
@@ -252,7 +251,6 @@
     "AsExpected",
     "AsExpected",
     "NotConverged",
-    "NotConverged",
     "AsExpected",
     "IntentSubmitted"
    ],
@@ -264,27 +262,27 @@
    },
    "commands": {
     "C-leaf1": {
-     "cmd": "docker exec clab-agentic-netops-fabric-leaf01 sr_cli \"info from state network-instance macvrf-ba5e1ea6d12a4b8 oper-state\"",
+     "cmd": "docker exec clab-agentic-netops-fabric-leaf01 sr_cli \"info from state network-instance macvrf-ad7aa3ab12c24ec oper-state\"",
      "rc": 0,
-     "fact": "leaf01: macvrf-ba5e1ea6d12a4b8 is up",
+     "fact": "leaf01: macvrf-ad7aa3ab12c24ec is up",
      "shown": true
     },
     "C-leaf2": {
-     "cmd": "docker exec clab-agentic-netops-fabric-leaf01 sr_cli \"info from state network-instance macvrf-ba5e1ea6d12a4b8 interface *\"",
+     "cmd": "docker exec clab-agentic-netops-fabric-leaf01 sr_cli \"info from state network-instance macvrf-ad7aa3ab12c24ec interface *\"",
      "rc": 0,
-     "fact": "leaf01: macvrf-ba5e1ea6d12a4b8 holds ethernet-1/1.154",
+     "fact": "leaf01: macvrf-ad7aa3ab12c24ec holds ethernet-1/1.154",
      "shown": true
     },
     "C-leaf3": {
-     "cmd": "docker exec clab-agentic-netops-fabric-leaf01 sr_cli \"info from state network-instance macvrf-ba5e1ea6d12a4b8 vxlan-interface *\"",
+     "cmd": "docker exec clab-agentic-netops-fabric-leaf01 sr_cli \"info from state network-instance macvrf-ad7aa3ab12c24ec vxlan-interface *\"",
      "rc": 0,
-     "fact": "leaf01: macvrf-ba5e1ea6d12a4b8 holds vxlan0.10001",
+     "fact": "leaf01: macvrf-ad7aa3ab12c24ec holds vxlan0.10001",
      "shown": true
     },
     "C-leaf4": {
-     "cmd": "docker exec clab-agentic-netops-fabric-leaf01 sr_cli \"info from state network-instance macvrf-ba5e1ea6d12a4b8 protocols bgp-evpn bgp-instance 1\"",
+     "cmd": "docker exec clab-agentic-netops-fabric-leaf01 sr_cli \"info from state network-instance macvrf-ad7aa3ab12c24ec protocols bgp-evpn bgp-instance 1\"",
      "rc": 0,
-     "fact": "leaf01: the EVPN instance of macvrf-ba5e1ea6d12a4b8 carries evi 10001",
+     "fact": "leaf01: the EVPN instance of macvrf-ad7aa3ab12c24ec carries evi 10001",
      "shown": true
     },
     "C-leaf5": {
@@ -294,27 +292,27 @@
      "shown": true
     },
     "C-leaf6": {
-     "cmd": "docker exec clab-agentic-netops-fabric-leaf02 sr_cli \"info from state network-instance macvrf-ba5e1ea6d12a4b8 oper-state\"",
+     "cmd": "docker exec clab-agentic-netops-fabric-leaf02 sr_cli \"info from state network-instance macvrf-ad7aa3ab12c24ec oper-state\"",
      "rc": 0,
-     "fact": "leaf02: macvrf-ba5e1ea6d12a4b8 is up",
+     "fact": "leaf02: macvrf-ad7aa3ab12c24ec is up",
      "shown": true
     },
     "C-leaf7": {
-     "cmd": "docker exec clab-agentic-netops-fabric-leaf02 sr_cli \"info from state network-instance macvrf-ba5e1ea6d12a4b8 interface *\"",
+     "cmd": "docker exec clab-agentic-netops-fabric-leaf02 sr_cli \"info from state network-instance macvrf-ad7aa3ab12c24ec interface *\"",
      "rc": 0,
-     "fact": "leaf02: macvrf-ba5e1ea6d12a4b8 holds ethernet-1/1.154",
+     "fact": "leaf02: macvrf-ad7aa3ab12c24ec holds ethernet-1/1.154",
      "shown": true
     },
     "C-leaf8": {
-     "cmd": "docker exec clab-agentic-netops-fabric-leaf02 sr_cli \"info from state network-instance macvrf-ba5e1ea6d12a4b8 vxlan-interface *\"",
+     "cmd": "docker exec clab-agentic-netops-fabric-leaf02 sr_cli \"info from state network-instance macvrf-ad7aa3ab12c24ec vxlan-interface *\"",
      "rc": 0,
-     "fact": "leaf02: macvrf-ba5e1ea6d12a4b8 holds vxlan0.10001",
+     "fact": "leaf02: macvrf-ad7aa3ab12c24ec holds vxlan0.10001",
      "shown": true
     },
     "C-leaf9": {
-     "cmd": "docker exec clab-agentic-netops-fabric-leaf02 sr_cli \"info from state network-instance macvrf-ba5e1ea6d12a4b8 protocols bgp-evpn bgp-instance 1\"",
+     "cmd": "docker exec clab-agentic-netops-fabric-leaf02 sr_cli \"info from state network-instance macvrf-ad7aa3ab12c24ec protocols bgp-evpn bgp-instance 1\"",
      "rc": 0,
-     "fact": "leaf02: the EVPN instance of macvrf-ba5e1ea6d12a4b8 carries evi 10001",
+     "fact": "leaf02: the EVPN instance of macvrf-ad7aa3ab12c24ec carries evi 10001",
      "shown": true
     },
     "C-leaf10": {
@@ -324,15 +322,15 @@
      "shown": true
     },
     "C-cmd1": {
-     "cmd": "kubectl -n agentic-netops-intent get networks.fabric.agentic-netops.io -l agentic-netops.io/correlation-id=74d1f8145f5e921e0de33ac43342ccbf -o custom-columns=NAME:.metadata.name,CONSTRUCT:'.metadata.annotations.agentic-netops\\.io/service-type',PRINCIPAL:'.metadata.annotations.agentic-netops\\.io/intent-principal',READY:'.status.conditions[?(@.type==\"Ready\")].status',REASON:'.status.conditions[?(@.type==\"Ready\")].reason'",
+     "cmd": "kubectl -n agentic-netops-intent get networks.fabric.agentic-netops.io -l agentic-netops.io/correlation-id=b18cdd315fe8a4099ad7742f93b3537e -o custom-columns=NAME:.metadata.name,CONSTRUCT:'.metadata.annotations.agentic-netops\\.io/service-type',PRINCIPAL:'.metadata.annotations.agentic-netops\\.io/intent-principal',READY:'.status.conditions[?(@.type==\"Ready\")].status',REASON:'.status.conditions[?(@.type==\"Ready\")].reason'",
      "rc": 0
     },
     "C-cmd2": {
-     "cmd": "kubectl -n agentic-netops-intent get events --field-selector involvedObject.name=migr-ba5e1ea6d12a4b8",
+     "cmd": "kubectl -n agentic-netops-intent get events --field-selector involvedObject.name=migr-ad7aa3ab12c24ec",
      "rc": 0
     },
     "C-cmd3": {
-     "cmd": "kubectl -n agentic-netops-intent get networks.fabric.agentic-netops.io migr-ba5e1ea6d12a4b8 -o jsonpath='{.spec}' | python3 -m json.tool | head -40",
+     "cmd": "kubectl -n agentic-netops-intent get networks.fabric.agentic-netops.io migr-ad7aa3ab12c24ec -o jsonpath='{.spec}' | python3 -m json.tool | head -40",
      "rc": 0
     }
    }
@@ -344,7 +342,7 @@
   "record_sha256": "ef0097ec6bea9c7ab3784e20e8a26c57aaef40a72725a622ab6ad09c9671f9f1",
   "utc_time": "2026-09-29T10:13:32Z"
  },
- "closing_listing": "NAME                   CONSTRUCT   PRINCIPAL   READY   REASON\nmigr-09c4c302b65d4ad   vlan        operator    True    AsExpected\nmigr-8fef37439a644dd   ip-vrf      operator    True    AsExpected\nmigr-ba5e1ea6d12a4b8   mac-vrf     operator    True    AsExpected",
+ "closing_listing": "NAME                   CONSTRUCT   PRINCIPAL   READY   REASON\nmigr-5e746027da4e4c0   ip-vrf      operator    True    AsExpected\nmigr-ad7aa3ab12c24ec   mac-vrf     operator    True    AsExpected\nmigr-db1be9c3f0dc4a3   vlan        operator    True    AsExpected",
  "accept_pass": true,
  "failures": []
 }
