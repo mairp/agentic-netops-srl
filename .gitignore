@@ -37,3 +37,6 @@ __pycache__/
 
 # containerlab runtime lab directory (device-generated configs and certificates)
 lab/clab-*/
+
+# stray `go build` output at the repository root (built binaries belong in bin/)
+/intent-translator
