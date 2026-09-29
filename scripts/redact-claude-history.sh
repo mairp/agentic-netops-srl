@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
-# Redact any https://claude.ai/... URL from commit messages and file blobs across all refs.
-# Requires git-filter-repo installed and available on PATH.
+# Redact any https://claude.ai/... URL and any <conversation>...</conversation> block that contains a claude.ai link
+# from commit messages and file blobs across all refs. Requires git-filter-repo on PATH.
 
 : "${REMOTE_URL:=origin}"
 
-if ! command -v git >/dev/null || ! command -v git filter-repo >/dev/null 2>&1; then
+if ! command -v git >/dev/null 2>&1 || ! git filter-repo --version >/dev/null 2>&1; then
   echo "git and git-filter-repo are required" >&2
   exit 1
 fi
 
-# Prepare replace patterns
+# Prepare replace patterns for simple URL replacements (blobs + commit messages)
 cat > /tmp/replace-claude-patterns.txt <<'PAT'
 regex:https?://claude\.ai/[^\s<>")]+ ==> [redacted-claude-link]
 PAT
@@ -21,9 +21,16 @@ GIT_FILTER_REPO_ARGS=(
   --refs refs/heads/* refs/tags/*
   --replace-text /tmp/replace-claude-patterns.txt
   --message-callback 'import re; return re.sub(rb"https?://claude\\.ai/[^\s<>\")]+", b"[redacted-claude-link]", message)'
+  --blob-callback 'import re; d = blob.data
+if b"claude.ai" in d:
+    # Remove any <conversation>...</conversation> block that contains a claude.ai link (multiline)
+    d = re.sub(re.compile(br"(?is)<conversation>.*?claude\\.ai.*?</conversation>"), b"[redacted-conversation]", d)
+    # Also replace any remaining claude.ai URLs (defense in depth)
+    d = re.sub(br"https?://claude\\.ai/[^\s<>\")]+", b"[redacted-claude-link]", d)
+    blob.data = d'
 )
 
-printf "About to rewrite history to redact claude.ai URLs. This will force-push.\n" >&2
+printf "About to rewrite history to redact claude.ai links and conversations. This will force-push.\n" >&2
 read -r -p "Type 'yes' to continue: " ans
 if [[ "$ans" != "yes" ]]; then
   echo "Aborted." >&2

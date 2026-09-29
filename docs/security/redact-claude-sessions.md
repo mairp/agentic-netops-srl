@@ -2,6 +2,7 @@ Title: Redact Claude session links from the entire Git history
 
 Goal
 - Permanently remove any Claude session URL (e.g., https://claude.ai/code/session_...) from every commit message and every file blob across all branches and tags.
+- Remove any <conversation>...</conversation> blocks that include a claude.ai link.
 - Also sanitize PR descriptions containing such links.
 
 What this will remove
@@ -25,12 +26,17 @@ Safe plan
    # Keep it strictly domain-scoped; do NOT replace plain words like "claude" to avoid breaking code.
    PAT
 
-   # Rewrite (all refs) with git-filter-repo
+   # Rewrite (all refs) with git-filter-repo: remove URLs and redact <conversation> blocks with claude.ai links
    git filter-repo \
      --force \
      --refs refs/heads/* refs/tags/* \
      --replace-text replace-claude-patterns.txt \
-     --message-callback 'import re; return re.sub(rb"https?://claude\\.ai/[^\s<>\")]+", b"[redacted-claude-link]", message)'
+     --message-callback 'import re; return re.sub(rb"https?://claude\\.ai/[^\s<>\")]+", b"[redacted-claude-link]", message)' \
+     --blob-callback 'import re; d = blob.data
+if b"claude.ai" in d:
+    d = re.sub(re.compile(br"(?is)<conversation>.*?claude\\.ai.*?</conversation>"), b"[redacted-conversation]", d)
+    d = re.sub(br"https?://claude\\.ai/[^\s<>\")]+", b"[redacted-claude-link]", d)
+    blob.data = d'
 
 4) Force-push rewritten history (DANGEROUS: invalidates all commit SHAs):
    git push --force --all origin
