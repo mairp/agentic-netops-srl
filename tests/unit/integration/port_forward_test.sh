@@ -42,7 +42,11 @@ mkdir -p "$TMP/bin"
 cat >"$TMP/bin/kubectl" <<'EOF'
 #!/usr/bin/env bash
 echo "$$" >>"${FAKE_PIDS:?}"
-ls /proc/$$/fd 2>/dev/null | sort -n | paste -sd' ' >>"${FAKE_FDS:?}"
+# No pipeline here: while bash builds `ls | sort | paste` this shell itself holds the pipe
+# ends (3, 4, 5…), and ls would sometimes list THOSE as "inherited" — a race that failed CI.
+# A plain command with its redirection applied in the child leaves this shell's table clean.
+ls /proc/$$/fd >"${FAKE_FDS:?}.$$" 2>/dev/null
+sort -n "${FAKE_FDS}.$$" | paste -sd' ' >>"${FAKE_FDS}"; rm -f "${FAKE_FDS}.$$"
 port=""
 for a in "$@"; do [[ "$a" =~ ^([0-9]+):[0-9]+$ ]] && port="${BASH_REMATCH[1]}"; done
 if [[ "${FAKE_MODE:-sleep}" == http && -n "$port" ]]; then
