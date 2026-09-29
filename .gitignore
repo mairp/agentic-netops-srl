@@ -1,8 +1,8 @@
 # Working prompts for spec-kit passes — local scratch, not shared.
 /prompts/
 
-# Spec-kit artefacts, the unattended-run tooling's state and its generated test plan — local, not shared.
-specs/
+# The unattended-run tooling's state and its generated test plan — local, not shared.
+# (specs/ IS shared: the Spec Kit feature is the source of truth, and unit tests read its contracts.)
 .mixture-of-loops/
 .specstride/
 testautomation/004-agentic-netops-composite/
@@ -40,3 +40,5 @@ lab/clab-*/
 
 # stray `go build` output at the repository root (built binaries belong in bin/)
 /intent-translator
+# Superseded spec drafts, archived as tarballs — local only.
+specs/.archive/
