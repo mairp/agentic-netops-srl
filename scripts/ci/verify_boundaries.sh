@@ -30,6 +30,10 @@
 #                      scanned; comment lines are not invocations). The device metric
 #                      collector's own configuration, deploy/observability/gnmic/, is
 #                      a platform component (FR-089), not verification tooling.
+#                      A run-captured evidence record under docs/media/ (*.json,
+#                      written by testautomation/'s acceptance script) quotes the
+#                      command lines that tooling ran and is exempt by path; any
+#                      other file under docs/media/ is scanned.
 #   credential-literal FR-019/CR-008: every manifest under deploy/ (*.yaml, *.yml,
 #                      *.json) — a literal password, token, API key or device
 #                      credential as a key's value (stringData, data, any spec), an
@@ -276,7 +280,8 @@ PY_EXEC = re.compile(r"(subprocess\.\w+|os\.system|Popen)\(.*[\[\(,]\s*['\"](gnm
 YAML_CMD = re.compile(r"^\s*(?:-\s*)?(?:(?:command|args)\s*:\s*)?\[?\s*['\"]?(gnmic|gnmi_cli|sr_cli|sshpass)['\"]?\s*(?:,|\]|$)")
 def exempt_client(rel):
     return (rel.startswith(("tests/", "agents/tests/", "testautomation/", "deploy/observability/gnmic/"))
-            or ((rel.startswith(("docs/", "specs/"))) and is_md(rel)))
+            or ((rel.startswith(("docs/", "specs/"))) and is_md(rel))
+            or (rel.startswith("docs/media/") and rel.endswith(".json")))
 scanned = 0
 for rel in files:
     if exempt_client(rel) or text(rel) is None:

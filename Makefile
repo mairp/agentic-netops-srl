@@ -95,8 +95,8 @@ verify-evidence: ## T012: verify one run's EVIDENCE_DIR (default: the newest und
 evidence-index: ## T154: verify-evidence over every P11 run dir (P11_RUNS) and write docs/media/p11-evidence-index.json (SC-040)
 	bash scripts/ci/evidence_index.sh --out docs/media/p11-evidence-index.json $(foreach x,$(P11_EXCLUDE),--exclude $(x)) $(P11_RUNS)
 
-verify-readme:
-	$(not_implemented)
+verify-readme: ## T156: README.md against contracts/readme-and-walkthrough.md §6 (reports the asset-URL placeholder)
+	bash scripts/ci/verify_readme.sh
 
 # --- Offline and lab test suites (FR-020, AD-28) and reconciliation scenarios
 test-static: ## T025: go vet, Go unit + golden tests, the path-register guard, every offline shell suite

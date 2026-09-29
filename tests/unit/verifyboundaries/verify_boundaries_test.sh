@@ -75,6 +75,8 @@ expect "$VB" "$FB/device-client-agents-tests" 1 "device client: a refusal fixtur
   "FAIL [device-client] agents/common/push.py:5:"
 expect "$VB" "$FB/device-client-ssh-docker" 1 "device client: docker exec clab-… sr_cli and sshpass/ssh to a mgmt address fail" \
   "FAIL [device-client] hack/debug.sh:2:" "FAIL [device-client] hack/debug.sh:3:"
+expect "$VB" "$FB/device-client-media-record" 1 "device client: a recorded command in a docs/media/ evidence JSON passes, a script under docs/media/ fails" \
+  "FAIL [device-client] docs/media/replay.sh:2:"
 expect "$VB" "$FB/device-client-readme-fence" 1 "device client: a fenced command block outside docs/ and specs/ fails" \
   "FAIL [device-client] README.md:4:"
 

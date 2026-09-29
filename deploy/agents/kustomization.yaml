@@ -54,6 +54,6 @@ images:
   - name: deployer
     newTag: "92af95adb179bdd9562c52cb2615fe77415846b095ae7c5df637ec7d3f134042"
   - name: intent-translator
-    newTag: "a9f6ca895458e8a81766c008d207edffd5e1492d871e7ba2958b4c7cd5d2e771"
+    newTag: "f6780d51cb6264f60602cfb86e0dda09fb91dc22c8b3f0217eb00a3dff57356a"
   - name: ui
     newTag: "09a84cf6fddf798cb951bf0af115c8b0165b679acbfefc28933690ad41579911"

@@ -252,7 +252,9 @@ hostTooling:
     - tool: ffmpeg
       version: "7.1.5-0+deb13u1"
     - tool: Xvfb
-      version: "2:21.1.16-1.3+deb13u3"
+      version: "2:21.1.16-1.3+deb13u4"
+    - tool: ttyd # the terminal the walkthrough records (T157); version recorded by resolve_pins.sh --host-tooling
+      version: "1.7.7-40e79c7"
 # First-party images (data-model.md §26, AD-05). Built locally, tagged <name>:<contentHash>,
 # never pulled; no registry digest exists and none is recorded. An entry whose Dockerfile is not
 # in the tree yet is pending (AD-71).
