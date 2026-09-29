@@ -53,6 +53,23 @@ neither table is refused, and the refusal lists the four construct names (FR-028
 
 ## Required and accepted variables
 
+**What you type on the chat surface is less than this table.** The table below is the
+*normalized* intent the translator reads — after the platform has filled in what it allocates and
+derives. On the chat surface an operator states only:
+
+| Construct | You state | The platform supplies (never asked) |
+|---|---|---|
+| every one | `tenant` — any DNS-1123 label you choose (`tenant1`, `blue`); it is recorded, not looked up | the service identifier |
+| `vlan` | the endpoints: node, port and one VLAN from `100–999` (or none: one is allocated from `1000–4000`) | — |
+| `mac-vrf` | the same, on at least two leaves; optionally a gateway address per family | `l2vni` (and `l3vni` with a gateway), route targets |
+| `ip-vrf` | the endpoints (node, port, and a VLAN from `100–999`, or none for the untagged `<port>.0`), and at least one prefix to advertise | `l3vni`, route targets, and `endpoints[].vrf` — the routed instance's own name, derived from the service identifier |
+| `acl` | the endpoint the list binds to (node, port, and the VLAN of the existing subinterface — none means the untagged `<port>.0`), `stage`, `type`, rules with name and priority, optional default action (`permit` or `deny`) | — |
+
+So `l2vni`, `l3vni` and `endpoints[].vrf` read **R** below because the translator needs them, not
+because you type them — you never need to name one, and device-level detail such as explicit
+route targets or VXLAN interfaces is refused (see [Refusals](#refusals)). The `ip-vrf` prefixes are the routes the instance advertises (Type-5); the
+chat surface takes no per-leaf interface address.
+
 `R` required · `O` optional · `D` **derived**: computed by the platform, shown in the assignment
 exactly as it will be rendered, and **refused if the operator supplies it** · `X` refused, naming
 the construct that carries it (FR-033) · `—` not applicable.
@@ -376,18 +393,47 @@ A newcomer who has read only these can provision each construct without a transl
 (SC-013). For `mac-vrf` and `ip-vrf`, the construct name **is** the word these references use.
 
 1. **Bridging: `mac-vrf` network-instances and VLAN subinterfaces.** SR Linux 25.7 *Interfaces
-   Guide* (subinterfaces, `single-tagged` VLAN encapsulation, bridged type), read with the
-   `mac-vrf` network-instance. Covers `vlan`.
-2. **EVPN-VXLAN Layer 2.** SR Linux 25.7 *EVPN-VXLAN Guide*, Layer 2 services: `vxlan-interface`
-   of type bridged, `bgp-evpn`, `bgp-vpn` route targets. Covers `mac-vrf`.
-3. **EVPN-VXLAN Layer 3: `ip-vrf` and IRB with an anycast gateway.** SR Linux 25.7 *EVPN-VXLAN
-   Guide*, Layer 3 services: routed `vxlan-interface`, EVPN IP-prefix routes, `irb0` subinterfaces
-   with `anycast-gw`. Covers `ip-vrf` and the `mac-vrf` gateway.
-4. **Access control lists.** SR Linux 25.7 *ACL and Policy-Based Routing Guide*:
-   `acl-filter [name][type]`, `entry sequence-id`, `/acl interface` bindings, input and output.
+   Guide*, "Subinterfaces" (`single-tagged` VLAN encapsulation, bridged type),
+   <https://documentation.nokia.com/srlinux/25-7/books/interfaces/subinterfaces.html>, read with the
+   `mac-vrf` network-instance. Covers `vlan` — which the references do not name: a `vlan` is a
+   bridged, single-tagged subinterface in a `mac-vrf` with **no** `vxlan-interface` and no
+   `bgp-evpn`, confined to the leaf it is on.
+2. **EVPN-VXLAN Layer 2.** SR Linux 25.7 *VPN Services Guide*, §4.4 "EVPN for Layer 2 ELAN
+   services" (`vxlan-interface` of type bridged, `bgp-evpn`, `bgp-vpn` route targets),
+   <https://documentation.nokia.com/srlinux/25-7/books/pdf/VPN_Services_Guide_25.7.pdf>, and the
+   25.7 *Advanced Solutions Guide*, "EVPN-VXLAN for layer-2 and multi-homing",
+   <https://documentation.nokia.com/srlinux/25-7/books/advanced-solutions/evpn-vxlan-layer-2-multi-hom.html>.
+   Covers `mac-vrf`. (Release 25.7 publishes no book titled *EVPN-VXLAN Guide*; that title exists
+   only up to 24.x — found by the SC-013 trial of T153.)
+3. **EVPN-VXLAN Layer 3: `ip-vrf` and IRB with an anycast gateway.** SR Linux 25.7 *VPN Services
+   Guide*, §4.6 "EVPN for Layer 3" and §4.6.2 "Anycast gateways" (routed `vxlan-interface`, EVPN
+   IP-prefix routes, `irb0` subinterfaces with `anycast-gw`), in the same PDF, and the 25.7
+   *Advanced Solutions Guide*, "EVPN-VXLAN for layer 3",
+   <https://documentation.nokia.com/srlinux/25-7/books/advanced-solutions/evpn-vxlan-layer-3.html>.
+   Covers `ip-vrf` and the `mac-vrf` gateway. **On this platform an anycast gateway is a property
+   of a `mac-vrf`** (the `irb0` subinterface joins the bridged instance to its routed one); an
+   `ip-vrf` request carries prefixes on a routed subinterface and never an `irb0` gateway.
+4. **Access control lists.** SR Linux 25.7 *ACL and Policy-Based Routing Guide*, "Access control
+   lists" (`acl-filter [name][type]`, `entry sequence-id`, `/acl interface` bindings, input and
+   output),
+   <https://documentation.nokia.com/srlinux/25-7/books/acl-policy-based-routing/access-control-lists.html>.
    Covers `acl`.
 
 The vendor's public learning tutorials, at <https://learn.srlinux.dev/tutorials/>:
 
-- the **L2 EVPN** tutorial (`mac-vrf` over EVPN-VXLAN), <https://learn.srlinux.dev/tutorials/l2evpn/intro/>;
-- the **L3 EVPN** tutorial (`ip-vrf`, EVPN IP-prefix routes).
+- the **L2 EVPN** tutorial (`mac-vrf` over EVPN-VXLAN), <https://learn.srlinux.dev/tutorials/l2evpn/intro/>
+  (configuration in its "EVPN" chapter, <https://learn.srlinux.dev/tutorials/l2evpn/evpn/>);
+- the **L3 EVPN** tutorial (`ip-vrf`, EVPN IP-prefix routes),
+  <https://learn.srlinux.dev/tutorials/l3evpn/rt5-only/l3evpn/> (there is no page at
+  `/tutorials/l3evpn/` itself).
+
+What a newcomer needs **besides** these references, and where it is: the site's leaf and access-port
+names (the site inventory, `leaf01`/`leaf02` `ethernet-1/1` on the lab), and the VLAN band an
+operator names from, `100–999` (above). Identifiers — the VNI, route targets, `evi`, subinterface
+indices — are the platform's to allocate or derive and are never asked for (SC-013 trial, T153).
+Also found necessary by that trial: **every request names a tenant** (the mapper asks for one
+otherwise); **route targets are derived** (`target:<fabricASN>:<vni>`) — a request that states its
+own is asked to drop them; an access list is placed by **port and VLAN** (`leaf01 ethernet-1/1 vlan
+140`), not by the device's subinterface name `ethernet-1/1.140`; one construct per request, so an
+`irb0` anycast gateway is asked for on a `mac-vrf`, never together with an `ip-vrf`; and each
+confirmation is answered with the single word `confirm` or `decline` on the same thread.

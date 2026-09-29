@@ -238,17 +238,48 @@ vs::positive() {
 # session, nothing written to any device), so the Type-2 check reads a MAC that is live now
 # rather than one a traffic run left minutes ago. SV_LEARN=0 skips it.
 : "${SV_LEARN:=1}"
+VS_LEARN_UNDO=()
+# vs::learn_addr <client> <vlan>: the client's address on eth1.<vlan> — the one it already carries,
+# or, on a lab no traffic run has touched yet, a temporary one from traffic.sh's plan
+# (10.<vlan>.0.11/.12), brought up by the endpoint's own /setup.sh and removed by vs::learn_undo
+# after the positive assertion (client-side only: no device session, nothing written to a device).
+vs::learn_addr() {
+  local c="$1" vlan="$2" a host
+  local cx=("${DOCKER:-docker}" exec "clab-${LAB_NAME:-agentic-netops-fabric}-$c")
+  a="$("${cx[@]}" ip -4 -o addr show dev "eth1.${vlan}" 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -1)" || a=""
+  if [[ -z "$a" ]]; then
+    case "$c" in client01) host=11 ;; client02) host=12 ;; *) return 0 ;; esac
+    "${cx[@]}" sh /setup.sh "$vlan" >/dev/null 2>&1 || return 0
+    "${cx[@]}" ip addr add "10.${vlan}.0.${host}/24" dev "eth1.${vlan}" >/dev/null 2>&1 || return 0
+    VS_LEARN_UNDO+=("$c 10.${vlan}.0.${host}/24 eth1.${vlan}")
+    log::info "learn: $c had no address on eth1.${vlan}; added 10.${vlan}.0.${host}/24 for the Type-2 check (removed after it)"
+    a="10.${vlan}.0.${host}"
+  fi
+  printf '%s' "$a"
+}
+vs::learn_undo() {
+  local e c a dev
+  for e in "${VS_LEARN_UNDO[@]}"; do
+    read -r c a dev <<<"$e"
+    "${DOCKER:-docker}" exec "clab-${LAB_NAME:-agentic-netops-fabric}-$c" ip addr del "$a" dev "$dev" >/dev/null 2>&1 \
+      || log::info "learn: could not remove $a from $c $dev"
+  done
+  VS_LEARN_UNDO=()
+}
 vs::learn_macs() {
   [[ "$SV_LEARN" == 1 ]] || return 0
-  local vlan a b pair
-  vlan="$(sv::k -n "$SV_NS" get "$SV_NET_RES" "$SV_SPAN" -o jsonpath='{.spec.bridgeDomains[0].vlan}' 2>/dev/null)" || return 0
-  [[ -n "$vlan" ]] || return 0
-  for pair in "client01 client02" "client02 client01"; do
-    set -- $pair
-    b="$("${DOCKER:-docker}" exec "clab-${LAB_NAME:-agentic-netops-fabric}-$2" ip -4 -o addr show dev "eth1.${vlan}" 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -1)"
-    [[ -n "$b" ]] || { log::info "learn: $2 has no eth1.${vlan} address; Type-2 relies on earlier traffic"; continue; }
-    evidence_run "$(gate::id "VS.learn.$1.$vlan")" -- "${DOCKER:-docker}" exec "clab-${LAB_NAME:-agentic-netops-fabric}-$1" ping -c 3 -W 2 "$b" \
-      || log::info "learn: $1 -> $b did not answer (the Type-2 check decides)"
+  local vlan b pair net
+  for net in $SV_SPAN; do
+    vlan="$(sv::k -n "$SV_NS" get "$SV_NET_RES" "$net" -o jsonpath='{.spec.bridgeDomains[0].vlan}' 2>/dev/null)" || continue
+    [[ -n "$vlan" ]] || continue
+    vs::learn_addr client01 "$vlan" >/dev/null
+    for pair in "client01 client02" "client02 client01"; do
+      set -- $pair
+      b="$(vs::learn_addr "$2" "$vlan")" || b=""
+      [[ -n "$b" ]] || { log::info "learn: $2 has no eth1.${vlan} address; Type-2 relies on earlier traffic"; continue; }
+      evidence_run "$(gate::id "VS.learn.$1.$vlan")" -- "${DOCKER:-docker}" exec "clab-${LAB_NAME:-agentic-netops-fabric}-$1" ping -c 3 -W 2 "$b" \
+        || log::info "learn: $1 -> $b did not answer (the Type-2 check decides)"
+    done
   done
 }
 
@@ -270,6 +301,7 @@ main() {
   fi
   vs::learn_macs
   vs::positive
+  vs::learn_undo
   if [[ ${#VS_FAILS[@]} -gt 0 ]]; then log::error "verify-services FAILED: ${VS_FAILS[*]}"; return 1; fi
   log::info "verify-services passed (evidence: $EVIDENCE_DIR)"
 }

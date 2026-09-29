@@ -28,8 +28,9 @@ spec:
     tenantIPMTU: 9348                     # portMTU − 64; also the endpoint interface MTU
   inventory:
   - {node: leaf01, accessPorts: [ethernet-1/1], fabricPorts: [ethernet-1/49, ethernet-1/50]}
-  - {node: leaf02, accessPorts: [ethernet-1/1], fabricPorts: [ethernet-1/49, ethernet-1/50]}
+  - {node: leaf02, accessPorts: [ethernet-1/1, ethernet-1/2], untaggedAccessPorts: [ethernet-1/2], fabricPorts: [ethernet-1/49, ethernet-1/50]}
   - {node: spine01, accessPorts: [], fabricPorts: [ethernet-1/1, ethernet-1/2]}
   - {node: spine02, accessPorts: [], fabricPorts: [ethernet-1/1, ethernet-1/2]}
-  # an inventory entry may also carry `untaggedAccessPorts: [...]`, a subset of its accessPorts (none here): AD-68
+  # `untaggedAccessPorts` is a subset of the entry's accessPorts (AD-68): leaf02 ethernet-1/2, client02's
+  # second link, is the lab's one untagged access port — where an ip-vrf naming no VLAN lands (AD-51)
   maintenance: []          # optional; e.g. [{node: leaf01, interface: ethernet-1/49, adminState: disable}]

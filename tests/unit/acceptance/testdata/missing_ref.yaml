@@ -1,0 +1,521 @@
+# FIXTURE for tests/unit/acceptance/sc_partition_test.sh — a copy of tests/e2e/sc_partition.yaml with ONE planted defect: test-alerts names a refs file that does not exist
+# tests/e2e/sc_partition.yaml — the control-plane / tier partition of the success criteria (T175)
+# and the check each one is measured by (T151; plan.md §Verification strategy; spec.md §Success
+# criteria; SC-025, NFR-006, NFR-013).
+#
+# Read by tests/e2e/acceptance.sh (`make test-acceptance`), and checked by
+# tests/unit/acceptance/sc_partition_test.sh (make test-static): every live success criterion of
+# spec.md appears exactly once under `criteria:`, the tombstoned ones only under `retired:`, and no
+# check a `control-plane` criterion (or the control-plane half of a `both` one) runs reaches for a
+# tier workload — so "100% of control-plane acceptance gates pass with the tier absent" (SC-025)
+# has a defined denominator.
+#
+# criteria[]:
+#   id        SC-NNN (spec.md `- **SC-NNN**:`)
+#   side      control-plane | tier | both
+#   checks    [check ids]                       (control-plane and tier criteria)
+#   control_plane / tier  [check ids] each      (both: the control-plane half and the tier half)
+#   aggregate control-plane — the criterion also fails when any other control-plane criterion
+#             failed in the same pass (SC-025: "100% of control-plane gates pass")
+# checks{<id>}:
+#   run       the command, run by `bash -c` from the repository root, through evidence_run
+#   stage     offline   — needs no lab; run once per acceptance run, before any cycle
+#             lifecycle — a step of a deploy → test → destroy cycle (step: deploy | redeploy |
+#                         deploy-tier | destroy | redestroy); measured only by the cycles
+#             live      — on the running lab; control-plane checks run before the tier is
+#                         provisioned in a cycle, tier checks after it
+#             closing   — the acceptance run's own end: make verify-evidence over each of its
+#                         evidence directories (EVIDENCE_DIR substituted), verify_pins --no-pending
+#   requires  tier-absent — refuses or is wrong with an intent tier installed (runs before
+#             deploy-tier in a cycle; not run on a standing lab that carries the tier)
+#   only      control-plane-only — runs only under CONTROL_PLANE_ONLY=1 (the tier-absent pass)
+#   mode      manual — a person runs it (task: Txxx); reported "not run: manual (Txxx)", never passed
+#   refs      files the check depends on that its `run` does not name (existence is checked)
+#   attach    files the run writes inside EVIDENCE_DIR (relative; shell variables expanded), hashed
+#             into its evidence record (evidence_run --attach) so verify-evidence admits them
+#   tasks     the tasks that built / run it
+# additional[]: requirements the strategy runs that no success criterion carries (id, side, checks);
+#   reported beside the criteria, never counted in their denominator.
+# retired[]: tombstoned criteria (id, reason) — reported "retired (tombstone)", never silently.
+schema: agentic-netops.sc-partition/v1
+
+retired:
+  - id: SC-009
+    reason: "Retired by the SR Linux retarget (RD-04) — SRv6 acceptance is deferred with the SRv6 service (spec.md §Deferred scope)"
+  - id: SC-010
+    reason: "Retired by the SR Linux retarget (RD-04) — SRv6 status visibility is deferred with the SRv6 service (spec.md §Deferred scope)"
+
+criteria:
+  # ---- Lab and lifecycle
+  - id: SC-001
+    side: control-plane
+    checks: [provision-control-plane, wait-targets]
+  - id: SC-002
+    side: control-plane
+    checks: [provision-control-plane, provision-rerun, wait-fabric]
+  - id: SC-003
+    side: control-plane
+    checks: [unit-off-ownership, teardown, teardown-rerun]
+  # ---- Declarative control plane and reconciliation
+  - id: SC-004
+    side: control-plane
+    checks: [verify-fabric-control-plane, wait-services, verify-services]
+  - id: SC-005
+    side: control-plane
+    checks: [test-traffic, test-traffic-gateway]
+  - id: SC-006
+    side: control-plane
+    checks: [test-idempotence]
+  - id: SC-007
+    side: control-plane
+    checks: [test-managed-drift, test-unmanaged-path]
+  - id: SC-008
+    side: control-plane
+    checks: [test-target-failure]
+  - id: SC-043
+    side: control-plane
+    checks: [test-delete-unreachable, test-delete-unreachable-force]
+  - id: SC-044
+    side: control-plane
+    checks: [test-reverify]
+  - id: SC-045
+    side: control-plane
+    checks: [test-provider-claims]
+  - id: SC-046
+    side: tier
+    checks: [claim-lifecycle-e2e]
+  # ---- Construct vocabulary
+  - id: SC-011
+    side: tier
+    checks: [constructs-e2e, gateway-e2e]
+  - id: SC-012
+    side: both
+    control_plane: [go-migration]
+    tier: [golden-equivalence-e2e]
+  - id: SC-013
+    side: control-plane
+    checks: [newcomer-trial]
+  # ---- Access lists
+  - id: SC-014
+    side: both
+    control_plane: [verify-acl]
+    tier: [acl-e2e]
+  - id: SC-015
+    side: both
+    control_plane: [go-migration, test-acl-conflict]
+    tier: [agents-mapper-refusals]
+  # ---- Migration compatibility and provenance
+  - id: SC-016
+    side: control-plane
+    checks: [go-migration, go-render, verify-render-schema]
+  - id: SC-017
+    side: control-plane
+    checks: [verify-boundaries, verify-provenance-headers]
+  - id: SC-018
+    side: control-plane
+    checks: [go-migration]
+  # ---- Intent tier: conversation, interpretation and assignment
+  - id: SC-019
+    side: tier
+    checks: [chat-surface-e2e]
+  - id: SC-020
+    side: tier
+    checks: [corpus-phrasings]
+  - id: SC-021
+    side: tier
+    checks: [constructs-e2e]
+  - id: SC-022
+    side: tier
+    checks: [corpus-two-providers]
+  # ---- Intent tier: submission, convergence and transport
+  - id: SC-023
+    side: tier
+    checks: [constructs-e2e]
+  - id: SC-024
+    side: tier
+    checks: [tier-e2e]
+  - id: SC-025
+    side: control-plane
+    aggregate: control-plane
+    checks: [assert-tier-absent]
+  - id: SC-026
+    side: tier
+    checks: [decline-releases-e2e]
+  # ---- Safety boundary
+  - id: SC-027
+    side: tier
+    checks: [corpus-unsupported]
+  - id: SC-028
+    side: tier
+    checks: [agents-adversarial-offline, provision-tier, adversarial-live]
+  - id: SC-029
+    side: tier
+    checks: [provision-tier]
+  - id: SC-030
+    side: tier
+    checks: [out-of-band-e2e, audit-reconcile-live]
+  - id: SC-031
+    side: tier
+    checks: [credential-scan]
+  # ---- Operator surface
+  - id: SC-032
+    side: tier
+    checks: [clean-host-quickstart]
+  - id: SC-033
+    side: both
+    control_plane: [verify-boundaries]
+    tier: [retired-vocabulary-status-e2e]
+  - id: SC-042
+    side: tier
+    checks: [tier-e2e, audit-reconcile-live, auth-audit]
+  # ---- Observability
+  - id: SC-034
+    side: control-plane
+    checks: [wait-observability, verify-metrics]
+  - id: SC-035
+    side: control-plane
+    checks: [test-alerts]
+  - id: SC-036
+    side: control-plane
+    checks: [verify-topology-view, verify-evpn-service-view]
+  - id: SC-037
+    side: control-plane
+    checks: [verify-metrics]
+  - id: SC-038
+    side: tier
+    checks: [trace-e2e]
+  - id: SC-039
+    side: tier
+    checks: [trace-e2e]
+  # ---- Evidence and enforcement
+  - id: SC-040
+    side: control-plane
+    checks: [unit-verify-evidence, verify-evidence]
+  - id: SC-041
+    side: control-plane
+    checks: [test-acl-enforcement]
+  - id: SC-047
+    side: control-plane
+    checks: [unit-g11-stop, verify-compat]
+  - id: SC-048
+    side: tier
+    checks: [unit-intent-secrets, agents-llm-endpoint]
+  - id: SC-049
+    side: control-plane
+    checks: [verify-boundaries, unit-verify-boundaries, provision-control-plane]
+  - id: SC-050
+    side: tier
+    checks: [credential-scan]
+
+additional:
+  - id: FR-100
+    side: control-plane
+    checks: [test-service-delete]
+  - id: NFR-003
+    side: control-plane
+    checks: [verify-pins-no-pending]
+  - id: NFR-010
+    side: tier
+    checks: [degradation-e2e]
+
+checks:
+  # ---------------------------------------------------------------- offline (once per run)
+  go-migration:
+    stage: offline
+    run: go test -count=1 ./pkg/migration/...
+    tasks: [T090, T091, T105, T119]
+  go-render:
+    stage: offline
+    run: go test -count=1 ./tests/unit/render/...
+    tasks: [T053]
+  verify-render-schema:
+    stage: offline
+    run: make verify-render-schema
+    tasks: [T047]
+  verify-boundaries:
+    stage: offline
+    run: make verify-boundaries
+    tasks: [T025, T142]
+  verify-provenance-headers:
+    stage: offline
+    run: make verify-provenance-headers
+    tasks: [T025]
+  unit-verify-boundaries:
+    stage: offline
+    run: bash tests/unit/verifyboundaries/verify_boundaries_test.sh
+    tasks: [T025]
+  unit-off-ownership:
+    stage: offline
+    run: bash tests/unit/lifecycle/off_ownership_test.sh
+    tasks: [T029]
+  unit-g11-stop:
+    stage: offline
+    run: bash tests/unit/lifecycle/g11_stop_test.sh
+    tasks: [T044]
+  unit-verify-evidence:
+    stage: offline
+    run: bash tests/unit/verifyevidence/verifyevidence_test.sh
+    tasks: [T012]
+  unit-intent-secrets:
+    stage: offline
+    run: bash tests/unit/lifecycle/intent_secrets_test.sh
+    tasks: [T168]
+  agents-llm-endpoint:
+    stage: offline
+    run: cd agents && uv run pytest -q -p no:cacheprovider tests/unit/test_llm_endpoint.py
+    tasks: [T168]
+  agents-mapper-refusals:
+    stage: offline
+    run: cd agents && uv run pytest -q -p no:cacheprovider tests/unit/test_mapper_refusals.py
+    tasks: [T091]
+  agents-adversarial-offline:
+    stage: offline
+    run: cd agents && uv run pytest -q -p no:cacheprovider tests/unit/test_adversarial_corpus.py
+    tasks: [T075]
+
+  # ---------------------------------------------------------------- lifecycle (cycles only)
+  provision-control-plane:
+    stage: lifecycle
+    step: deploy
+    run: scripts/provision.sh --cluster-name "${CLUSTER_NAME:-agentic-netops}"
+    refs: [tests/gate/run_gate.sh]
+    tasks: [T052, T043]
+  provision-rerun:
+    stage: lifecycle
+    step: redeploy
+    run: scripts/provision.sh --cluster-name "${CLUSTER_NAME:-agentic-netops}"
+    tasks: [T052]
+  provision-tier:
+    stage: lifecycle
+    step: deploy-tier
+    run: scripts/provision.sh --cluster-name "${CLUSTER_NAME:-agentic-netops}" --with-intent-tier
+    refs: [scripts/lib/rbac.sh, tests/integration/boundary_probes.sh]
+    tasks: [T088, T066, T073, T076]
+  teardown:
+    stage: lifecycle
+    step: destroy
+    run: scripts/off.sh --cluster-name "${CLUSTER_NAME:-agentic-netops}"
+    tasks: [T049, T052]
+  teardown-rerun:
+    stage: lifecycle
+    step: redestroy
+    run: scripts/off.sh --cluster-name "${CLUSTER_NAME:-agentic-netops}"
+    tasks: [T049, T052]
+
+  # ---------------------------------------------------------------- live, control plane
+  # (in catalogue order: the declarative services first, the disruptive suites last)
+  wait-targets:
+    stage: live
+    run: make wait-targets
+    tasks: [T036]
+  wait-fabric:
+    stage: live
+    run: make wait-fabric
+    tasks: [T051]
+  verify-fabric-control-plane:
+    stage: live
+    run: make verify-fabric-control-plane
+    tasks: [T051]
+  wait-services:
+    stage: live
+    run: kubectl --context "kind-${CLUSTER_NAME:-agentic-netops}" apply -f examples/constructs/ && make wait-services
+    tasks: [T064]
+  verify-services:
+    stage: live
+    run: make verify-services
+    tasks: [T064]
+  test-idempotence:
+    stage: live
+    run: make test-idempotence
+    tasks: [T064]
+  test-target-failure:
+    stage: live
+    run: make test-target-failure
+    tasks: [T064]
+  test-managed-drift:
+    stage: live
+    run: make test-managed-drift
+    tasks: [T064]
+  test-unmanaged-path:
+    stage: live
+    run: make test-unmanaged-path
+    tasks: [T064]
+  test-service-delete:
+    stage: live
+    run: make test-service-delete
+    tasks: [T064]
+  test-provider-claims:
+    stage: live
+    requires: tier-absent
+    run: make test-provider-claims
+    tasks: [T172]
+  verify-acl:
+    stage: live
+    run: make verify-acl
+    tasks: [T114]
+  test-acl-conflict:
+    stage: live
+    run: make test-acl-conflict
+    tasks: [T114]
+  test-acl-enforcement:
+    stage: live
+    run: make test-acl-enforcement
+    tasks: [T114, T150]
+  test-traffic:
+    stage: live
+    run: make test-traffic
+    tasks: [T065]
+  test-traffic-gateway:
+    stage: live
+    run: make test-traffic-gateway
+    tasks: [T118]
+  verify-compat:
+    stage: live
+    run: make verify-compat
+    tasks: [T050]
+  wait-observability:
+    stage: live
+    run: make wait-observability
+    tasks: [T134]
+  verify-metrics:
+    stage: live
+    run: make verify-metrics
+    tasks: [T134]
+  verify-topology-view:
+    stage: live
+    run: make verify-topology-view
+    tasks: [T134]
+  verify-evpn-service-view:
+    stage: live
+    run: make verify-evpn-service-view
+    tasks: [T134]
+  test-alerts:
+    stage: live
+    run: make test-alerts
+    refs: [tests/unit/alerts/no_such_rules_test.sh]
+    tasks: [T134, T130]
+  test-reverify:
+    stage: live
+    requires: tier-absent
+    run: make test-reverify
+    tasks: [T167]
+  test-delete-unreachable:
+    stage: live
+    requires: tier-absent
+    run: make test-delete-unreachable
+    tasks: [T064, T149]
+  test-delete-unreachable-force:
+    stage: live
+    requires: tier-absent
+    run: make test-delete-unreachable FORCE_RELEASE=1
+    tasks: [T064, T149]
+  assert-tier-absent:
+    stage: live
+    only: control-plane-only
+    run: tests/e2e/acceptance.sh --assert-tier-absent
+    tasks: [T175, T152]
+
+  # ---------------------------------------------------------------- live, tier
+  tier-e2e:
+    stage: live
+    run: TIER_E2E_SKIP_PURGE=1 bash tests/e2e/tier_e2e.sh
+    refs: [agents/tests/e2e/test_operator_auth.py, agents/tests/e2e/test_tier_health.py]
+    tasks: [T089]
+  constructs-e2e:
+    stage: live
+    run: cd agents && AGENTIC_NETOPS_E2E=1 uv run pytest -v -p no:cacheprovider tests/e2e/test_constructs_e2e.py
+    tasks: [T103]
+  golden-equivalence-e2e:
+    stage: live
+    run: cd agents && AGENTIC_NETOPS_E2E=1 uv run pytest -v -p no:cacheprovider tests/e2e/test_golden_equivalence.py
+    tasks: [T103]
+  decline-releases-e2e:
+    stage: live
+    run: cd agents && AGENTIC_NETOPS_E2E=1 uv run pytest -v -p no:cacheprovider tests/e2e/test_decline_releases.py
+    tasks: [T103]
+  out-of-band-e2e:
+    stage: live
+    run: cd agents && AGENTIC_NETOPS_E2E=1 uv run pytest -v -p no:cacheprovider tests/e2e/test_out_of_band.py
+    tasks: [T103]
+  audit-reconcile-live:
+    stage: live
+    run: cd agents && AGENTIC_NETOPS_E2E=1 uv run pytest -v -p no:cacheprovider tests/e2e/test_audit_reconcile.py
+    tasks: [T103]
+  claim-lifecycle-e2e:
+    stage: live
+    run: cd agents && AGENTIC_NETOPS_E2E=1 uv run pytest -v -p no:cacheprovider tests/e2e/test_claim_lifecycle.py
+    tasks: [T173]
+  acl-e2e:
+    stage: live
+    run: cd agents && AGENTIC_NETOPS_E2E=1 uv run pytest -v -p no:cacheprovider tests/e2e/test_acl_e2e.py
+    tasks: [T114]
+  gateway-e2e:
+    stage: live
+    run: cd agents && AGENTIC_NETOPS_E2E=1 uv run pytest -v -p no:cacheprovider tests/e2e/test_gateway_e2e.py
+    tasks: [T118]
+  retired-vocabulary-status-e2e:
+    stage: live
+    run: cd agents && AGENTIC_NETOPS_E2E=1 uv run pytest -v -p no:cacheprovider tests/e2e/test_retired_vocabulary_status.py
+    tasks: [T121]
+  chat-surface-e2e:
+    stage: live
+    run: bash tests/e2e/chat_surface_e2e.sh
+    tasks: [T127]
+  corpus-phrasings:
+    stage: live
+    run: cd agents && AGENTIC_NETOPS_E2E=1 uv run python tests/corpus/run_corpus.py --corpus phrasings --provider-label "${ACCEPTANCE_PROVIDER_LABEL:-configured}" --out "$EVIDENCE_DIR/t144/phrasings-${ACCEPTANCE_PROVIDER_LABEL:-configured}.json"
+    attach: ["t144/phrasings-${ACCEPTANCE_PROVIDER_LABEL:-configured}.json"]
+    tasks: [T143, T144]
+  corpus-unsupported:
+    stage: live
+    run: cd agents && AGENTIC_NETOPS_E2E=1 uv run python tests/corpus/run_corpus.py --corpus unsupported --provider-label "${ACCEPTANCE_PROVIDER_LABEL:-configured}" --out "$EVIDENCE_DIR/t144/unsupported-${ACCEPTANCE_PROVIDER_LABEL:-configured}.json"
+    attach: ["t144/unsupported-${ACCEPTANCE_PROVIDER_LABEL:-configured}.json"]
+    tasks: [T143, T144]
+  corpus-two-providers:
+    # the second provider and its credentials are the operator's to supply (T144, Stop-and-ask)
+    mode: manual
+    task: T144
+    refs: [agents/tests/corpus/run_corpus.py, agents/tests/corpus/phrasings/cases.yaml]
+    tasks: [T144]
+  adversarial-live:
+    stage: live
+    run: bash tests/e2e/adversarial_live.sh
+    tasks: [T145]
+  auth-audit:
+    stage: live
+    run: bash tests/e2e/auth_audit.sh
+    tasks: [T148]
+  trace-e2e:
+    stage: live
+    run: bash tests/e2e/trace_e2e.sh
+    tasks: [T138]
+  credential-scan:
+    # after the corpora, the adversarial run and the traces: it reads what they wrote
+    stage: live
+    run: bash scripts/ci/credential_scan.sh --evidence --collect "$EVIDENCE_DIR/credential-scan-logs" "$EVIDENCE_DIR"
+    tasks: [T147]
+  degradation-e2e:
+    # last of the tier checks: it scales the provider and the workers down and back
+    stage: live
+    run: bash tests/e2e/degradation_e2e.sh
+    tasks: [T146]
+
+  # ---------------------------------------------------------------- manual
+  clean-host-quickstart:
+    mode: manual
+    task: T153
+    tasks: [T153]
+  newcomer-trial:
+    mode: manual
+    task: T153
+    tasks: [T153]
+
+  # ---------------------------------------------------------------- closing (the run's own end)
+  verify-evidence:
+    stage: closing
+    run: make verify-evidence
+    tasks: [T012, T151]
+  verify-pins-no-pending:
+    stage: closing
+    run: scripts/lib/verify_pins.sh --no-pending
+    tasks: [T010, T151]

@@ -101,6 +101,9 @@ def test_the_quickstart_request_names_the_vlan_equivalent_exactly() -> None:
         ("add a vlan 200 on leaf02 ethernet-1/5", "vlan"),
         ("I need an access list on leaf01 ethernet-1/1 denying 10.0.0.0/8", "acl"),
         ("migrate the VPLS service to leaf01 ethernet-1/2 and leaf02 ethernet-1/2", "mac-vrf"),
+        # T153 §11c: "give" without "me" went down the informational path
+        ("Give tenant initech an ip-vrf carrying 10.50.0.0/24 on leaf01 ethernet-1/1 vlan 200",
+         "ip-vrf"),
     ],
 )
 def test_provisionable_requests_resolve_to_a_construct(text: str, construct: str) -> None:

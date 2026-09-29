@@ -27,8 +27,14 @@
 #   gens_equal <file> <cfg-ns> <net-ns> <network>  no Config spec write since the snapshot
 #   claims <net-ns> <network>                      the claim-selector listing "<claim> <value>"
 #   claims_equal <file> <net-ns> <network> | claims_empty <net-ns> <network>
+#   claims_holder <net-ns>                          one Network there that holds a claim (a control subject)
 #   finding <fabric-ns> <fabric> <node> <net-ns> <network>   a durable Fabric.status.findings[]
 #                                                  entry naming the device and the identifiers
+#   finding_cleared <fabric-ns> <fabric> <node> <net-ns> <network> <max_s>
+#                                                  the finding is gone from Fabric.status.findings[]
+#                                                  within max_s AND a FindingCleared Event names the
+#                                                  service and node — the scheduled read-back that
+#                                                  read every device object absent (T149, SC-043)
 #   event <ns> <object> <reason> <type>            an Event of that reason and type on the object
 #   unclaimed <cfg-ns> <needle>                    no Config (and no Deviation) names <needle>
 #   config_gone <cfg-ns> <config> <max_s>          the layer's Config is gone from the API within
@@ -253,6 +259,14 @@ chk_gens_equal() {
   say "before:"; cat "$f"; say "now:"; say "$cur"
   if [[ -z "$cur" ]]; then verdict FAIL gens_equal "no generated Config found for $2/$3"; return 1; fi
   if [[ "$cur" == "$(cat "$f")" ]]; then verdict PASS gens_equal "zero Config spec writes"; return 0; fi
+  # who wrote: the managers and times of every field set, and the render hash now — so a
+  # recurrence names the writer instead of leaving a bare generation number (T152 r9)
+  say "managedFields (who wrote the spec, and when):"
+  lab::kubectl -n "$1" get configs.config.sdcio.dev -l "${LABEL_NET_NS}=$2,${LABEL_NET_NAME}=$3" -o json \
+    --show-managed-fields 2>/dev/null \
+    | jq -c '.items[] | {name: .metadata.name, generation: .metadata.generation,
+        renderHash: (.metadata.annotations // {} | to_entries | map(select(.key | test("render-hash"))) | from_entries),
+        managers: [.metadata.managedFields[]? | {manager, operation, time, subresource}]}' 2>/dev/null || true
   verdict FAIL gens_equal "a Config generation advanced (a spec write)"; return 1
 }
 
@@ -261,6 +275,14 @@ sc::claims() {
     | jq -r '.items[] | "\(.metadata.name) \(.status.value // .spec.requested // "")"' | sort
 }
 chk_claims() { sc::claims "$@"; }
+# claims_holder <net-ns> — the name of one Network in <net-ns> that holds at least one claim
+chk_claims_holder() {
+  local n
+  for n in $(lab::kubectl -n "$1" get "$SC_NET_RES" -o jsonpath='{.items[*].metadata.name}'); do
+    [[ -n "$(sc::claims "$1" "$n")" ]] && { printf '%s\n' "$n"; return 0; }
+  done
+  return 1
+}
 chk_claims_equal() {
   local f="$1"; shift
   local cur; cur="$(sc::claims "$@")"
@@ -284,6 +306,25 @@ chk_finding() {
     verdict PASS finding "Fabric.status.findings[] names $node and $(jq -c '.identifiers' <<<"$out")"; return 0
   fi
   verdict FAIL finding "no durable finding naming $node and the identifiers of $nns/$nn"; return 1
+}
+
+chk_finding_cleared() {
+  local fns="$1" fab="$2" node="$3" nns="$4" nn="$5" secs="$6" t0 out ev
+  t0="$(now)"
+  while :; do
+    out="$(lab::kubectl -n "$fns" get "$SC_FABRIC_RES" "$fab" -o json | jq -c --arg d "$node" --arg ns "$nns" --arg n "$nn" '
+      [(.status.findings // [])[] | select(.node == $d and .service.namespace == $ns and .service.name == $n)] | first')"
+    ev="$(lab::kubectl -n "$fns" get events --field-selector "involvedObject.name=${fab},reason=FindingCleared" \
+          -o jsonpath='{range .items[*]}{.lastTimestamp} {.message}{"\n"}{end}' 2>/dev/null | grep -F "${nns}/${nn} on ${node}" || true)"
+    say "t+$(( $(now) - t0 ))s finding: $out; FindingCleared: ${ev:-none}"
+    if [[ "$out" == null && -n "$ev" ]]; then
+      say "SUMMARY $(jq -cn --argjson e "$(( $(now) - t0 ))" --arg ev "$ev" '{cleared_after_seconds: $e, event: $ev}')"
+      verdict PASS finding_cleared "finding for $nns/$nn on $node cleared by a clean read-back after $(( $(now) - t0 ))s: $ev"; return 0
+    fi
+    (( $(now) - t0 >= secs )) && break
+    sleep "$SC_POLL"
+  done
+  verdict FAIL finding_cleared "finding for $nns/$nn on $node not cleared by a read-back within ${secs}s"; return 1
 }
 
 chk_event() {
@@ -330,7 +371,7 @@ usage() { sed -n '/^#   cond /,/^#                                              
 main() {
   local c="${1:-}"; shift || true
   case "$c" in
-    cond|cond_hold|unknown_hold|target_notready|lvt_advancing|deleting_hold|gens|gens_equal|claims|claims_equal|claims_empty|finding|event|unclaimed|config_gone)
+    cond|cond_hold|unknown_hold|target_notready|lvt_advancing|deleting_hold|gens|gens_equal|claims|claims_holder|claims_equal|claims_empty|finding|finding_cleared|event|unclaimed|config_gone)
       "chk_${c}" "$@" ;;
     *) usage ;;
   esac

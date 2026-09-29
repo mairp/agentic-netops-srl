@@ -540,6 +540,10 @@ provision::phase_FabricReady() {
       < <(yq -r 'select(.kind == "Fabric") | (.metadata.namespace // "agentic-netops-system") + "/" + .metadata.name' "$f")
   done
   [[ "${#names[@]}" -gt 0 ]] || { log::error "examples/fabric/ holds no Fabric"; return 1; }
+  # Two manifests declaring one Fabric: the later server-side apply silently drops what only the
+  # earlier one states (T151 r8: a stale fabric01.yaml removed leaf02's untaggedAccessPorts).
+  local dup; dup="$(printf '%s\n' "${names[@]}" | sort | uniq -d | head -1)"
+  [[ -z "$dup" ]] || { log::error "examples/fabric/ declares Fabric $dup more than once"; return 1; }
   for n in "${names[@]}"; do
     k8s_wait::condition "fabrics.fabric.agentic-netops.io/${n#*/}" Ready "${n%%/*}" "$PROVISION_FABRIC_TIMEOUT" || return 1
   done

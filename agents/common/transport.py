@@ -359,6 +359,37 @@ class TransportClient:
         self._authenticated = False
         self._echo_registered = False
         self._auth_lock = asyncio.Lock()
+        # Set when the transport was seen lost; the next call or health check that finds the
+        # gateway accepting connections again reconnects, unaided (NFR-010).
+        self._transport_lost = False
+
+    async def gateway_reachable(self) -> bool:
+        """Whether the gateway accepts a connection now; a backend without one says yes."""
+        check = getattr(self.backend, "gateway_reachable", None)
+        if check is None:
+            return True
+        try:
+            return bool(await check())
+        except Exception:
+            return False
+
+    def gateway_down_reason(self) -> str:
+        return f"the {TRANSPORT} gateway at {self.endpoint} accepts no connection"
+
+    async def heal(self) -> None:
+        """Reconnect once the transport that was lost is back: the old connection's subscriptions
+        died with the gateway, so the backend is closed and every listener registered again."""
+        if not self._transport_lost or not await self.gateway_reachable():
+            return
+        async with self._auth_lock:
+            if not self._transport_lost:
+                return
+            log.warning("transport: %s is back; reconnecting", self.endpoint)
+            with contextlib.suppress(Exception):
+                await self.backend.close()
+            self._echo_registered = False
+            self._authenticated = False
+            self._transport_lost = False
 
     async def ensure_authenticated(self) -> None:
         """Once per client: register a temporary echo listener on this client's own name and run
@@ -459,6 +490,7 @@ class TransportClient:
                     correlation_id: str | None, thread_id: str | None,
                     idempotency_key: str | None, operation: str, text: str,
                     idempotent: bool, state: dict[str, int]) -> CallResult:
+        await self.heal()
         try:
             await self.ensure_authenticated()
         except TransportAuthenticationError as exc:
@@ -495,10 +527,19 @@ class TransportClient:
             log.warning("worker unreachable: %s (attempt %d of %d): %s", card.worker,
                         attempt + 1, attempts, redact(cause or ""))
             if after_send and not idempotent:
-                raise WorkerUnreachableError(card.worker, after_send=True, cause=cause)
+                transport = None
+                if not await self.gateway_reachable():
+                    self._transport_lost = True
+                    transport = self.gateway_down_reason()
+                raise WorkerUnreachableError(card.worker, after_send=True, cause=cause,
+                                             transport=transport)
             if attempt + 1 < attempts:
                 await self.sleep(self.settings.worker_call_backoff_seconds * (2 ** attempt))
         else:
+            if not await self.gateway_reachable():
+                self._transport_lost = True
+                raise WorkerUnreachableError(card.worker, after_send=after_send, cause=cause,
+                                             transport=self.gateway_down_reason())
             raise WorkerUnreachableError(card.worker, after_send=after_send, cause=cause)
         try:
             reply = decode(raw)
@@ -526,9 +567,17 @@ class TransportClient:
     async def health(self) -> dict[str, str]:
         """``{worker: "ok" | "unreachable"}`` for every card found now (FR-074)."""
         cards = self.discover()
+        await self.heal()
+        if cards and not await self.gateway_reachable():
+            self._transport_lost = True
+            raise DeliveryError(self.gateway_down_reason(), after_send=False)
         if cards:
             await self.ensure_authenticated()  # raises TransportAuthenticationError
         results = await asyncio.gather(*(self.probe(c) for c in cards))
+        if cards and not any(results):
+            # every worker silent at once: this process's own connection is the likelier loss
+            # (a gateway that restarted forgets its subscriptions) — reconnect on the next check
+            self._transport_lost = True
         return {c.worker: ("ok" if ok else "unreachable") for c, ok in zip(cards, results,
                                                                               strict=True)}
 
@@ -853,6 +902,23 @@ class SlimTransport:
                     await slim.delete_session(session)
                 except Exception as exc:  # a closed session is not an error of the call
                     log.debug("delete_session: %s", exc)
+
+    async def gateway_reachable(self, timeout: float = 3.0) -> bool:  # noqa: ASYNC109
+        """A TCP connection to the gateway's data-plane port, and nothing sent: whether the
+        transport itself is there, independently of any worker behind it."""
+        parsed = urlsplit(self.endpoint if "//" in self.endpoint else f"//{self.endpoint}")
+        host, port = parsed.hostname, parsed.port or 46357
+        if not host:
+            return False
+        try:
+            async with asyncio.timeout(timeout):
+                _reader, writer = await asyncio.open_connection(host, port)
+        except (OSError, TimeoutError):
+            return False
+        writer.close()
+        with contextlib.suppress(Exception):
+            await writer.wait_closed()
+        return True
 
     async def register(self, topic: str, handler: Handler) -> None:
         if topic != self.identity:

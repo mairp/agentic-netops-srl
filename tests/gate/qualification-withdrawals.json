@@ -1,0 +1,11 @@
+{
+  "schema": "agentic-netops.qualification-withdrawals/v1",
+  "_comment": "Recorded live findings that WITHDRAW a qualification the gate observed. Applied by tests/gate/publish_qualification.sh on every publish, so a fresh gate run cannot re-qualify what the declarative path was observed not to deliver. A withdrawal can only turn a property unqualified — never qualify one (CR-007). Removing an entry needs the finding closed in docs/decisions/live-findings.md.",
+  "withdrawals": [
+    {
+      "property": "acl.egress",
+      "finding": "2026-09-24-acl-egress-unqualified",
+      "reason": "acl.egress unqualified on this fabric: the live data-server refuses the egress binding (must on subinterface-specific evaluates false for an output-only binding; a refused egress intent fails every Config on the node). Observed live 2026-09-24T15:06Z (Phase 8) and again 2026-09-25T14:52Z (T151 r5 cycle 1, when a fresh gate had re-published it qualified). Gate G9 property:egress-acl passed device-direct; the declarative path does not deliver it."
+    }
+  ]
+}

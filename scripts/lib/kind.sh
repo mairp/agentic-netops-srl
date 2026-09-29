@@ -52,10 +52,32 @@ kind::cluster_exists() {
   kind::_kind get clusters 2>/dev/null | grep -qxF -- "$1"
 }
 
+kind::_owned_nodes() {
+  kind::_kubectl --context "kind-${1}" --request-timeout=10s get nodes \
+    -l "$(ownership::key)=${1},node-role.kubernetes.io/control-plane" -o name 2>/dev/null
+}
+
+# A `kind create` interrupted after the node started and before the kubeconfig was written
+# (T151 r5's cycle 2, stopped by SIGTERM) leaves a cluster kind lists but no context reads. The
+# context is re-exported from kind itself — the operator's current context restored — and
+# ownership is still decided by the node label alone, never by the container's kind label.
+kind::_reexport_context() {
+  local name="$1" prev_ctx
+  kind::cluster_exists "$name" || return 1
+  prev_ctx="$(kind::_kubectl config current-context 2>/dev/null || true)"
+  kind::_kind export kubeconfig --name "$name" >/dev/null 2>&1 || return 1
+  if [[ -n "$prev_ctx" && "$prev_ctx" != "kind-${name}" ]]; then
+    kind::_kubectl config use-context "$prev_ctx" >/dev/null 2>&1 || true
+  fi
+  log::info "kind: context kind-${name} was missing; re-exported from kind to read ownership"
+}
+
 kind::cluster_owned() {
   local name="$1" nodes
-  nodes="$(kind::_kubectl --context "kind-${name}" --request-timeout=10s get nodes \
-    -l "$(ownership::key)=${name},node-role.kubernetes.io/control-plane" -o name 2>/dev/null)" || return 1
+  if ! nodes="$(kind::_owned_nodes "$name")"; then
+    kind::_reexport_context "$name" || return 1
+    nodes="$(kind::_owned_nodes "$name")" || return 1
+  fi
   [[ -n "$nodes" ]]
 }
 

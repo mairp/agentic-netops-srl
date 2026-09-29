@@ -54,7 +54,7 @@ func gatewayIPv6Input() model.ServiceInput {
 // controllers/network/intent.go (irb.vrf names the routers entry whose l3vni
 // the gateway carries; each declared gatewayIPv4/gatewayIPv6 one address; the
 // ip-mtu the Fabric's tenantIPMTU) with the lab Fabric's MTUs
-// (examples/fabric/fabric01.yaml) and ASN. Its golden is the example's own
+// (examples/fabric/default-fabric.yaml) and ASN. Its golden is the example's own
 // render, so the example cannot drift from what is validated.
 func gatewayExampleInput(t *testing.T) model.ServiceInput {
 	t.Helper()

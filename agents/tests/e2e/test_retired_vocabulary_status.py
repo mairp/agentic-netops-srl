@@ -79,7 +79,9 @@ def manifest(name: str, vlan: int, vni: int) -> dict[str, Any]:
         "apiVersion": "fabric.agentic-netops.io/v1alpha1", "kind": "Network",
         "metadata": {
             "name": name, "namespace": INTENT_NS,
-            "labels": {TIER_LABEL: TIER_VALUE},
+            # a tier-stored record carries its correlation label (network-spec.md §1); without
+            # it the provider's lines about this request carry no correlation id (T151 r9)
+            "labels": {TIER_LABEL: TIER_VALUE, tf.CORRELATION_LABEL: secrets.token_hex(16)},
             "annotations": {
                 "agentic-netops.io/translator": "agentic-netops-migration-translator",
                 "agentic-netops.io/translator-version": "v0.1.0",

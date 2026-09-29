@@ -434,6 +434,7 @@ func (p *pass) run(ctx context.Context) (ctrl.Result, error) {
 	owner := metav1.NewControllerRef(f, fabricv1.GroupVersion.WithKind("Fabric"))
 	src := sdc.Source{Kind: sdc.SourceFabric, Namespace: f.Namespace, Name: f.Name, UID: f.UID, Generation: f.Generation}
 	desired := map[string]string{}
+	wrote := false
 	for _, node := range names {
 		rn, ok := rendered[node]
 		if !ok {
@@ -456,6 +457,7 @@ func (p *pass) run(ctx context.Context) (ctrl.Result, error) {
 		}
 		desired[res.Name] = node
 		if res.Created || res.Updated {
+			wrote = true
 			verb := "updated"
 			if res.Created {
 				verb = "created"
@@ -477,6 +479,39 @@ func (p *pass) run(ctx context.Context) (ctrl.Result, error) {
 		return p.terminal(p.conds.SetNotApplied(status.ReasonOwnershipConflict, strings.Join(overruled, "; ")))
 	}
 	agg := status.AggregateTargets(states)
+	if !agg.Ready && hadReady && !wrote {
+		// The layer no longer confirms, on a target, a Config it confirmed at this very
+		// generation, and nothing was written in this reconcile: the intent did not change, the
+		// target's side did — the layer's view of the target is what cannot be read. That is a
+		// read-back that cannot run, not a convergence: Ready=Unknown and Degraded=True, both
+		// VerificationFailed, naming each target with the layer's own reason; lastVerifiedTime
+		// frozen; Applied left as it was (AD-40, AD-54, AD-62) — the Network reconciler's rule,
+		// here too (T151 r9: a management cut read as Ready=False/NotConverged on the Fabric).
+		var bad []string
+		for _, rc := range f.Status.RenderedConfigs {
+			if rc.Phase == fabricv1.TargetPhase(status.PhaseReady) {
+				continue
+			}
+			why := rc.Reason
+			if rc.Message != "" {
+				why = strings.TrimSpace(why + ": " + truncateMsg(rc.Message, 256))
+			}
+			if why == "" {
+				why = "the layer no longer confirms its Config"
+			}
+			bad = append(bad, fmt.Sprintf("%s (%s)", rc.Node, why))
+		}
+		p.targetsBad = bad
+		p.markUnreachable(bad)
+		r.setUnknownByTarget(f.UID, true)
+		p.passCouldNotRun = true
+		msg := "read-back could not run against " + strings.Join(bad, ", ") + ": the layer no longer confirms this generation's Config there"
+		if err := p.writeReady(readyOutcome{kind: readyUnknown, msg: msg}); err != nil {
+			return ctrl.Result{}, err
+		}
+		r.resetAttempts(f.UID)
+		return ctrl.Result{RequeueAfter: st.ReconcileInterval}, nil
+	}
 	if !agg.Ready {
 		if len(agg.Failed) > 0 {
 			if err := p.conds.SetNotApplied(status.ReasonTransactionFailed, "transaction failed on "+strings.Join(agg.Failed, ", ")); err != nil {
@@ -891,4 +926,12 @@ func (r *Reconciler) passDue(f *fabricv1.Fabric, now time.Time) (bool, time.Time
 	}
 	next := last.Add(r.Settings.ReverifyInterval)
 	return !now.Before(next), next
+}
+
+// truncateMsg shortens a layer message quoted in a condition.
+func truncateMsg(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "…"
 }

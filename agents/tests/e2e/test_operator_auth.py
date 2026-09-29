@@ -44,7 +44,7 @@ def test_every_pipeline_route_refuses_without_or_with_a_wrong_credential(operato
         for label, auth in (("none", None), ("wrong-password", (user, "wrong")),
                             ("wrong-user", ("intruder", "wrong"))):
             resp = http(method, path, auth=auth, body=body)
-            seen.append({"route": f"{method} {path}", "credential": label,
+            seen.append({"route": f"{method} {path}", "credential_case": label,
                          "status": resp.status,
                          "www-authenticate": resp.headers.get("www-authenticate")})
             assert resp.status == 401, (path, label, resp.status, resp.body[:200])

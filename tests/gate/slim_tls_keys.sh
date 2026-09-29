@@ -28,9 +28,8 @@ OUT="$EVIDENCE_DIR/gate/qualifications/slim_tls_keys.json"
 PORT=46357
 KEY_CERT=cert_file; KEY_KEY=key_file; KEY_CA=client_ca_file
 TMPD="$(mktemp -d)"; chmod 700 "$TMPD"
-PF_PID=""
 cleanup() {
-  if [[ -n "$PF_PID" ]]; then kill "$PF_PID" 2>/dev/null || true; fi
+  lab::port_forward_stop "$TMPD/pf.pids"   # the port-forward (kubectl itself), never left running
   rm -rf "$TMPD"
 }
 trap cleanup EXIT
@@ -110,8 +109,8 @@ phase="$(lab::kubectl -n "$NS" get pod vt-scratch-slim -o jsonpath='{.status.pha
 presented=false; nocert="not-observed"; withcert="not-observed"
 if [[ "$started" == true && "$phase" == Running ]]; then
   lp=$((20000 + RANDOM % 20000))
-  lab::kubectl -n "$NS" port-forward pod/vt-scratch-slim "${lp}:${PORT}" >"$TMPD/pf.log" 2>&1 &
-  PF_PID=$!
+  # no descriptor of this script's reaches it (stdin /dev/null, output to pf.log, others closed)
+  lab::port_forward "$TMPD/pf.pids" "$TMPD/pf.log" -n "$NS" pod/vt-scratch-slim "${lp}:${PORT}"
   sleep 4
   a="$(gate::run SLIM.handshake-no-client-cert -- sh -c "echo | timeout 10 openssl s_client -connect 127.0.0.1:${lp} -servername vt-scratch-slim -alpn h2 -CAfile '$TMPD/ca.pem' -showcerts 2>&1; true" 2>/dev/null || true)"
   b="$(gate::run SLIM.handshake-client-cert -- sh -c "echo | timeout 10 openssl s_client -connect 127.0.0.1:${lp} -servername vt-scratch-slim -alpn h2 -CAfile '$TMPD/ca.pem' -cert '$TMPD/client.pem' -key '$TMPD/client.key' 2>&1; true" 2>/dev/null || true)"

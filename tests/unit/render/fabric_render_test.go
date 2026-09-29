@@ -42,7 +42,7 @@ const (
 
 var nodes = []string{"leaf01", "leaf02", "spine01", "spine02"}
 
-// defaultInput is the default Fabric of data-model.md §3a / examples/fabric/fabric01.yaml
+// defaultInput is the default Fabric of data-model.md §3a / examples/fabric/default-fabric.yaml
 // with its claims bound: loopbacks from fabric01-loopback, ASNs from
 // fabric01-underlay, and the four link /31s from fabric01-p2p (10.1.0.0/24),
 // the spine end taking the even address.
@@ -65,7 +65,7 @@ func defaultInput() model.FabricInput {
 		},
 		Inventory: []model.InventoryEntry{
 			{Node: "leaf01", AccessPorts: []string{"ethernet-1/1"}, FabricPorts: []string{"ethernet-1/49", "ethernet-1/50"}},
-			{Node: "leaf02", AccessPorts: []string{"ethernet-1/1"}, FabricPorts: []string{"ethernet-1/49", "ethernet-1/50"}},
+			{Node: "leaf02", AccessPorts: []string{"ethernet-1/1", "ethernet-1/2"}, UntaggedAccessPorts: []string{"ethernet-1/2"}, FabricPorts: []string{"ethernet-1/49", "ethernet-1/50"}},
 			{Node: "spine01", FabricPorts: []string{"ethernet-1/1", "ethernet-1/2"}},
 			{Node: "spine02", FabricPorts: []string{"ethernet-1/1", "ethernet-1/2"}},
 		},

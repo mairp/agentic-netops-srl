@@ -153,5 +153,51 @@ else
   fail "unreachable cluster: uid recorded as 'unavailable' (got '$out')"
 fi
 
+# --- 5. the negative-control lookup reads only candidate records, and still decides by content
+# A run record whose command merely MENTIONS the check id (the pre-filter's superset) is not its
+# negative control: the readiness run stays refused.
+out="$(lib 'evidence_run mention -- sh -c "echo \"cx-ready\"; exit 1" >/dev/null 2>&1
+  evidence_run r2 --check cx-ready --readiness -- true 2>&1; echo rc=$?')"
+if grep -qx 'rc=3' <<<"$out" && grep -q 'no recorded failing negative control' <<<"$out"; then
+  pass "a record that only mentions the check id is not its negative control (content decides)"
+else
+  fail "a record that only mentions the check id is not its negative control (content decides)" "$out"
+fi
+# 400 unrelated records: the lookup is one grep, not one jq per record (T153/SC-032 tier-phase time).
+out="$(lib 'for i in $(seq 1 400); do evidence_run "bulk-$i" -- true >/dev/null 2>&1; done
+  evidence_negative_control cy -- false >/dev/null 2>&1
+  s=$(date +%s%N); evidence_run r3 --check cy --readiness -- true >/dev/null 2>&1; echo rc=$?
+  echo ms=$(( ($(date +%s%N) - s) / 1000000 ))')"
+ms="$(sed -n 's/^ms=//p' <<<"$out")"
+if grep -qx 'rc=0' <<<"$out" && [[ -n "$ms" && "$ms" -lt 1500 ]]; then
+  pass "readiness run among 400 records admitted in ${ms} ms (< 1500)"
+else
+  fail "readiness run among 400 records admitted quickly (< 1500 ms)" "$out"
+fi
+
+# --- 6. evidence_seal: what a run wrote beside its record is sealed, and verify-evidence then passes
+VE="$(cd "$(dirname "$LIB")" && pwd)/verify_evidence.sh"
+out="$(lib 'evidence::ensure_dir; mkdir -p "$EVIDENCE_DIR/t089"
+  evidence_run step -- sh -c "echo m >\"$EVIDENCE_DIR/t089/m.json\"; echo s >\"$EVIDENCE_DIR/scratch.yaml\"" >/dev/null 2>&1
+  echo "[]" >"$EVIDENCE_DIR/declared-faults.json"
+  : >"$EVIDENCE_DIR/inflight.stdout"
+  bash "'"$VE"'" "$EVIDENCE_DIR" >/dev/null 2>&1; echo before=$?
+  evidence_seal step.sealed; echo seal=$?
+  jq -r ".attachments[].file" "$EVIDENCE_DIR/step.sealed.json" | sort | tr "\n" " "; echo
+  rm -f "$EVIDENCE_DIR/declared-faults.json" "$EVIDENCE_DIR/inflight.stdout"
+  bash "'"$VE"'" "$EVIDENCE_DIR" >/dev/null 2>&1; echo after=$?
+  n=$(ls "$EVIDENCE_DIR"/*.json | wc -l); evidence_seal again; echo again=$? n=$n now=$(ls "$EVIDENCE_DIR"/*.json | wc -l)')"
+if grep -q '^before=[1-9]' <<<"$out" && grep -qx 'seal=0' <<<"$out" \
+   && grep -qx 'scratch.yaml t089/m.json ' <<<"$out" && grep -qx 'after=0' <<<"$out"; then
+  pass "evidence_seal attaches the unreferenced files (not the ledger, not an in-flight output); verify-evidence then passes"
+else
+  fail "evidence_seal attaches the unreferenced files and verify-evidence then passes" "$out"
+fi
+if grep -Eq '^again=0 n=([0-9]+) now=\1$' <<<"$out"; then
+  pass "evidence_seal with nothing unreferenced writes no record"
+else
+  fail "evidence_seal with nothing unreferenced writes no record" "$out"
+fi
+
 echo "evidence_test: $fails failure(s)"
 [ "$fails" -eq 0 ]

@@ -116,6 +116,15 @@ cells:
     label: *label-config
     strokeColor:
       thresholds: *thresholds-traffic
+  clab-agentic-netops-fabric-leaf02:e1-2:clab-agentic-netops-fabric-client02:eth2:
+    dataRef: oper-state:clab-agentic-netops-fabric-leaf02:e1-2
+    fillColor:
+      thresholds: *thresholds-operstate
+  link_id:clab-agentic-netops-fabric-leaf02:e1-2:clab-agentic-netops-fabric-client02:eth2:
+    dataRef: clab-agentic-netops-fabric-leaf02:e1-2:out
+    label: *label-config
+    strokeColor:
+      thresholds: *thresholds-traffic
   clab-agentic-netops-fabric-client01:eth1:clab-agentic-netops-fabric-leaf01:e1-1:
     dataRef: oper-state:clab-agentic-netops-fabric-client01:eth1
     fillColor:
@@ -131,6 +140,15 @@ cells:
       thresholds: *thresholds-operstate
   link_id:clab-agentic-netops-fabric-client02:eth1:clab-agentic-netops-fabric-leaf02:e1-1:
     dataRef: clab-agentic-netops-fabric-client02:eth1:out
+    label: *label-config
+    strokeColor:
+      thresholds: *thresholds-traffic
+  clab-agentic-netops-fabric-client02:eth2:clab-agentic-netops-fabric-leaf02:e1-2:
+    dataRef: oper-state:clab-agentic-netops-fabric-client02:eth2
+    fillColor:
+      thresholds: *thresholds-operstate
+  link_id:clab-agentic-netops-fabric-client02:eth2:clab-agentic-netops-fabric-leaf02:e1-2:
+    dataRef: clab-agentic-netops-fabric-client02:eth2:out
     label: *label-config
     strokeColor:
       thresholds: *thresholds-traffic

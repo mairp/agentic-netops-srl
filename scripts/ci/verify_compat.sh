@@ -29,7 +29,11 @@
 #              current tree>` (image_build::content_hash) AND the image ID this run's build
 #              recorded in evidence — the stdout of the passing record
 #              image-build.<name>.<hash:0:12>[-N].json that image_build::build writes into
-#              EVIDENCE_DIR (the newest such record, when the build ran more than once);
+#              EVIDENCE_DIR (the newest such record, when the build ran more than once); when
+#              this run built nothing (an acceptance pass on a standing lab), the record of the
+#              run that provisioned it: COMPAT_BUILD_EVIDENCE_DIR, else the newest record in
+#              any run directory of this lab stamped with the live cluster's UID
+#              (kube-system's namespace UID; records of another cluster never count);
 #              a workload running anything else fails naming it. The provider
 #              (agentic-netops-system/srl-provider) must be among them, and under first-party
 #              so must the allocation authority (agentic-netops-allocation/allocation-authority,
@@ -37,6 +41,11 @@
 #
 # Usage: scripts/ci/verify_compat.sh
 #   env: CLUSTER_NAME (default agentic-netops; context kind-<cluster>), KUBECTL,
+#        COMPAT_BUILD_EVIDENCE_DIR (optional: the run that provisioned a standing lab — read for
+#        its image build records when EVIDENCE_DIR holds none; CONTROL_PLANE_ONLY acceptance on
+#        T152's re-provisioned lab, whose images that run built — T152 r8; without it the lab's
+#        run directories are searched for records stamped with the live cluster's UID),
+#        EVIDENCE_ROOT (default .evidence),
 #        EVIDENCE_DIR (default: the most recently modified run under .evidence/<cluster>_<lab>/
 #        holding an image build record),
 #        LAB_NAME (default agentic-netops-fabric)
@@ -187,20 +196,63 @@ resolve_evidence_dir() {
   return 1
 }
 
-# recorded_image_id <name> <hash> — the image ID image_build::build recorded in EVIDENCE_DIR
-# (record image-build.<name>.<hash:0:12>[-N].json, exit 0, its stdout the `docker image
-# inspect --format {{.Id}}` output); the newest record wins; empty when none.
-recorded_image_id() {
-  local name="$1" hash="$2" f best="" out
-  [[ -n "$hash" ]] || return 0
-  for f in "$EVIDENCE_DIR/image-build.${name}.${hash:0:12}".json "$EVIDENCE_DIR/image-build.${name}.${hash:0:12}"-*.json; do
+# lab_uid — the live cluster's identity: kube-system's namespace UID, the value evidence_run
+# stamps into every record as .cluster.uid (scripts/lib/evidence.sh evidence::cluster_uid);
+# empty when it cannot be read.
+LAB_UID=""
+lab_uid() {
+  if [[ -z "$LAB_UID" ]]; then
+    LAB_UID="$(k get namespace kube-system -o json 2>/dev/null | jq -r '.metadata.uid // empty' 2>/dev/null || true)"
+    [[ -n "$LAB_UID" ]] || LAB_UID="-"
+  fi
+  [[ "$LAB_UID" == "-" ]] || printf '%s' "$LAB_UID"
+}
+
+# newest_record <uid|""> <file>... — the newest passing build record among <file>s (kind run,
+# exit 0; with <uid>, only a record stamped .cluster.uid == <uid>); the utc_time wins, then the
+# path. Prints its path; nothing when none.
+newest_record() {
+  local uid="$1" f best="" t bt=""; shift
+  for f in "$@"; do
     [[ -f "$f" ]] || continue
-    jq -e '.kind == "run" and .exit_status == 0' "$f" >/dev/null 2>&1 || continue
-    if [[ -z "$best" ]] || [[ "$(jq -r .utc_time "$f")" > "$(jq -r .utc_time "$best")" ]] \
-       || [[ "$(jq -r .utc_time "$f")" == "$(jq -r .utc_time "$best")" && "$f" > "$best" ]]; then best="$f"; fi
+    jq -e --arg u "$uid" '.kind == "run" and .exit_status == 0 and ($u == "" or .cluster.uid == $u)' "$f" >/dev/null 2>&1 || continue
+    t="$(jq -r '.utc_time // ""' "$f")"
+    if [[ -z "$best" || "$t" > "$bt" || ( "$t" == "$bt" && "$f" > "$best" ) ]]; then best="$f"; bt="$t"; fi
   done
+  [[ -z "$best" ]] || printf '%s' "$best"
+}
+
+# recorded_image_id <name> <hash> — the image ID a build of THIS lab recorded for <name>:<hash>
+# (record image-build.<name>.<hash:0:12>[-N].json, exit 0, its stdout the `docker image inspect
+# --format {{.Id}}` output); empty when none. Looked for, in order:
+#   1. EVIDENCE_DIR (this run built the image);
+#   2. COMPAT_BUILD_EVIDENCE_DIR (the run that provisioned the standing lab, when named);
+#   3. every run directory of this lab (${EVIDENCE_ROOT:-.evidence}/<cluster>_<lab>/*/), keeping
+#      only records stamped with the live cluster's UID — a standing lab provisioned by an
+#      earlier run (a quickstart walk's §1 provisioning, then a later acceptance pass whose own
+#      directory builds nothing) keeps its build records there. A record from another cluster
+#      (an earlier lab of the same name, same content hash) never counts: its image ID is not
+#      what was loaded into this one.
+# Within a source the newest record wins.
+recorded_image_id() {
+  local name="$1" hash="$2" best="" out dir uid base
+  [[ -n "$hash" ]] || return 0
+  local pat="image-build.${name}.${hash:0:12}"
+  for dir in "$EVIDENCE_DIR" "${COMPAT_BUILD_EVIDENCE_DIR:-}"; do
+    [[ -n "$dir" && -d "$dir" ]] || continue
+    best="$(newest_record "" "$dir/$pat.json" "$dir/$pat"-*.json)"
+    [[ -z "$best" ]] || break
+  done
+  if [[ -z "$best" ]] && uid="$(lab_uid)" && [[ -n "$uid" ]]; then
+    base="${EVIDENCE_ROOT:-$ROOT/.evidence}/${CLUSTER_NAME}_${LAB_NAME}"
+    if [[ -d "$base" ]]; then
+      local -a cands=()
+      mapfile -t cands < <(compgen -G "$base/*/$pat.json"; compgen -G "$base/*/$pat-*.json")
+      [[ "${#cands[@]}" -eq 0 ]] || best="$(newest_record "$uid" "${cands[@]}")"
+    fi
+  fi
   [[ -n "$best" ]] || return 0
-  out="$EVIDENCE_DIR/$(jq -r '.raw_output.stdout.file' "$best")"
+  out="$(dirname -- "$best")/$(jq -r '.raw_output.stdout.file' "$best")"
   [[ -f "$out" ]] && grep -oE 'sha256:[0-9a-f]{64}' "$out" | head -n1
   return 0
 }
@@ -248,7 +300,7 @@ check_images() {
       bad "images: ${who} runs ${img}, not ${repo}:${hash} (the content hash of the current tree)"; continue
     fi
     if [[ -z "$want_id" ]]; then
-      bad "images: ${who}: this run's evidence (${EVIDENCE_DIR}) records no image ID for ${repo}:${hash}"; continue
+      bad "images: ${who}: this run's evidence (${EVIDENCE_DIR}${COMPAT_BUILD_EVIDENCE_DIR:+, or the provisioning run ${COMPAT_BUILD_EVIDENCE_DIR}}) records no image ID for ${repo}:${hash}, and no run of this lab (cluster uid $(u="$(lab_uid)"; printf '%s' "${u:-unreadable}")) under ${EVIDENCE_ROOT:-$ROOT/.evidence}/${CLUSTER_NAME}_${LAB_NAME} recorded one"; continue
     fi
     got_id="$(grep -oE 'sha256:[0-9a-f]{64}' <<<"$iid" | tail -n1 || true)"
     if [[ "$got_id" != "$want_id" ]]; then

@@ -49,6 +49,9 @@ cat >"$BIN/kubectl" <<'SH'
 #!/usr/bin/env bash
 # fake kubectl: `get configs…` / `get namespaces` answer from $FAKE/configs.json / namespaces.json
 a=" $* "
+if [[ "$a" == *" config get-contexts "* ]]; then
+  [[ -f "$FAKE/contexts" ]] || { echo "fake kubectl: no kubeconfig" >&2; exit 1; }; cat "$FAKE/contexts"; exit 0
+fi
 if [[ "$a" == *" get configs.config.sdcio.dev "* ]]; then cat "$FAKE/configs.json" 2>/dev/null || echo '{"items":[]}'; exit 0; fi
 if [[ "$a" == *" get namespaces "* ]]; then cat "$FAKE/namespaces.json"; exit 0; fi
 if [[ "$a" == *" get identifierclaims.fabric.agentic-netops.io,identifierpools.fabric.agentic-netops.io -n agentic-netops-allocation "* ]]; then
@@ -63,7 +66,9 @@ cat >"$BIN/docker" <<'SH'
 # fake docker: network inspect from $FAKE/network.json; inspect -f pid → 4242; exec … ip -o link
 case "$1" in
   network) cat "$FAKE/network.json" ;;
-  inspect) c="${@: -1}"; cat "$FAKE/pid.$c" 2>/dev/null || echo 4242 ;;
+  inspect) c="${@: -1}"
+    if [[ -f "$FAKE/absent.$c" ]]; then echo "Error: No such object: $c" >&2; exit 1; fi
+    cat "$FAKE/pid.$c" 2>/dev/null || echo 4242 ;;
   exec) c="$2"; cat "$FAKE/links.$c" 2>/dev/null || printf '1: lo: <LOOPBACK,UP> mtu 65536\n2: eth1@if5: <UP> mtu 9348\n' ;;
   *) echo "fake docker: unexpected $*" >&2; exit 1 ;;
 esac
@@ -99,7 +104,7 @@ chmod +x "$BIN"/*
 NODES_NET='{"Containers":{}}'
 reset_lab() {
   rm -f "$FAKE"/gnmic/* "$FAKE/configs.json" "$FAKE/qdisc" "$FAKE"/links.* "$FAKE/gnmic.calls" "$FAKE/allocation.json" \
-    "$FAKE"/pid.* "$FAKE"/nocarrier.* "$FAKE"/refuse.*
+    "$FAKE"/pid.* "$FAKE"/nocarrier.* "$FAKE"/refuse.* "$FAKE"/absent.* "$FAKE/contexts"
   local n containers="{}"
   for n in spine01 spine02 leaf01 leaf02 client01 client02; do
     containers="$(jq -c --arg n "clab-agentic-netops-fabric-$n" '. + {("id-" + $n): {Name: $n}}' <<<"$containers")"
@@ -116,6 +121,14 @@ scan() {
     EVIDENCE_LAB=agentic-netops-fabric EVIDENCE_DEVICE_IMAGE_DIGEST="$DIGEST" EVIDENCE_TOPOLOGY=/nonexistent \
     CLUSTER_NAME=agentic-netops LAB_NAME=agentic-netops-fabric LAB_TCP_ACCEPT=tcp-accept SRL_USER=admin SRL_PASS='NokiaSrl1!' \
     bash -c "set -uo pipefail; source '$ROOT/tests/lib/leftovers.sh'; ${1:-:}; leftovers::scan; echo rc=\$?" 2>&1
+}
+
+scan_nocreds() {
+  env -u EVIDENCE_DIR -u SRL_PASS PATH="$BIN:$PATH" FAKE="$FAKE" \
+    EVIDENCE_ROOT="$TMP/evidence" EVIDENCE_CLUSTER=agentic-netops EVIDENCE_CLUSTER_UID=uid-1 \
+    EVIDENCE_LAB=agentic-netops-fabric EVIDENCE_DEVICE_IMAGE_DIGEST="$DIGEST" EVIDENCE_TOPOLOGY=/nonexistent \
+    CLUSTER_NAME=agentic-netops LAB_NAME=agentic-netops-fabric LAB_TCP_ACCEPT=tcp-accept SRL_USER=admin \
+    bash -c "set -uo pipefail; source '$ROOT/tests/lib/leftovers.sh'; leftovers::scan; echo rc=\$?" 2>&1
 }
 
 # --- 1. a clean lab starts
@@ -309,6 +322,69 @@ if grep -qx 'rc=0' <<<"$out" && ! grep -q '^LEFTOVER' <<<"$out"; then
   pass "first-party authority with only platform pools: the scan is clean"
 else
   fail "first-party authority with only platform pools: the scan is clean" "$out"
+fi
+
+# --- redaction: a device user's password hash in the datastore never reaches the scan's evidence
+reset_lab
+cat >"$FAKE/gnmic/172.25.25.21.json" <<'JSON'
+[{"source":"172.25.25.21","updates":[{"Path":"","values":{"":{"srl_nokia-system:system":{"aaa":{"authentication":{"linuxadmin-user":{"password":"$y$j9T$FAKEHASHFAKEHASH","ssh-key":["ssh-ed25519 AAAAPUBLIC"]}}}}}}}]}]
+JSON
+out="$(scan)"
+ev="$(find "$TMP/evidence" -name '*datastore.leaf01.stdout' 2>/dev/null | head -n 1)"
+if grep -qx 'rc=0' <<<"$out" && [[ -n "$ev" ]] && ! grep -q 'FAKEHASH' "$ev" && grep -q '<redacted>' "$ev" \
+   && grep -q 'ssh-ed25519 AAAAPUBLIC' "$ev"; then
+  pass "a device password hash is redacted from the scan's evidence (public keys kept; FR-079)"
+else
+  fail "a device password hash is redacted from the scan's evidence (public keys kept; FR-079)" "$out ${ev:-no evidence file}"
+fi
+
+# --- an ABSENT lab (T151's clean deploy): every node container gone and no kube context — the
+# declared faults of earlier runs under the evidence root name nodes that no longer exist; clean
+reset_lab
+for n in spine01 spine02 leaf01 leaf02 client01 client02; do : >"$FAKE/absent.clab-agentic-netops-fabric-$n"; done
+echo kind-agentflow-005 >"$FAKE/contexts"
+out="$(scan "leftovers::declare_fault vt-scratch-tf-mgmt-leaf02 leaf02 'management link set down' \
+  '{\"kind\":\"mgmt-link-down\",\"container\":\"clab-agentic-netops-fabric-leaf02\",\"interface\":\"mgmt0\",\"peer\":\"veth1\"}' \
+  '{\"kind\":\"host-link-up\"}'")"
+if grep -qx 'rc=0' <<<"$out" && ! grep -q '^LEFTOVER' <<<"$out" && grep -q 'node leaf02 of declared fault vt-scratch-tf-mgmt-leaf02 absent' <<<"$out" \
+   && grep -q 'cluster (no kube context kind-agentic-netops) absent' <<<"$out" && [[ ! -s "$FAKE/gnmic.calls" ]]; then
+  pass "an absent lab (no node container, no kube context) holds no leftover: clean, each absence named, no device read"
+else
+  fail "an absent lab (no node container, no kube context) holds no leftover: clean, each absence named, no device read" "$out"
+fi
+# ... and with no device credential at all (no generated Secret exists on such a host)
+out="$(SRL_PASS= scan_nocreds)"
+if grep -qx 'rc=0' <<<"$out" && ! grep -q 'SRL_PASS is not set' <<<"$out"; then
+  pass "an absent lab needs no device credential (no Secret to read it from)"
+else
+  fail "an absent lab needs no device credential (no Secret to read it from)" "$out"
+fi
+# negative control: a present device with no credential still fails closed
+reset_lab
+out="$(scan_nocreds)"
+if grep -q 'SRL_PASS is not set' <<<"$out" && ! grep -qx 'rc=0' <<<"$out"; then
+  pass "negative control: a present lab with no device credential refuses the scan"
+else
+  fail "negative control: a present lab with no device credential refuses the scan" "$out"
+fi
+# negative control: a container that EXISTS but is not running still fails closed
+reset_lab
+echo 0 >"$FAKE/pid.clab-agentic-netops-fabric-leaf02"
+out="$(scan)"
+if grep -qx 'rc=1' <<<"$out" && grep -q '^LEFTOVER .*leaf02' <<<"$out"; then
+  pass "negative control: a node container that exists but is not running still refuses the start (never treated as absent)"
+else
+  fail "negative control: a node container that exists but is not running still refuses the start (never treated as absent)" "$out"
+fi
+# a cluster whose context exists is still scanned (a gate-labelled Config refuses)
+reset_lab
+printf 'kind-agentflow-005\nkind-agentic-netops\n' >"$FAKE/contexts"
+echo '{"items":[{"metadata":{"namespace":"default","name":"x","labels":{"agentic-netops.io/gate-owned":"true"}}}]}' >"$FAKE/configs.json"
+out="$(scan)"
+if grep -qx 'rc=1' <<<"$out" && grep -q '^LEFTOVER gate-config cluster Config' <<<"$out"; then
+  pass "a present kube context is still scanned (a gate-labelled Config refuses the start)"
+else
+  fail "a present kube context is still scanned (a gate-labelled Config refuses the start)" "$out"
 fi
 
 if [[ "$fails" -gt 0 ]]; then echo "leftover_scan_test: $fails FAILED"; exit 1; fi

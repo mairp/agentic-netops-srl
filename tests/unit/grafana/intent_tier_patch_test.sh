@@ -17,6 +17,9 @@
 #   R1  the revert removes exactly those two sources: the volumes are identical to before; the
 #       ConfigMap and the Secret are deleted
 #   R2  a revert when nothing is patched is a no-op (no patch, exit 0)
+#   R3  managedFields reordered under the disown's read (the controller's status write) — the disown
+#       re-reads and succeeds; refused on every attempt it fails naming the Deployment (T153 r5 §24)
+#   R4  a re-run after a revert that stopped before its disown drops the stale field manager
 #   N1  no monitoring/grafana (no observability stack): patch and revert are reported no-ops
 #   N2  a Deployment whose datasources volume is not projected is refused, naming it; nothing patched
 #   L1  every link of intent-tier.json and of evpn-service-path's "Created by conversation" panel names
@@ -105,6 +108,15 @@ elif verb == "patch":
             doc = doc[int(x)] if isinstance(doc, list) else doc[x]
         return doc, parts[-1]
     touched_mf = False
+    race = os.path.join(S, "mf_race")
+    if any(op["path"].startswith("/metadata/managedFields") for op in ops) and os.path.isfile(race):
+        n = int(open(race).read() or 0)
+        if n > 0:
+            # the Deployment controller's status write lands between the caller's read and this patch
+            open(race, "w").write(str(n - 1))
+            o.setdefault("metadata", {}).setdefault("managedFields", []).insert(
+                0, {"manager": "kube-controller-manager", "operation": "Update", "subresource": "status"})
+            save(o, kind, args[2])
     for op in ops:
         if op["path"].startswith("/metadata/managedFields"):
             touched_mf = True
@@ -232,6 +244,25 @@ check "R1 the revert's removes are each guarded by a test of the source" \
 n_patch="$(patches)"
 run intent_tier::grafana_unpatch
 check "R2 a revert when nothing is patched: exit 0, no patch, volumes unchanged" '[[ $rc -eq 0 && "$(patches)" -eq "$n_patch" && "$(vols)" == "$before" ]]'
+
+# ====================================================================== R3–R4
+setup race
+run intent_tier::grafana_patch
+echo 2 >"$FAKE_STATE/mf_race"
+out=""; (cd "$ROOT" && PATH="$T/bin:$PATH" KUBECTL="$T/bin/kubectl" KUBE_CONTEXT=kind-test CLUSTER_NAME=agentic-netops \
+  INTENT_TIER_WAIT_TIMEOUT=5 INTENT_TIER_DISOWN_BACKOFF_SECONDS=0 bash -c 'source scripts/lib/intent_tier.sh; intent_tier::grafana_unpatch' >"$T/r3.out" 2>&1); rc=$?; out="$(cat "$T/r3.out")"
+check "R3 managedFields reordered twice under the disown's read: the revert re-reads, exits 0, and no patch field manager is left" \
+  '[[ $rc -eq 0 ]] && grep -q "attempt 2/5 refused" <<<"$out" && [[ "$(dep "[.metadata.managedFields[] | select(.manager == \"agentic-netops-intent-tier-grafana-patch\")] | length")" -eq 0 ]] && [[ "$(vols)" == "$before" ]]'
+setup race-always
+run intent_tier::grafana_patch
+echo 99 >"$FAKE_STATE/mf_race"
+(cd "$ROOT" && PATH="$T/bin:$PATH" KUBECTL="$T/bin/kubectl" KUBE_CONTEXT=kind-test CLUSTER_NAME=agentic-netops \
+  INTENT_TIER_WAIT_TIMEOUT=5 INTENT_TIER_DISOWN_BACKOFF_SECONDS=0 INTENT_TIER_DISOWN_ATTEMPTS=3 bash -c 'source scripts/lib/intent_tier.sh; intent_tier::grafana_unpatch' >"$T/r3b.out" 2>&1); rc=$?; out="$(cat "$T/r3b.out")"
+check "R3 refused on every attempt: non-zero, naming monitoring/grafana" '[[ $rc -ne 0 ]] && grep -q "dropping the patch.s field manager from monitoring/grafana failed" <<<"$out"'
+rm -f "$FAKE_STATE/mf_race"
+run intent_tier::grafana_unpatch
+check "R4 the re-run after a revert stopped before its disown: exit 0, the stale patch field manager dropped" \
+  '[[ $rc -eq 0 ]] && [[ "$(dep "[.metadata.managedFields[] | select(.manager == \"agentic-netops-intent-tier-grafana-patch\")] | length")" -eq 0 ]] && [[ "$(vols)" == "$before" ]]'
 
 # a tier source listed twice (a hand edit) is removed in full, the control plane's sources kept
 setup twice

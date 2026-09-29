@@ -257,11 +257,10 @@ YAML
 }
 
 suite::finish() {
-  # the declared faults of this run (T043's convention) are evidence: record them, so the file is
-  # referenced by a run-captured record and verify-evidence admits it (NFR-013)
-  if [[ -f "$EVIDENCE_DIR/declared-faults.json" ]]; then
-    evidence_run "$(gate::id "$1.declared-faults")" --attach declared-faults.json -- cat "$EVIDENCE_DIR/declared-faults.json" >/dev/null || true
-  fi
+  # the declared faults of this run (T043's convention) are evidence: leftovers::declare_fault records
+  # an immutable snapshot on every append, and verify-evidence admits the ledger itself when it
+  # equals the newest one — the live ledger is never attached (a later append would read as a
+  # post-edit of this attachment, T151 r8)
   if [[ ${#SUITE_FAILS[@]} -gt 0 ]]; then
     log::error "$1 FAILED: ${SUITE_FAILS[*]} (evidence: $EVIDENCE_DIR)"; return 1
   fi

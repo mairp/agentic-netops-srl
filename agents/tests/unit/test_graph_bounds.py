@@ -173,6 +173,27 @@ async def test_an_informational_request_goes_through_the_guards_to_the_model(rig
     assert rig.gateway.requests == []
 
 
+async def test_a_failed_informational_model_call_names_the_model_provider(rig: Rig) -> None:
+    """NFR-010: the supervisor's own model call failing (provider unreachable) is reported as the
+    model provider's failure, never as the supervisor's generic internal error (T146)."""
+
+    class APIConnectionError(Exception):
+        pass
+
+    def unreachable(_messages: Any) -> Any:
+        raise APIConnectionError("litellm.APIConnectionError: Connection error.")
+
+    rig.llm.complete = unreachable  # type: ignore[method-assign]
+    chunks = await rig.turn("What constructs can I ask for?")
+    errors = [c for c in chunks if c["type"] == "error"]
+    assert len(errors) == 1 and errors[0]["stage"] == "supervisor"
+    assert errors[0]["retryable"] is True
+    assert errors[0]["reason"].startswith("model call failed: APIConnectionError: ")
+    assert not any("internal error" in str(c.get("reason") or c.get("message") or "")
+                   for c in chunks)
+    assert rig.gateway.requests == []
+
+
 async def test_worker_unreachable_is_retryable_and_the_thread_resumes(rig: Rig) -> None:
     rig.gateway.stop("devnet/provisioning/network-mapping")
     chunks = await rig.turn(PROMPT)

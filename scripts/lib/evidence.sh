@@ -133,26 +133,37 @@ evidence::ensure_dir() {
 # evidence::dir — ensure_dir, then print the path.
 evidence::dir() { evidence::ensure_dir || return 3; printf '%s' "$EVIDENCE_DIR"; }
 
+# evidence::_candidates <dir> <check-id> — the record files that can carry <check-id>: every *.json
+# in <dir> that contains the quoted id as a string at all. A strict superset of the records whose
+# check_id is <check-id> (jq still decides each one), found by ONE grep instead of one jq per
+# record — the per-record scan made every evidence_run cost O(records in the run), which put
+# minutes on a 1000-record tier phase (T153/SC-032).
+evidence::_candidates() {
+  [[ -d "$1" ]] || return 0
+  find "$1" -maxdepth 1 -type f -name '*.json' -exec grep -lF -e "\"$2\"" {} + 2>/dev/null
+  return 0
+}
+
 # evidence::has_failing_negative_control <dir> <check-id>
 evidence::has_failing_negative_control() {
   local dir="$1" check="$2" f
-  for f in "$dir"/*.json; do
+  while IFS= read -r f; do
     [[ -f "$f" ]] || continue
     jq -e --arg c "$check" \
       '.kind == "negative_control" and .check_id == $c and (.exit_status | type == "number") and .exit_status != 0' \
       "$f" >/dev/null 2>&1 && return 0
-  done
+  done < <(evidence::_candidates "$dir" "$check")
   return 1
 }
 
 # evidence::has_passing_negative_control <dir> <check-id>
 evidence::has_passing_negative_control() {
   local dir="$1" check="$2" f
-  for f in "$dir"/*.json; do
+  while IFS= read -r f; do
     [[ -f "$f" ]] || continue
     jq -e --arg c "$check" '.kind == "negative_control" and .check_id == $c and .exit_status == 0' \
       "$f" >/dev/null 2>&1 && return 0
-  done
+  done < <(evidence::_candidates "$dir" "$check")
   return 1
 }
 
@@ -311,4 +322,56 @@ evidence_negative_control() {
     return 4
   fi
   return 0
+}
+
+# evidence_seal <id> — one run-captured record attaching (hashing) every file in EVIDENCE_DIR that
+# no record references yet: what a command run under evidence_run wrote on its own (a suite's
+# measurements, its scratch manifests) and did not name with --attach. make verify-evidence admits
+# nothing unreferenced (NFR-013); called right after the command that wrote them, so the hash is
+# the file as that command left it. Skipped: the live declared-faults ledger (admitted through its
+# snapshots) and raw outputs whose record does not exist yet (an evidence_run still in flight).
+# Writes nothing when nothing is unreferenced. (T151 r9: 22+ suite files refused per cycle.)
+evidence_seal() {
+  local id="${1:?usage: evidence_seal <id>}" f
+  evidence::ensure_dir || return 3
+  local -a att=() abs=()
+  while IFS= read -r f; do
+    [[ -n "$f" ]] || continue
+    att+=(--attach "$f"); abs+=("$EVIDENCE_DIR/$f")
+  done < <(python3 - "$EVIDENCE_DIR" <<'PY'
+import json, os, sys
+d = sys.argv[1]
+ref, files = set(), set()
+for base, _, names in os.walk(d):
+    for n in names:
+        files.add(os.path.relpath(os.path.join(base, n), d))
+for f in files:
+    if not f.endswith(".json"):
+        continue
+    try:
+        r = json.load(open(os.path.join(d, f)))
+    except Exception:
+        continue
+    if not (isinstance(r, dict) and r.get("schema") == "agentic-netops.evidence/v1"):
+        continue
+    rdir = os.path.dirname(f)
+    ref.add(f)
+    for k in ("stdout", "stderr"):
+        v = (r.get("raw_output") or {}).get(k) or {}
+        if v.get("file"):
+            ref.add(os.path.normpath(os.path.join(rdir, v["file"])))
+    for a in r.get("attachments") or []:
+        if isinstance(a, dict) and a.get("file"):
+            ref.add(os.path.normpath(os.path.join(rdir, a["file"])))
+for f in sorted(files - ref):
+    if os.path.basename(f) == "declared-faults.json":
+        continue
+    stem, ext = os.path.splitext(f)
+    if ext in (".stdout", ".stderr") and not os.path.exists(os.path.join(d, stem + ".json")):
+        continue
+    print(f)
+PY
+)
+  [[ ${#abs[@]} -gt 0 ]] || return 0
+  evidence_run "$id" "${att[@]}" -- sha256sum -- "${abs[@]}" >/dev/null
 }

@@ -273,6 +273,9 @@ off::purge_intent_tier() {
   local attempt listing
   local -a a=() c=() r=()
   attempt="$(audit_export::attempt_id)"
+  # one attempt identifier for every record of this removal — the lists, the export and the
+  # usernames record — so the re-list is found beside the export it followed (T152 r6, R6)
+  export AUDIT_EXPORT_ATTEMPT="$attempt"
 
   # (a) the refusal-decision list — a read, itself a record
   listing="$(intent_tier::list_networks "tier-purge-refusal-list-${attempt}")" || return 1

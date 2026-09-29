@@ -93,6 +93,17 @@ lab::addr() {
 # lab::export_creds — hand the operator credentials to gnmic through its environment only.
 lab::export_creds() {
   if [[ -z "${SRL_PASS:-}" ]]; then
+    # unset: read them from the generated Secret of the lab that stands NOW — a deploy → test →
+    # destroy cycle generates new ones every time, so a value inherited from an earlier lab is
+    # never what a check should carry (T151)
+    local u p
+    u="$(lab::kubectl -n agentic-netops-system get secret srl-credentials -o jsonpath='{.data.username}' 2>/dev/null | base64 -d 2>/dev/null)" || u=""
+    p="$(lab::kubectl -n agentic-netops-system get secret srl-credentials -o jsonpath='{.data.password}' 2>/dev/null | base64 -d 2>/dev/null)" || p=""
+    if [[ -n "$p" ]]; then
+      SRL_USER="${u:-${SRL_USER:-}}" SRL_PASS="$p"; export SRL_USER SRL_PASS
+    fi
+  fi
+  if [[ -z "${SRL_PASS:-}" ]]; then
     echo "lab: SRL_PASS is not set (read it from the generated Secret; see quickstart.md §3)" >&2
     return 1
   fi
@@ -135,6 +146,61 @@ lab::kubectl() {
 }
 
 lab::docker() { "${DOCKER:-docker}" "$@"; }
+
+# ---- port-forwards. A backgrounded `lab::kubectl … port-forward … &` forks a bash subshell
+# (lab::kubectl is a function) whose child is kubectl: $! is the subshell, killing it orphans
+# kubectl, and both inherit every descriptor the caller had open — a caller's stdout pipe held
+# that way means a `… | tee` upstream never sees EOF. Started from inside $(…), the caller's
+# trap never even learns the PID. So every port-forward goes through these two:
+#
+#   lab::port_forward <registry> <log> <port-forward args…>
+#       starts `kubectl --context … port-forward <args…>` in the background with stdin from
+#       /dev/null, stdout+stderr to <log>, every other inherited descriptor closed, and the
+#       subshell replaced by kubectl (exec), so the PID is kubectl's own. The PID is appended to
+#       <registry> (a file — shared by subshells, unlike a variable) and left in LAB_PF_PID.
+#   lab::port_forward_stop <registry>
+#       TERM (then, after 3 s, KILL) every PID in <registry>, waits for each to be gone, removes
+#       <registry>. Idempotent; call it from the EXIT trap of the top-level shell.
+lab::port_forward() {
+  local reg="$1" log="$2"; shift 2
+  (
+    local fd n dir=/proc/self/fd
+    [[ -d "$dir" ]] || dir=/dev/fd
+    for fd in "$dir"/*; do
+      n="${fd##*/}"
+      if [[ "$n" =~ ^[0-9]+$ ]] && (( n > 2 && n != 255 )); then exec {n}>&-; fi
+    done
+    exec "${KUBECTL:-kubectl}" --context "${KUBE_CONTEXT:-kind-${CLUSTER_NAME}}" port-forward "$@"
+  ) </dev/null >"$log" 2>&1 &
+  LAB_PF_PID=$!
+  printf '%s\n' "$LAB_PF_PID" >>"$reg"
+}
+
+# lab::_pid_alive <pid> — running (a zombie awaiting its reaper is not)
+lab::_pid_alive() {
+  kill -0 "$1" 2>/dev/null || return 1
+  [[ -r "/proc/$1/stat" ]] || return 0
+  local st; st="$(sed -E 's/^.*\) ([A-Za-z]).*$/\1/' "/proc/$1/stat" 2>/dev/null)" || return 0
+  [[ "$st" != Z ]]
+}
+
+lab::port_forward_stop() {
+  local reg="$1" pid i live
+  [[ -f "$reg" ]] || return 0
+  local -a pids=()
+  mapfile -t pids < <(grep -E '^[0-9]+$' "$reg" 2>/dev/null || true)
+  for pid in "${pids[@]}"; do kill -TERM "$pid" 2>/dev/null || true; done
+  for i in $(seq 1 30); do
+    live=""
+    for pid in "${pids[@]}"; do lab::_pid_alive "$pid" && live+=" $pid"; done
+    [[ -z "$live" ]] && break
+    (( i == 30 )) && break
+    (( i == 15 )) && for pid in $live; do kill -KILL "$pid" 2>/dev/null || true; done
+    sleep 0.2
+  done
+  for pid in "${pids[@]}"; do wait "$pid" 2>/dev/null || true; done
+  rm -f "$reg"
+}
 
 # ---- the management data path (link level). containerlab renames an SR Linux container's eth0 to
 # mgmt0, so `docker network disconnect` only drops Docker's endpoint record and the mgmt0 veth

@@ -240,5 +240,6 @@ def traced_service() -> Iterator[Any]:
             wait_gone(svc.network)
 
 
-# VLAN 120 on leaf02 ethernet-1/1: naming band, a port no lab example holds that VLAN on
-TRACED_PROMPT = "Create a vlan for tenant acme on leaf02 ethernet-1/1 with VLAN 120"
+# VLAN 173 on leaf02 ethernet-1/1: naming band, a VLAN no lab example holds (examples/constructs use
+# 110-160, lab-macvrf holding 120 on both leaves — the r7 collision); no other e2e prompt names it
+TRACED_PROMPT = "Create a vlan for tenant acme on leaf02 ethernet-1/1 with VLAN 173"

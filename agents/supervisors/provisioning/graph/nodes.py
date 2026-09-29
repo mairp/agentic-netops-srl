@@ -381,6 +381,14 @@ async def inform(state: ServiceRequestState, runtime: Runtime[SupervisorContext]
             emit(runtime, state, "error", stage="supervisor", status=S.FAILED.value,
                  reason=f"model endpoint unavailable: {exc}", retryable=True)
             return {"turn_done": True}
+        except Exception as exc:  # the provider answered badly or not at all (NFR-010)
+            reason = (f"model call failed: {type(exc).__name__}: "
+                      f"{redact(str(exc)) or 'no detail'}")
+            metrics.record_stage("supervisor", "failed")
+            _trace_failure("supervisor", reason)
+            emit(runtime, state, "error", stage="supervisor", status=S.FAILED.value,
+                 reason=reason, retryable=True)
+            return {"turn_done": True}
     metrics.record_stage("supervisor", "succeeded")
     emit(runtime, state, "final", status=final_status, message=answer)
     updates: dict[str, Any] = {"turn_done": True}

@@ -211,18 +211,36 @@ obs::_grafana_creds() {
   [[ -n "$OBS_GF_USER" && -n "$OBS_GF_PASS" ]] || { echo "secret ${OBS_NS}/grafana-admin lacks admin-user/admin-password" >&2; return 1; }
 }
 
+# The Grafana port-forward. obs::grafana_api is called from inside $(…) (obs::dashboard, the
+# suites' dashboard readers), so the forward is started in a subshell: its PID is kept in a file
+# keyed on the top-level shell ($$ — the same in every subshell), reused while it answers, and
+# stopped by obs::grafana_stop, registered on the suite's exit trap when this file is sourced.
+# lab::port_forward gives it no descriptor of the caller's (stdin /dev/null, output to a log,
+# every other fd closed) and makes the PID kubectl's own.
+OBS_GF_PF_REG="${OBS_GF_PF_REG:-${TMPDIR:-/tmp}/obs-grafana-pf.$$.pids}"
+OBS_GF_PF_LOG="${OBS_GF_PF_LOG:-${TMPDIR:-/tmp}/obs-grafana-pf.$$.log}"
+
+obs::grafana_stop() {
+  lab::port_forward_stop "$OBS_GF_PF_REG"
+  rm -f "$OBS_GF_PF_LOG"
+}
+declare -F suite::on_exit >/dev/null && suite::on_exit obs::grafana_stop
+
+obs::_grafana_answers() { curl -s -o /dev/null --max-time 5 "http://127.0.0.1:${OBS_GF_PORT}/api/health"; }
+
 obs::_grafana_forward() {
-  if [[ -n "${OBS_GF_PF_PID:-}" ]] && kill -0 "$OBS_GF_PF_PID" 2>/dev/null; then return 0; fi
-  local log i
-  log="$(mktemp "${TMPDIR:-/tmp}/obs-grafana-pf.XXXXXX")"
-  lab::kubectl -n "$OBS_NS" port-forward svc/grafana "${OBS_GF_PORT}:3000" >"$log" 2>&1 </dev/null &
-  OBS_GF_PF_PID=$!
-  declare -F suite::on_exit >/dev/null && suite::on_exit "kill ${OBS_GF_PF_PID} 2>/dev/null; rm -f ${log}; true"
+  local pid i
+  pid="$(tail -n1 "$OBS_GF_PF_REG" 2>/dev/null || true)"
+  if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null && obs::_grafana_answers; then return 0; fi
+  lab::port_forward_stop "$OBS_GF_PF_REG"
+  lab::port_forward "$OBS_GF_PF_REG" "$OBS_GF_PF_LOG" -n "$OBS_NS" svc/grafana "${OBS_GF_PORT}:3000"
   for i in $(seq 1 30); do
-    curl -s -o /dev/null "http://127.0.0.1:${OBS_GF_PORT}/api/health" && return 0
+    obs::_grafana_answers && return 0
+    kill -0 "$LAB_PF_PID" 2>/dev/null || break
     sleep 1
   done
-  echo "the Grafana port-forward on 127.0.0.1:${OBS_GF_PORT} did not answer: $(tail -2 "$log")" >&2
+  echo "the Grafana port-forward on 127.0.0.1:${OBS_GF_PORT} did not answer: $(tail -2 "$OBS_GF_PF_LOG" 2>/dev/null)" >&2
+  lab::port_forward_stop "$OBS_GF_PF_REG"
   return 1
 }
 

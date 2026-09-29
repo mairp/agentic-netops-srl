@@ -16,7 +16,8 @@
 #   Idempotent: re-running converges (existing subinterfaces are kept, the MTU re-asserted,
 #   addresses already present are left alone). Nothing is ever deleted.
 #
-# Environment: CLIENT_IFACE (default eth1), CLIENT_MTU (default 9348), IP (the ip binary; tests).
+# Environment: CLIENT_IFACE (default eth1), CLIENT_MTU (default 9348), IP (the ip binary; tests),
+#   CLIENT_UNTAGGED_IFACES (default eth2: set to MTU and up when present, never given a VLAN).
 # POSIX sh on purpose: the endpoint image is a minimal Alpine with busybox, no bash.
 set -eu
 
@@ -33,6 +34,15 @@ case "$MTU" in ''|*[!0-9]*) die "CLIENT_MTU must be a number, got '$MTU'" ;; esa
 "$IP" link set dev "$IFACE" mtu "$MTU"
 "$IP" link set dev "$IFACE" up
 log "$IFACE mtu $MTU up"
+# client02's second link (eth2, behind leaf02's untagged access port ethernet-1/2 — AD-51, AD-68)
+# carries the untagged subinterface only: the same MTU, no VLAN subinterface.
+for extra in ${CLIENT_UNTAGGED_IFACES:-eth2}; do
+  [ "$extra" != "$IFACE" ] || continue
+  "$IP" link show dev "$extra" >/dev/null 2>&1 || continue
+  "$IP" link set dev "$extra" mtu "$MTU"
+  "$IP" link set dev "$extra" up
+  log "$extra mtu $MTU up (untagged access link)"
+done
 
 # "none" is the topology's default: containerlab's envsubst leaves an EMPTY default unexpanded.
 if [ "$#" -eq 0 ] && [ -n "${CLIENT_VLANS:-}" ] && [ "${CLIENT_VLANS}" != none ]; then

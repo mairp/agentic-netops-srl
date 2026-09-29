@@ -191,6 +191,10 @@ def test_fabric_sink_down_is_visible_and_the_store_stays_healthy() -> None:
         wait_trace(cid, lambda s: bool(spans_named(s, "supervisor.request")))
         wait_for("otlp/fabric queue growing while the fabric collector is down",
                  lambda: queue("otlp/fabric") > 0, timeout=180, every=10)
+        # the store already holds the trace (wait_trace above); its sent counter reaches
+        # Prometheus one scrape later — read once, it raced the scrape (T151 r8 cycle 2)
+        wait_for("clickhouse sent counter advancing while the fabric collector is down",
+                 lambda: sent("clickhouse") - before > 0, timeout=120, every=10)
         down = {"otlp_fabric_queue": queue("otlp/fabric"), "clickhouse_sent_delta":
                 sent("clickhouse") - before, "correlation_id": cid}
         assert down["clickhouse_sent_delta"] > 0, down

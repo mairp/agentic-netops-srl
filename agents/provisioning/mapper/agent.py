@@ -84,7 +84,12 @@ SPACE = "100\u20134000"
 PLACEHOLDER = "unknown"
 INVENTORY_FILE = "inventory.json"
 QUALIFIED = "qualified"
-ALIAS_CONSTRUCT = {"VPLS": "mac-vrf", "VPWS": "mac-vrf", "L2L3-IRB": "mac-vrf", "L3VPN": "ip-vrf"}
+ALIAS_CONSTRUCT = {
+    "VPLS": "mac-vrf",  # migration alias (FR-044)
+    "VPWS": "mac-vrf",  # migration alias (FR-044)
+    "L2L3-IRB": "mac-vrf",  # migration alias (FR-044)
+    "L3VPN": "ip-vrf",  # migration alias (FR-044)
+}
 _PORT = re.compile(r"^(?:ethernet|eth|et|e)[-_ ]?(\d+)\s*[/_-]\s*(\d+)$")
 _ADDRESS_TOKEN = re.compile(r"[0-9A-Fa-f:.]+")
 _GATEWAY_WORDS = re.compile(r"gateway|anycast|\bgw\b|\birb\b|l2l3", re.IGNORECASE)
@@ -384,6 +389,37 @@ def _one_construct(entry: str, catalogue: Catalogue) -> str | None:
     return f"request: one construct per request — you asked for {_and(found)}; send one"
 
 
+_PORT_NUMBERS = re.compile(r"(\d+)[/-](\d+)$")
+
+
+def port_written(port: str, text: str) -> bool:
+    """Whether the operator's text names ``port`` (canonical ``ethernet-<slot>/<port>``) in
+    any written form — ``ethernet-1/1``, ``eth1/1``, ``e1-1``, ``1/1`` — by its slot
+    and port numbers."""
+    match = _PORT_NUMBERS.search(port)
+    if match is None:
+        return port.lower() in text.lower()
+    slot, number = match.groups()
+    return re.search(rf"(?<![\d/.]){slot}\s*[/-]\s*{number}(?![\d/.])", text) is not None
+
+
+_ACTION = r"(?:den(?:y|ies|ied)|drop(?:s|ped)?|block(?:s|ed)?|reject(?:s|ed)?|discard(?:s|ed)?|" \
+          r"permit(?:s|ted)?|allow(?:s|ed)?|accept(?:s|ed)?)"
+_REST = r"(?:the\s+rest|everything\s+else|all\s+else|anything\s+else|all\s+other(?:\s+\w+)?|" \
+        r"all\s+remaining(?:\s+\w+)?|(?:the\s+)?remaining(?:\s+\w+)?|other\s+traffic|" \
+        r"all(?:\s+traffic)?(?=\s*(?:$|[.,;:)])))"
+_DEFAULT_WRITTEN = re.compile(
+    rf"\b{_ACTION}\s+{_REST}\b|\b{_REST}\s+(?:is\s+|are\s+|gets?\s+|to\s+be\s+)?{_ACTION}\b|"
+    rf"\bdefault\b|\bunmatched\b|\botherwise\s+{_ACTION}\b", re.IGNORECASE)
+
+
+def default_written(text: str) -> bool:
+    """Whether the operator's text states an access list's default action in any written form —
+    an action on "the rest" / "everything else" / "all other traffic", either order, or the words
+    default / unmatched / otherwise."""
+    return _DEFAULT_WRITTEN.search(text) is not None
+
+
 def review(interp: Interpretation, *, text: str, inventory: Inventory,
            qualification: dict[str, str], catalogue: Catalogue) -> Interpretation:
     """The deterministic half of the stage: every platform rule, applied in code. Returns a new
@@ -423,6 +459,10 @@ def review(interp: Interpretation, *, text: str, inventory: Inventory,
         vlan = ep.get("vlan")
         node_known = node_name != PLACEHOLDER and node_path not in missing
         port_known = port_name != PLACEHOLDER and port_path not in missing
+        if port_known and not port_written(port_name, text):
+            # a port the operator did not write is never supplied, even where the node has one
+            # access port only: the attachment is a service-defining value (FR-059, T144 live)
+            port_known = False
         if not node_known and node_path not in missing:
             missing.append(node_path)
         if not port_known and port_path not in missing:
@@ -497,6 +537,13 @@ def review(interp: Interpretation, *, text: str, inventory: Inventory,
         missing.append("ipv4_prefixes or ipv6_prefixes")
 
     # the access list (T111; FR-035 to FR-041)
+    acl_in = interp.acl
+    if acl_in is not None and acl_in.default_action is not None and not default_written(text):
+        # a default action is service-defining: kept only when the operator's words state one
+        # ("deny the rest", "everything else dropped", "default deny") — never the model's filler
+        # (FR-059; T144 live finding: "nothing else is filtered" read as a declared permit)
+        interp = interp.model_copy(
+            update={"acl": acl_in.model_copy(update={"default_action": None})})
     if interp.acl is not None:
         family_refused = any(c.startswith("acl.type:") for c in unsupported)
         data["acl"], acl_causes = acl_mod.review_acl(interp.acl, family_refused=family_refused)
@@ -560,7 +607,9 @@ class Mapper:
             else:
                 from common.llm import LLMClient
 
-                self._llm = LLMClient(self.settings.llm_provider_dir)
+                self._llm = LLMClient(self.settings.llm_provider_dir,
+                                      timeout=self.settings.model_call_timeout_seconds,
+            reasoning_effort=self.settings.model_reasoning_effort)
         return self._llm
 
     async def _complete(self, messages: list[dict[str, Any]]) -> str:
@@ -596,6 +645,18 @@ class Mapper:
             try:
                 interp = validate_model_output(answer, service_id)
             except ValueError as second:
+                found = [c.name for c in catalogue.unsupported if c.found_in(text)]
+                if found:
+                    # the operator's own words name a property no construct carries: that is the
+                    # answer, whatever the model made of it (SC-027; T144 live finding — a MAC acl
+                    # the model could not express failed schema validation instead of a refusal)
+                    reason = "; ".join(
+                        f"{name}: not supported — this platform provisions the constructs vlan, "
+                        "mac-vrf, ip-vrf and acl, and none carries it" for name in found)
+                    tracing.mark_worker_failure("mapper", reason, payload=_failed_payload(answer),
+                                                errors=str(second))
+                    raise MapperFailure(f"refused at interpretation: {reason}; nothing was "
+                                        "claimed or submitted") from None
                 reason = f"schema-invalid model output (after one retry): {second}"
                 # The trace keeps the interpretation that failed validation (T135).
                 tracing.mark_worker_failure("mapper", reason, payload=_failed_payload(answer),

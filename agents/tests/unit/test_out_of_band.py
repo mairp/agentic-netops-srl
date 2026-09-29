@@ -121,6 +121,18 @@ async def test_a_modified_spec_is_reported_modified_outside_the_tier_with_zero_w
     assert SPEC_HASH_ANNOTATION in rig.api.networks[NETWORK]["metadata"]["annotations"]
 
 
+async def test_a_modified_spec_is_reported_with_its_live_description() -> None:
+    rig = Rig()
+    await _submitted(rig)
+    remembered = rig.api.networks[NETWORK]["spec"].get("description")
+    rig.api.networks[NETWORK]["spec"]["description"] = "edited by hand"  # quickstart §26
+    report = await rig.status()
+    assert report.out_of_band == "modified"
+    live_part = (report.message or "").split("Live state:")[1]
+    assert '"edited by hand"' in live_part  # the live record, as it reads now
+    assert not remembered or remembered not in live_part  # never the remembered one
+
+
 async def test_an_absence_the_tier_did_not_cause_is_deleted_outside_the_tier(
         fresh_telemetry: Any) -> None:
     rig = Rig()

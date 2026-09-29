@@ -29,6 +29,12 @@ def create_app(**kwargs: Any) -> FastAPI:
 def _handler(settings: Settings) -> WorkerHandler:
     # Start-up resolves the allocation authority: an ALLOCATION_AUTHORITY that is neither
     # first-party nor kuid refuses to start rather than fail the first request.
+    # and, as every agent does, it constructs the model client once: a gateway declared without a
+    # base URL refuses to start and the effective endpoint is logged (FR-106, T168) — the allocator
+    # makes no model call, but the mounted llm-provider Secret is checked and reported all the same
+    from common.llm import LLMClient
+
+    LLMClient(settings.llm_provider_dir)
     allocator = Allocator(settings)
     config = allocator.adapter().config
     logging.getLogger("agentic_netops.allocator").info(

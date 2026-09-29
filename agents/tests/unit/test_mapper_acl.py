@@ -71,9 +71,111 @@ async def test_unmatched_traffic_follows_the_declared_default_never_the_model(
     # the model claims the opposite; the platform sets it from the default action
     body = standalone(default_action=default, unmatched_traffic="deny" if default is None
                       else "accept-platform-default")
-    interp = await interpretation(tmp_path, body)
+    text = ("an ingress acl on leaf01 ethernet-1/1 vlan 310 for tenant blue"
+            + (f" and {default} the rest" if default else ""))
+    interp = await interpretation(tmp_path, body, text=text)
     assert interp.unsupported_properties == []
     assert interp.acl is not None and interp.acl.unmatched_traffic == unmatched
+
+
+@pytest.mark.parametrize("text", [
+    "an ipv6 ingress acl permitting tcp 22 on leaf01 ethernet-1/1 vlan 310; "
+    "nothing else is filtered",
+    "an ingress acl on leaf01 ethernet-1/1 vlan 310 that permits https",
+])
+async def test_a_default_action_the_operator_did_not_state_is_dropped(tmp_path: Path, text: str
+                                                                      ) -> None:
+    # T144 live finding: "nothing else is filtered" came back as a declared permit default
+    interp = await interpretation(tmp_path, standalone(default_action="permit"), text=text)
+    assert interp.acl is not None and interp.acl.default_action is None
+    assert interp.acl.unmatched_traffic == "accept-platform-default"
+
+
+@pytest.mark.parametrize("text", ["deny the rest", "drop everything else",
+                                  "denies all other traffic", "everything else is dropped",
+                                  "default deny", "block all", "otherwise drop"])
+def test_default_written_reads_the_operators_forms(text: str) -> None:
+    from provisioning.mapper.agent import default_written
+    assert default_written(
+        f"an ingress acl on leaf01 ethernet-1/1 vlan 310 that permits tcp 22, {text}")
+
+
+@pytest.mark.parametrize(("rules", "family"), [
+    ([{"action": "permit", "protocol": "tcp", "source_prefix": "192.168.10.0/24",
+       "destination_port": "22"}], "ipv4"),
+    ([{"action": "deny", "protocol": "udp", "source_prefix": "2001:db8::/48"}], "ipv6"),
+    ([{"action": "permit", "protocol": "icmpv6"}], "ipv6"),
+])
+def test_an_unstated_family_is_the_family_the_request_states(rules: list[dict[str, Any]],
+                                                              family: str) -> None:
+    # T144 live finding: acl.type 'unknown' refused a list whose prefix states its family
+    data: dict[str, Any] = {"acl": {"type": "unknown", "stage": "ingress", "rules": rules}}
+    assert acl_mod.prepare(data) == []
+    assert data["acl"]["type"] == family and "acl.type" not in (data.get("missing_fields") or [])
+
+
+def test_a_family_nothing_states_is_asked_for() -> None:
+    data: dict[str, Any] = {"acl": {"type": None, "stage": "ingress",
+                                    "rules": [{"action": "permit", "protocol": "tcp",
+                                               "destination_port": "443"}]}}
+    assert acl_mod.prepare(data) == []
+    assert "acl.type" in data["missing_fields"]
+
+
+def test_any_port_and_any_prefix_placeholders_are_absent() -> None:
+    # T144 live finding: ports "0" and prefixes "::/0" on an icmpv6 rule with no stated port
+    data: dict[str, Any] = {"acl": {"type": "ipv6", "rules": [{
+        "action": "permit", "protocol": "icmpv6", "source_prefix": "::/0",
+        "destination_prefix": "::/0", "source_port": "0", "destination_port": 0}]}}
+    assert acl_mod.prepare(data) == []
+    assert not {"source_prefix", "destination_prefix", "source_port",
+                "destination_port"} & data["acl"]["rules"][0].keys()
+
+
+@pytest.mark.parametrize("prefix", ["0::/0", "0.0.0.0/0", "::/0", " 0:0::/0 ", "0.0.0.0/00"])
+def test_every_zero_length_prefix_is_absent(prefix: str) -> None:
+    # T151 r9 live finding: '0::/0' as the destination of a rule the operator gave none
+    data: dict[str, Any] = {"acl": {"type": "ipv6", "stage": "ingress", "rules": [{
+        "action": "permit", "protocol": "tcp", "source_prefix": "2001:db8:100::/48",
+        "destination_prefix": prefix, "destination_port": "22"}]}}
+    assert acl_mod.prepare(data) == []
+    rule = data["acl"]["rules"][0]
+    assert "destination_prefix" not in rule and rule["source_prefix"] == "2001:db8:100::/48"
+
+
+def test_a_non_zero_prefix_is_kept() -> None:
+    data: dict[str, Any] = {"acl": {"type": "ipv4", "stage": "ingress", "rules": [{
+        "action": "deny", "protocol": "udp", "destination_prefix": "10.0.0.0/8"}]}}
+    acl_mod.prepare(data)
+    assert data["acl"]["rules"][0]["destination_prefix"] == "10.0.0.0/8"
+
+
+def test_a_derived_label_names_only_what_the_rule_states() -> None:
+    # T151 r9 live finding: 'deny-udp-10-0-9-0-24-unknown-unknown-unknown' — the label was built
+    # from the model's placeholders before they were removed
+    data: dict[str, Any] = {"acl": {"type": "ipv4", "stage": "ingress", "rules": [{
+        "action": "deny", "protocol": "udp", "source_prefix": "10.0.9.0/24",
+        "source_port": "unknown", "destination_prefix": "0.0.0.0/0",
+        "destination_port": "161"}]}}
+    acl_mod.prepare(data)
+    assert data["acl"]["rules"][0]["name"] == "deny-udp-10-0-9-0-24-161"
+
+
+def test_the_prompt_reads_a_number_after_the_protocol_as_the_destination_port() -> None:
+    from provisioning.mapper import prompts
+    assert '"udp 161"' in prompts.RULES and "destination_port" in prompts.RULES.split("9.")[-1]
+
+
+@pytest.mark.parametrize("rule", [
+    {"action": "deny", "protocol": "mac", "source_prefix": "00:11:22:33:44:55"},
+    {"action": "deny", "protocol": "any", "source_mac": "00:11:22:33:44:55"},
+])
+def test_a_layer2_match_is_refused_by_name(rule: dict[str, Any]) -> None:
+    # T144 live finding: a MAC acl failed schema validation instead of being refused by name
+    data = standalone(type="ipv4", rules=[{"name": "a", "priority": 10, **rule}])
+    found = acl_mod.prepare(data)
+    assert any("Layer 2" in c for c in found)
+    Interpretation.parse({**data, "service_id": "abc"})
 
 
 @pytest.mark.parametrize(("spelling", "family"), [("l3", "ipv4"), ("ip", "ipv4"),
@@ -242,7 +344,7 @@ async def test_egress_is_accepted_when_the_record_shows_it(tmp_path: Path) -> No
 async def test_an_acl_endpoint_vlan_is_a_reference_anywhere_in_100_to_4000(
         tmp_path: Path, vlan: int) -> None:
     pipeline = Pipeline(Site(tmp_path), FakeLLM(standalone(vlan=vlan)))
-    interp, assignment = await pipeline.run("an acl")
+    interp, assignment = await pipeline.run("an acl on leaf02 ethernet-1/1")
     assert interp.unsupported_properties == []
     assert assignment is not None and assignment["endpoints"][0]["vlan"] == vlan
     assert pipeline.kube.creates() == 0  # a standalone acl claims nothing
@@ -313,3 +415,13 @@ async def test_a_genuinely_missing_field_beside_them_is_still_asked_for(tmp_path
     body["missing_fields"] = ["acl.rules[0].destination_prefix", "tenant"]
     interp = await interpretation(tmp_path, body)
     assert interp.missing_fields == ["tenant"]
+
+
+async def test_a_stated_family_the_model_lists_as_missing_is_no_question(tmp_path: Path) -> None:
+    # T153 §11e: the prompt wrote an IPv4 prefix; the model still listed acl.type as missing.
+    body = standalone(rules=[{"name": "web", "priority": 10, "action": "permit", "protocol": "tcp",
+                              "source_prefix": "10.0.0.0/24", "destination_port": "443"}])
+    body["acl"].pop("type", None)
+    body["missing_fields"] = ["acl.type"]
+    interp = await interpretation(tmp_path, body)
+    assert interp.missing_fields == []

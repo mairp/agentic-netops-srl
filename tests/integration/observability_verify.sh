@@ -44,6 +44,7 @@ source "$OV_HERE/lib/obs.sh"
 : "${OV_LINK:=ethernet-1/49}"
 : "${OV_STALE_WAIT:=120}"
 : "${OV_OUTAGE_WAIT:=300}"
+: "${OV_SINK_PRE_WAIT:=420}"   # one re-verification interval (300 s default) + two reconcile intervals + margin
 : "${OV_SINK_HOLD:=60}"
 : "${OV_JOBS:=devices otel-collector gnmic-self srl-provider sdc prometheus}"
 OV_SCRATCH="vt-scratch-obs-$(date +%s | tail -c 6)"
@@ -174,6 +175,13 @@ ov::chk_collector_serving() {
 
 ov::sink() {
   local rc
+  # precondition: the Fabric Ready=True BEFORE Prometheus goes. The outage stage takes the device
+  # collector down, and the collector is the read-back's state source, so the Fabric reports
+  # Ready=Unknown/VerificationFailed then and returns to True only at its next scheduled pass (one
+  # re-verification interval) — a hold started earlier would measure the collector outage, not
+  # this one (observed T151 r5 cycle 1: Unknown at poll 1).
+  rc=0; obs::check OV.sink.fabric-pre OV-fabric-ready --readiness -- obs::chk_fabric_ready "$FABRIC_NAMESPACE" "$FABRIC_NAME" "$OV_SINK_PRE_WAIT" >/dev/null || rc=$?
+  [[ "$rc" -eq 0 ]] || { suite::fail "sink: the Fabric not Ready=True within ${OV_SINK_PRE_WAIT}s before Prometheus was scaled down (precondition)"; return 0; }
   obs::scale "$OBS_NS" prometheus 0 || { suite::fail "sink: scaling Prometheus to 0"; return 0; }
   rc=0; obs::check OV.sink.fabric-hold OV-fabric-hold --readiness -- obs::chk_fabric_ready_hold "$FABRIC_NAMESPACE" "$FABRIC_NAME" "$OV_SINK_HOLD" >/dev/null || rc=$?
   suite::judge "$rc" "sink: Fabric Ready=True at every poll for ${OV_SINK_HOLD}s with Prometheus down (read-back healthy)" "sink: the Fabric left Ready=True while only Prometheus was down"

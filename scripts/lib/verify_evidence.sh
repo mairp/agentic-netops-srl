@@ -162,7 +162,19 @@ for f, rec in records.items():
     if ok:
         valid[f] = rec
 
+# The declared-faults ledger (tests/lib/leftovers.sh) is append-only and never attached itself: it
+# is admitted when it is byte-identical to the newest snapshot a valid record attached beside it
+# (declared-faults.d/NNNN-<id>.json); anything else is a hand edit or an unrecorded append.
 for f in sorted(all_files - referenced):
+    if os.path.basename(f) == "declared-faults.json":
+        sdir = os.path.join(os.path.dirname(f), "declared-faults.d")
+        snaps = sorted(r for r in referenced
+                       if os.path.dirname(r) == sdir and r in {os.path.normpath(os.path.join(os.path.dirname(v), a.get("file", "")))
+                                                              for v, rec in valid.items() for a in (rec.get("attachments") or []) if isinstance(a, dict)})
+        if snaps and sha(os.path.join(d, snaps[-1])) == sha(os.path.join(d, f)):
+            continue
+        fail(f, "declared-faults ledger differs from its newest recorded snapshot (or has none): an unrecorded append or a post-edit")
+        continue
     fail(f, "not referenced by any evidence record (hand-placed artefact; NFR-013 admits only run-captured proof)")
 
 # Negative controls, by check id (valid records only).
@@ -203,6 +215,42 @@ if names_sc004:
         fail(where, "records SC-004 without the route half's negative control "
                     f"(a failing negative control for check '{route[0][1].get('check_id')}')")
 
+# ok-after-retry (operator decision 2026-09-27-t151-one-retry): a step re-run once is recorded
+# under <id>.retry1 beside its failed first attempt <id>. Both are ordinary records and both are
+# kept; the pair is admitted and SHOWN, never hidden — and a retry that failed as well is shown too.
+by_id = {r.get("id"): r for r in records.values() if isinstance(r, dict)}
+for rid in sorted(i for i in by_id if isinstance(i, str) and i.endswith(".retry1")):
+    first = by_id.get(rid[: -len(".retry1")])
+    fx = first.get("exit_status") if first else "absent"
+    rx = by_id[rid].get("exit_status")
+    word = "ok-after-retry" if rx == 0 else "FAIL-after-retry"
+    print(f"{word}: {rid[: -len('.retry1')]} (first attempt exit {fx}; re-run exit {rx})")
+
+# a delta (operator decision 2026-09-28-t151-delta): a directory holding the run-captured record
+# acceptance.delta-of is a re-run of failed cycle steps; every acceptance.<check> step record in it
+# must be linked there to the results.tsv and step it re-verifies — the link is printed, and a step
+# with no link line fails (a delta nobody can trace to its failure proves nothing about T151)
+link = by_id.get("acceptance.delta-of")
+if isinstance(link, dict):
+    lf = os.path.join(d, ((link.get("raw_output") or {}).get("stdout") or {}).get("file") or "")
+    linked = {}
+    try:
+        for ln in open(lf):
+            parts = ln.rstrip("\n").split("\t")
+            if len(parts) >= 4:
+                linked[parts[0]] = parts[1:4]
+    except OSError:
+        fail(f"{d} (delta)", "acceptance.delta-of names no readable link list")
+    for rid in sorted(i for i in by_id if isinstance(i, str) and i.startswith("acceptance.")):
+        if rid == "acceptance.delta-of" or rid.endswith(".sealed") or rid.startswith("acceptance.verify-evidence"):
+            continue
+        chk = rid[len("acceptance."):]
+        chk = chk[: -len(".retry1")] if chk.endswith(".retry1") else chk
+        if chk not in linked:
+            fail(f"{d} (delta)", f"step {chk} is not linked to the failed cycle step it re-verifies")
+        else:
+            src, scope, outcome = linked[chk]
+            print(f"delta: {chk} re-verifies {scope}/{chk} ({outcome}) of {src}")
 for line in fails:
     print(line)
 n = len(records)

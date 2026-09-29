@@ -315,11 +315,13 @@ def test_a_worker_scaled_to_zero_is_named_and_the_thread_resumes(operator, super
     resumed = again.chunks()
     assert {c["thread_id"] for c in resumed} == {thread_id}
     assert {c["correlation_id"] for c in resumed} == {correlation}, "thread state not intact"
-    # the pending stage was retried: the mapper answered this time (reachable); until US4 brings
-    # its stage logic its answer is the terminal "not implemented" failure — never "unreachable"
+    # the pending stage was retried: the mapper answered this time (reachable) — its stage chunk
+    # (MAPPED) is on the resumed turn and nothing on it says "unreachable"; the turn stops at the
+    # first confirmation, so nothing is claimed or submitted (checked below)
     reasons = " ".join(str(c.get("reason", "")) + str(c.get("message", "")) for c in resumed)
     assert "worker unreachable" not in reasons, resumed
-    assert "mapper" in reasons, resumed
+    assert any(c.get("type") == "stage" and c.get("status") == "MAPPED" for c in resumed), resumed
+    assert resumed[-1].get("type") == "confirmation_request", resumed
     assert thread_count() == threads_before + 1, "a continuation must not mint a thread"
     assert network_names(INTENT_NS) == networks and claim_names() == claims
     final = supervisor_pod()

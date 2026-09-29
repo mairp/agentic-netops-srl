@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	stdlog "log"
 	"strings"
 	"testing"
 	"time"
@@ -100,5 +101,22 @@ func TestRedaction(t *testing.T) {
 	}
 	if !strings.Contains(out, Redacted) {
 		t.Errorf("no redaction marker: %s", out)
+	}
+}
+
+// T147 r8: net/http's "TLS handshake error" went through the standard library's log package as a
+// bare text line. Routed through StdlogWriter it is one JSON object carrying the NFR-014 fields.
+func TestStdlibLogLinesBecomeJSON(t *testing.T) {
+	var b bytes.Buffer
+	l := NewLogger(&b, Component, false, nil)
+	std := stdlog.New(StdlogWriter(l), "", 0)
+	std.Printf("http: TLS handshake error from %s: EOF", "10.244.0.33:49424")
+	got := lines(t, &b)
+	if len(got) != 1 {
+		t.Fatalf("%d lines", len(got))
+	}
+	if got[0]["msg"] != "http: TLS handshake error from 10.244.0.33:49424: EOF" || got[0]["level"] != "warn" ||
+		got[0]["component"] != Component || got[0]["ts"] == nil {
+		t.Fatalf("record %v", got[0])
 	}
 }

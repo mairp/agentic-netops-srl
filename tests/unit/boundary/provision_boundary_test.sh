@@ -31,6 +31,7 @@ cp "$ROOT/versions.lock.yaml" "$TR/versions.lock.yaml"
 printf 'apiVersion: apps/v1\nkind: Deployment\nmetadata: {name: supervisor}\n' >"$TR/deploy/agents/supervisor.yaml"
 cat >"$TR/tests/integration/boundary_probes.sh" <<'EOF'
 echo "PROBES run" >>"$FAKE_STATE/calls.log"
+echo "${BP_TIER_DEPLOYED:-0}" >"$FAKE_STATE/bp_mode"
 exit "${FAKE_PROBES_RC:-0}"
 EOF
 cat >"$TR/bin/kubectl" <<'EOF'
@@ -49,6 +50,7 @@ case "$*" in
   *"get configmap kubeadm-config"*) jq -n '{data: {ClusterConfiguration: "networking:\n  podSubnet: 10.244.0.0/16\n  serviceSubnet: 10.96.0.0/16\n"}}' ;;
   *"get validatingadmissionpolicy deny-tier-force-release -o json"*) echo '{"metadata":{"generation":1},"status":{"observedGeneration":1}}' ;;
   *"get validatingadmissionpolicybinding"*) echo ok ;;
+  *"get deployments,statefulsets -n agentic-netops-agents"*) [[ -n "${FAKE_STANDING:-}" ]] && echo "deployment.apps/supervisor"; exit 0 ;;
   *) exit 1 ;;
 esac
 EOF
@@ -95,6 +97,13 @@ grep -q 'deploy/agents' <<<"$calls" && bad "an agent workload was applied after 
 # 3
 FAKE_APPLY_FAIL="(stdin)" phase
 [[ $rc -ne 0 ]] && ! grep -q '^PROBES' <<<"$calls" && ok "an apply failure fails the phase before the probes" || bad "apply failure" "$calls"
+
+# 6 an idempotent re-run on a STANDING tier (quickstart §1/§20): the probes run in standing-tier mode
+phase
+[[ "$(cat "$TR/state/bp_mode")" == 0 ]] && ok "fresh install: the probes run in pre-deploy mode (BP_TIER_DEPLOYED unset)" || bad "fresh install mode" "$(cat "$TR/state/bp_mode")"
+FAKE_STANDING=1 phase
+[[ "$(cat "$TR/state/bp_mode")" == 1 ]] && grep -q 'already standing' <<<"$out" \
+  && ok "standing tier: the probes are re-run with BP_TIER_DEPLOYED=1 and the phase says so" || bad "standing tier mode" "$out"
 
 # 4
 phases="$(cd "$TR" && bash -c 'source scripts/provision.sh; printf "%s " "${PROVISION_PHASES[@]}"')"

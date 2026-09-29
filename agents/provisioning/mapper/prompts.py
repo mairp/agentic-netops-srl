@@ -28,7 +28,7 @@ SCHEMA_SHAPE = """{
   "acl": null | {"name": null | "<name>", "stage": "ingress" | "egress",
                  "type": "ipv4" | "ipv6" | "<as stated>",
                  "default_action": null | "permit" | "deny",
-                 "rules": [{"name": "<label>", "priority": <integer as stated>,
+                 "rules": [{"name": "<label>" | null, "priority": <integer as stated> | null,
                             "action": "permit" | "deny",
                             "protocol": "<name>" | <0-255>, "source_prefix": "<prefix>",
                             "destination_prefix": "<prefix>", "source_port": "<n or lo-hi>",
@@ -65,8 +65,13 @@ RULES = """Rules:
    clearly meant one of them.
 8. An access list's type and each rule's priority are copied exactly as the operator stated
    them (for example "l3", "mac" or 65535) — never corrected, re-numbered or dropped; the
-   platform folds and judges them. default_action is null unless the operator declared what
-   happens to traffic no rule matches."""
+   platform folds and judges them. A rule name or priority the operator did not state is null —
+   never "unknown", never invented, and not a missing field: the platform labels the rule and,
+   when no rule states a priority, orders the rules as they were stated.
+   default_action is null unless the operator declared what happens to traffic no rule matches.
+9. In an access-list rule, a number written right after the protocol ("udp 161", "tcp/22",
+   "tcp port 443") is that rule's destination_port, copied exactly. A prefix, port or protocol the
+   operator did not state is omitted — never "0.0.0.0/0", "::/0", "0-65535" or "unknown"."""
 
 
 def instructions(catalogue: Catalogue, inventory: dict[str, Any] | None) -> str:

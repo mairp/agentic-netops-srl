@@ -17,6 +17,7 @@ BOUNDS = {
     "WORKER_CALL_RETRIES": ("worker_call_retries", 2),
     "WORKER_CALL_BACKOFF_SECONDS": ("worker_call_backoff_seconds", 1.0),
     "DEPLOYER_CONVERGENCE_TIMEOUT_SECONDS": ("convergence_timeout_seconds", 150.0),
+    "MODEL_CALL_TIMEOUT_SECONDS": ("model_call_timeout_seconds", 45.0),
 }
 
 
@@ -54,6 +55,7 @@ def test_overrides_are_honoured() -> None:
         "SUPERVISOR_MAX_ITERATIONS": "5",
         "SUPERVISOR_REQUEST_DEADLINE_SECONDS": "280",
         "WORKER_CALL_TIMEOUT_SECONDS": "30",
+        "MODEL_CALL_TIMEOUT_SECONDS": "20",
         "DEPLOYER_CALL_TIMEOUT_SECONDS": "200",
         "WORKER_CALL_RETRIES": "0",
         "WORKER_CALL_BACKOFF_SECONDS": "0.5",
@@ -118,3 +120,29 @@ def test_non_slim_transport_raises_rather_than_falls_back() -> None:
     with pytest.raises(TransportConfigurationError, match="NATS"):
         settings.require_slim()
     Settings().require_slim()  # the default is SLIM and passes
+
+
+@pytest.mark.parametrize("env", [
+    {"MODEL_CALL_TIMEOUT_SECONDS": "60"},                                  # == worker call
+    {"MODEL_CALL_TIMEOUT_SECONDS": "90"},                                  # > worker call
+    {"WORKER_CALL_TIMEOUT_SECONDS": "30"},                                 # worker below default
+])
+def test_a_model_call_bound_not_below_the_worker_call_refuses_the_start(
+        env: dict[str, str]) -> None:
+    """NFR-010: a provider holding a call must be reported by the worker that made it, naming the
+    model provider, before the supervisor's call to that worker times out."""
+    with pytest.raises(BoundsConfigurationError, match="MODEL_CALL_TIMEOUT_SECONDS"):
+        load_settings(env)
+
+
+def test_a_model_call_bound_below_the_worker_call_starts() -> None:
+    s = load_settings({"MODEL_CALL_TIMEOUT_SECONDS": "59", "WORKER_CALL_TIMEOUT_SECONDS": "60"})
+    assert s.model_call_timeout_seconds == 59.0
+
+
+def test_the_model_reasoning_effort_defaults_low_and_is_a_closed_set() -> None:
+    assert load_settings({}).model_reasoning_effort == "low"
+    assert load_settings({"MODEL_REASONING_EFFORT": ""}).model_reasoning_effort == ""
+    assert load_settings({"MODEL_REASONING_EFFORT": "High"}).model_reasoning_effort == "high"
+    with pytest.raises(ValueError, match="MODEL_REASONING_EFFORT"):
+        load_settings({"MODEL_REASONING_EFFORT": "turbo"})

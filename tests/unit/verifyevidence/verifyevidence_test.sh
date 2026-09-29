@@ -189,5 +189,23 @@ out="$(env -u EVIDENCE_DIR EVIDENCE_ROOT="$TMP/sel" bash "$VERIFY" 2>&1)"; rc=$?
 [[ "$rc" -eq 0 ]] && grep -q '20260102T000000Z' <<<"$out" && pass "no argument: the newest run under the evidence root is verified" \
   || fail "no argument: the newest run under the evidence root is verified (rc=$rc)"
 
+# --- 4. the declared-faults ledger (tests/lib/leftovers.sh): admitted when byte-identical to its
+# newest recorded snapshot, never attached itself (T151 r8: appends read as post-edits)
+L="$TMP/ledger/c_l/20260103T000000Z"; mkdir -p "$L/declared-faults.d"
+snap() { # <n> — append one fault to the ledger and record a snapshot, as declare_fault does
+  jq -n --arg n "$1" '{schema: "agentic-netops.declared-faults/v1", faults: [range(0; ($n|tonumber)) | {id: "f\(.)"}]}' >"$L/declared-faults.json"
+  cp "$L/declared-faults.json" "$L/declared-faults.d/000$1-f.json"
+  env EVIDENCE_DIR="$L" EVIDENCE_CLUSTER_UID=uid-test EVIDENCE_DEVICE_IMAGE_DIGEST="$DIGEST" EVIDENCE_LAB=lab-t EVIDENCE_TOPOLOGY=/nonexistent \
+    bash -c "source '$LIB'; evidence_run declared-fault.f.$1 --attach declared-faults.d/000$1-f.json -- cat '$L/declared-faults.d/000$1-f.json' >/dev/null"
+}
+snap 1; snap 2
+out="$(bash "$VERIFY" "$L" 2>&1)"; rc=$?
+[[ "$rc" -eq 0 ]] && pass "ledger equal to its newest snapshot is admitted, earlier snapshots intact" \
+  || { fail "ledger equal to its newest snapshot is admitted (rc=$rc)"; echo "$out" | sed 's/^/    /'; }
+jq '.faults += [{id: "unrecorded"}]' "$L/declared-faults.json" >"$L/x" && mv "$L/x" "$L/declared-faults.json"
+out="$(bash "$VERIFY" "$L" 2>&1)"; rc=$?
+[[ "$rc" -ne 0 ]] && grep -q 'declared-faults ledger differs' <<<"$out" && pass "an unrecorded append to the ledger fails" \
+  || fail "an unrecorded append to the ledger fails (rc=$rc)"
+
 echo "verifyevidence_test: $fails failure(s)"
 [ "$fails" -eq 0 ]

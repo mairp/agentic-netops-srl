@@ -91,6 +91,12 @@ type claimTarget struct {
 // (overridable by Settings).
 func (r *Reconciler) claimTargetFor(f *fabricv1.Fabric) claimTarget {
 	ct := claimTarget{namespace: r.Settings.ClaimNamespace, vniIndex: r.Settings.VNIIndex, vlanIndex: r.Settings.VLANIndex}
+	// Under the first-party substitute every claim lives in its one namespace, whatever the
+	// Fabric's pool references say: a Fabric re-applied with kuid-system refs (and refused) must
+	// not send the finalizer's release to a namespace the provider cannot read (T153 §26a).
+	if ct.namespace == "" && r.Claims != nil && r.Claims.Authority() == kuid.AuthorityFirstParty {
+		ct.namespace = kuid.FirstPartyNamespace
+	}
 	if ct.namespace == "" && f != nil {
 		for _, p := range []*fabricv1.PoolRef{f.Spec.Underlay.ASNPoolRef, f.Spec.Underlay.LoopbackPoolRef, f.Spec.Underlay.LinkPoolRef} {
 			if p != nil && p.Namespace != "" {

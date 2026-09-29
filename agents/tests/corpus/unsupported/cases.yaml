@@ -1,0 +1,152 @@
+# Unsupported-construct corpus (T143; SC-027, FR-028, FR-034, FR-038, FR-097).
+#
+# Requests naming a construct or a property this platform does not provision. Each must be REFUSED
+# with every unsupported property named, and must leave zero Networks and zero allocation claims —
+# the live runner (agents/tests/corpus/run_corpus.py --corpus unsupported, T144) takes the
+# Network and claim sets before and after each request and fails on any difference, and fails if
+# the tier reaches a confirmation at all (it then declines it, so nothing is claimed).
+#
+# Two refusal paths, both deterministic whatever the model says:
+#   guard   no construct of the vocabulary is named: the supervisor's classifier refuses the
+#           request before any worker runs, naming the noun it was asked for
+#           (common/guards/classifier.py rule 6, refusals.refuse_unsupported_construct)
+#   mapper  a construct is named alongside an unsupported claim or property: the mapper's review
+#           refuses it — an unsupported claim of the catalogue (construct-vocabulary.md §5:
+#           traffic engineering, pseudowire OAM, control word, multicast VPN, complex QoS, service
+#           chaining), an egress access list (acl.egress is `unqualified` in the qualification
+#           record, FR-097), a Layer 2 (MAC) access list (out of the acl construct's scope,
+#           FR-038)
+# The offline half (agents/tests/unit/test_phrasing_corpus.py) proves the named refusal for each
+# case: the guard's message, or the mapper's review of `reading` (the interpretation a model is
+# expected to return for the text) against the reference site and the documented record.
+#
+# Fields: id (unique), path (guard | mapper), input (operator text, sent verbatim),
+# expected_unsupported (each string must appear, case-insensitively, in the refusal the operator
+# is shown), reading (mapper path only; as in phrasings/cases.yaml, the acl's `type` in the model's
+# raw spelling — `mac` for a Layer 2 list).
+
+version: 1
+cases:
+  # ------------------------------------------------------------------ guard: no construct named
+  - id: guard-01-srv6
+    path: guard
+    input: "Create an SRv6 policy from leaf01 to leaf02 for tenant acme"
+    expected_unsupported: [srv6]
+  - id: guard-02-mpls-lsp
+    path: guard
+    input: "Build an MPLS LSP between leaf01 and leaf02 for tenant blue"
+    expected_unsupported: [mpls]
+  - id: guard-03-pseudowire
+    path: guard
+    input: "Provision a pseudowire from leaf01 ethernet-1/1 to leaf02 ethernet-1/1 for tenant blue"
+    expected_unsupported: [pseudowire]
+  - id: guard-04-gre-tunnel
+    path: guard
+    input: "Make a GRE tunnel between leaf01 and leaf02 for tenant acme"
+    expected_unsupported: [gre]
+  - id: guard-05-flowspec
+    path: guard
+    input: "Deploy a flowspec rule dropping udp 123 toward 10.1.1.1 for tenant acme"
+    expected_unsupported: [flowspec]
+  - id: guard-06-multicast-vpn
+    path: guard
+    input: "Create a multicast VPN for tenant acme across leaf01 and leaf02"
+    expected_unsupported: [multicast]
+
+  # --------------------------------------------- mapper: a construct plus an unsupported claim
+  - id: mapper-01-macvrf-multicast
+    path: mapper
+    input: >-
+      Extend vlan 150 as a mac-vrf across leaf01 ethernet-1/1 and leaf02 ethernet-1/1 for tenant
+      blue with multicast replication for the video feeds
+    expected_unsupported: [multicast VPN]
+    reading:
+      construct: mac-vrf
+      tenant: blue
+      endpoints:
+        - {node: leaf01, port: ethernet-1/1, vlan: 150}
+        - {node: leaf02, port: ethernet-1/1, vlan: 150}
+  - id: mapper-02-ipvrf-traffic-engineering
+    path: mapper
+    input: >-
+      Create an ip-vrf for tenant acme carrying 10.80.0.0/24 on leaf01 ethernet-1/1 vlan 280,
+      pinned to a traffic-engineering path through spine02
+    expected_unsupported: [traffic engineering]
+    reading:
+      construct: ip-vrf
+      tenant: acme
+      endpoints: [{node: leaf01, port: ethernet-1/1, vlan: 280}]
+      ipv4_prefixes: [10.80.0.0/24]
+  - id: mapper-03-vlan-qos
+    path: mapper
+    input: "Create vlan 290 on leaf02 ethernet-1/1 for tenant acme with QoS shaping it to 100 Mbps"
+    expected_unsupported: [complex QoS]
+    reading:
+      construct: vlan
+      tenant: acme
+      endpoints: [{node: leaf02, port: ethernet-1/1, vlan: 290}]
+  - id: mapper-04-macvrf-pw-oam-control-word
+    path: mapper
+    input: >-
+      Create a mac-vrf across leaf01 ethernet-1/1 and leaf02 ethernet-1/1 on vlan 300 for tenant
+      globex with pseudowire OAM and the control word enabled
+    expected_unsupported: [pseudowire OAM, control word]
+    reading:
+      construct: mac-vrf
+      tenant: globex
+      endpoints:
+        - {node: leaf01, port: ethernet-1/1, vlan: 300}
+        - {node: leaf02, port: ethernet-1/1, vlan: 300}
+  - id: mapper-05-ipvrf-service-chaining
+    path: mapper
+    input: >-
+      Create an ip-vrf for tenant initech with 10.90.0.0/24 on leaf02 ethernet-1/1 vlan 390 and
+      service-chain its traffic through the firewall
+    expected_unsupported: [service chaining]
+    reading:
+      construct: ip-vrf
+      tenant: initech
+      endpoints: [{node: leaf02, port: ethernet-1/1, vlan: 390}]
+      ipv4_prefixes: [10.90.0.0/24]
+  - id: mapper-06-vlan-multicast-and-qos
+    path: mapper
+    input: >-
+      Create vlan 420 on leaf01 ethernet-1/1 for tenant blue, multicast enabled, with a policer
+      at 50 Mbps
+    expected_unsupported: [multicast VPN, complex QoS]
+    reading:
+      construct: vlan
+      tenant: blue
+      endpoints: [{node: leaf01, port: ethernet-1/1, vlan: 420}]
+
+  # -------------------------------------------- mapper: an unsupported property of the acl
+  - id: mapper-07-egress-acl
+    path: mapper
+    input: >-
+      Add an egress ipv4 acl on leaf01 ethernet-1/1 vlan 120 for tenant acme that denies tcp to
+      port 23
+    expected_unsupported: [egress]
+    reading:
+      construct: acl
+      tenant: acme
+      endpoints: [{node: leaf01, port: ethernet-1/1, vlan: 120}]
+      acl:
+        stage: egress
+        type: ipv4
+        rules:
+          - {action: deny, protocol: tcp, destination_port: "23"}
+  - id: mapper-08-mac-acl
+    path: mapper
+    input: >-
+      Add a MAC acl on leaf02 ethernet-1/1 vlan 100 for tenant blue, ingress, that denies frames
+      from source mac 00:11:22:33:44:55
+    expected_unsupported: [Layer 2]
+    reading:
+      construct: acl
+      tenant: blue
+      endpoints: [{node: leaf02, port: ethernet-1/1, vlan: 100}]
+      acl:
+        stage: ingress
+        type: mac
+        rules:
+          - {action: deny}

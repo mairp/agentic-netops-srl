@@ -130,7 +130,13 @@ rv::mgmt_cut() {
     "$cut" "$bound" "$stop" "$((bound + hold + 60))" "$RV_LEAF" "$healthy" >/dev/null 2>&1 &
   pid=$!
   wait "$tn_pid" || true
-  sleep "$((bound + hold))"
+  # The reconnection signal comes at cut + bound + hold, measured from the cut and never from the
+  # end of the Target watch above: that watch can run its whole bound (the Target's not-Ready
+  # transition lags a management cut — Open item 20), and a sleep taken after it pushed the signal
+  # past unknown_hold's own limit of bound + hold + 60 (T151 r7 cycle 1, live-findings
+  # 2026-09-26-t151r7).
+  local left=$((cut + bound + hold - $(date +%s)))
+  (( left > 0 )) && sleep "$left"
   touch "$stop"
   rc=0; wait "$pid" || rc=$?
   suite::mgmt_restore "$RV_LEAF" || suite::fail "[mgmt-cut] reconnection of $RV_LEAF"

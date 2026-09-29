@@ -102,7 +102,17 @@ leftovers::declare_fault() {
      --argjson revert "$revert" --arg utc "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
      --arg by "${0##*/}" \
      '.faults += [{id: $id, node: $node, change: $change, probe: $probe, revert: $revert,
-                   declared_utc: $utc, declared_by: $by}]' "$f" >"$tmp" && mv "$tmp" "$f"
+                   declared_utc: $utc, declared_by: $by}]' "$f" >"$tmp" && mv "$tmp" "$f" || return 1
+  # The ledger is appended to by every fault-making suite of a run, so it is never attached itself
+  # (a later append would read as a post-edit of every earlier attachment — T151 r8). Each append is
+  # instead recorded as an immutable snapshot; verify-evidence admits the ledger when it is
+  # byte-identical to its newest recorded snapshot.
+  local n snap
+  mkdir -p "$EVIDENCE_DIR/declared-faults.d"
+  n="$(find "$EVIDENCE_DIR/declared-faults.d" -maxdepth 1 -name '*.json' | wc -l)"
+  snap="declared-faults.d/$(printf '%04d' "$((n + 1))")-${id//[^A-Za-z0-9._-]/_}.json"
+  cp "$f" "$EVIDENCE_DIR/$snap"
+  evidence_run "declared-fault.${id//[^A-Za-z0-9._-]/_}.$((n + 1))" --attach "$snap" -- cat "$EVIDENCE_DIR/$snap" >/dev/null
 }
 
 # leftovers::_declared_faults — every declared fault of this cluster/lab, as JSON lines
@@ -120,6 +130,25 @@ leftovers::_declared_faults() {
 
 # ---------------------------------------------------------------- probes
 
+# An ABSENT lab part holds no leftover: a node whose container does not exist at all (Docker
+# answers "No such object" — never merely "not running", which still fails closed) and a cluster
+# whose kube context does not exist are skipped, each named on stderr. A scratch object, a fault
+# and a gate-labelled object all live in the node or the cluster, so they went with it; this is
+# what lets a clean deploy (T151) start on a host the lab was removed from.
+leftovers::_node_absent() {
+  local out
+  out="$(lab::docker inspect -f '{{.State.Status}}' "$(lab::container "$1")" 2>&1)" && return 1
+  grep -qi 'no such object\|no such container' <<<"$out"
+}
+leftovers::_absent_note() { echo "leftovers: $1 absent — nothing can be left in it (skipped)" >&2; }
+leftovers::_present_nodes() {
+  local n
+  for n in "$@"; do
+    if leftovers::_node_absent "$n"; then leftovers::_absent_note "node $n ($(lab::container "$n"))"
+    else printf '%s\n' "$n"; fi
+  done
+}
+
 # leftovers::_scratch_paths — read a gnmic get response on stdin; print "<json-path>\t<value>" of
 # every string value (or object key value) carrying the prefix.
 leftovers::_scratch_paths() {
@@ -133,7 +162,7 @@ leftovers::_scratch_paths() {
 # (lab::mgmt_reachable: link carrier, and a device's gNMI port accepting from the host)
 leftovers::_probe_mgmt() {
   local node why rc=0
-  for node in $(lab::all_nodes); do
+  for node in $(leftovers::_present_nodes $(lab::all_nodes) 2>/dev/null); do
     if ! why="$(lab::mgmt_reachable "$node")"; then
       echo "LEFTOVER mgmt-detached $node ${why}"
       rc=1
@@ -207,11 +236,24 @@ leftovers::_probe_declared() {
 
 # ---------------------------------------------------------------- (iv) the scan
 
+# leftovers::_datastore_redacted — the running datastore of the node LAB_ARGV addresses, with every
+# credential-bearing leaf (password, secret, psk, private or authentication key) replaced by
+# "<redacted>" BEFORE it reaches the run's evidence: the scan needs object names, never a device
+# user's password hash, and evidence is swept by the credential scan (FR-079, SC-031, T147).
+leftovers::_datastore_redacted() {
+  local out
+  out="$("${LAB_ARGV[@]}" get --type config --path /)" || return $?
+  jq 'walk(if type == "object" then with_entries(
+        if (.key | test("password|secret|psk|private-key|authentication-key|^key$"; "i"))
+           and (.value | type) == "string"
+        then .value = "<redacted>" else . end) else . end)' <<<"$out"
+}
+
 leftovers::_scan_devices() {
   local node out rc=0 line
-  for node in $(lab::devices); do
+  for node in $(leftovers::_present_nodes $(lab::devices)); do
     lab::gnmic_argv "$node" || { rc=1; continue; }
-    if ! out="$(leftovers::_run "datastore.${node}" -- "${LAB_ARGV[@]}" get --type config --path /)"; then
+    if ! out="$(leftovers::_run "datastore.${node}" -- leftovers::_datastore_redacted)"; then
       echo "LEFTOVER unscannable $node the running datastore could not be read (gNMI Get failed)"
       rc=1; continue
     fi
@@ -226,7 +268,7 @@ leftovers::_scan_devices() {
 
 leftovers::_scan_clients() {
   local node out rc=0 l
-  for node in $(lab::clients); do
+  for node in $(leftovers::_present_nodes $(lab::clients)); do
     if ! out="$(leftovers::_run "links.${node}" -- lab::docker exec "$(lab::container "$node")" ip -o link show)"; then
       echo "LEFTOVER unscannable $node the client's links could not be listed"
       rc=1; continue
@@ -258,6 +300,10 @@ LEFTOVERS_ALLOC_RES="identifierclaims.fabric.agentic-netops.io,identifierpools.f
 
 leftovers::_scan_cluster() {
   local out rc=0 l
+  out="$(lab::kubectl config get-contexts -o name 2>/dev/null)" || out=""
+  if [[ -n "$out" ]] && ! grep -qxF -- "${KUBE_CONTEXT:-kind-${CLUSTER_NAME}}" <<<"$out"; then
+    leftovers::_absent_note "cluster (no kube context ${KUBE_CONTEXT:-kind-${CLUSTER_NAME}})"; return 0
+  fi
   out="$(leftovers::_kubectl_list "configs" get configs.config.sdcio.dev -A -o json)" || {
     echo "LEFTOVER unscannable cluster the Configs could not be listed (kind-${CLUSTER_NAME})"; return 1; }
   if [[ -n "$out" ]]; then
@@ -298,13 +344,17 @@ leftovers::_scan_cluster() {
 leftovers::_scan_faults() {
   local rc=0 node f
   leftovers::_probe_mgmt || rc=1
-  for node in $(lab::all_nodes); do
+  for node in $(leftovers::_present_nodes $(lab::all_nodes) 2>/dev/null); do
     leftovers::_probe_netem "$node" || rc=1
   done
-  local seq=0
+  local seq=0 fnode
   while read -r f; do
     [[ -n "$f" ]] || continue
     seq=$((seq + 1))
+    fnode="$(jq -r '.probe.node // .node' <<<"$f")"
+    if leftovers::_node_absent "$fnode"; then
+      leftovers::_absent_note "node $fnode of declared fault $(jq -r .id <<<"$f")"; continue
+    fi
     leftovers::_probe_declared "$f" "$seq" || rc=1
   done < <(leftovers::_declared_faults)
   return "$rc"
@@ -315,7 +365,11 @@ leftovers::scan() {
   local rc=0 findings
   leftovers::_new_scan_id
   if [[ "${LEFTOVERS_NO_EVIDENCE:-0}" != 1 ]]; then evidence::ensure_dir || return 3; fi
-  lab::export_creds || return 1
+  # device credentials are needed only to read a device that exists: on a host the lab was
+  # removed from there is no device and no generated Secret to read them from
+  if [[ -n "$(leftovers::_present_nodes $(lab::devices) 2>/dev/null)" ]]; then
+    lab::export_creds || return 1
+  fi
   findings="$(
     leftovers::_scan_faults
     leftovers::_scan_devices
@@ -395,7 +449,7 @@ leftovers::remove() {
   fi
   for node in $(lab::devices); do
     lab::gnmic_argv "$node" || continue
-    out="$(leftovers::_run "read.${node}" -- "${LAB_ARGV[@]}" get --type config --path /)" || continue
+    out="$(leftovers::_run "read.${node}" -- leftovers::_datastore_redacted)" || continue   # credential leaves redacted before evidence
     local doc jp val ep
     doc="$(jq "$(lab::jq_lib)"' gvalues | .[0] // {}' <<<"$out")"
     local -a eps=()

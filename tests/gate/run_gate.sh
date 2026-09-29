@@ -110,7 +110,7 @@ run_gate::record() {
     quals="$(jq -c --arg q "$q" --slurpfile v "$f" '. + {($q): $v[0]}' <<<"$quals")"
   done
   local negs
-  negs="$(for f in "$EVIDENCE_DIR"/*.negative-control*.json; do [[ -f "$f" ]] && jq -c '{check: .check_id, file: (.id + ".json"), failed_as_required: .negative_control_failed}' "$f"; done | jq -s -c '.')"
+  negs="$(for f in "$EVIDENCE_DIR"/*.negative-control*.json; do [[ -f "$f" ]] || continue; jq -c '{check: .check_id, file: (.id + ".json"), failed_as_required: .negative_control_failed}' "$f"; done | jq -s -c '.')"
   jq -n -S --arg schema "agentic-netops.gate-record/v1" --arg result "$result" --arg reason "$reason" \
     --arg started "$GATE_STARTED" --arg finished "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     --arg cluster "$CLUSTER_NAME" --arg lab "$LAB_NAME" --arg digest "$(evidence::device_image_digest 2>/dev/null || true)" \
@@ -161,6 +161,15 @@ for f in files:
         for a in r.get("attachments") or []:
             ref.add(a.get("file"))
 for f in sorted(files - ref):
+    # the live declared-faults ledger is admitted through its snapshots, never attached
+    if os.path.basename(f) == "declared-faults.json":
+        continue
+    # a raw output whose record does not exist yet belongs to an evidence_run still in flight (the
+    # acceptance wrapper around provisioning): its own record will reference it; hashing it now
+    # made every later byte a "post-edit" (T151 r8)
+    stem, ext = os.path.splitext(f)
+    if ext in (".stdout", ".stderr") and not os.path.exists(os.path.join(d, stem + ".json")):
+        continue
     print(f)
 PY
 )

@@ -132,7 +132,7 @@ _QUESTION = re.compile(
 # Rule 5 — provisioning verbs.
 _PROVISION = re.compile(
     r"\b(?:create|add|provision|build|set up|setup|make|declare|extend|stretch|attach|connect"
-    r"|migrate|need|want|give me|deploy|remove|delete|tear down|decommission|change|modify"
+    r"|migrate|need|want|give me|give|deploy|remove|delete|tear down|decommission|change|modify"
     r"|bind|filter|allow|deny|block|permit|route)\b"
 )
 

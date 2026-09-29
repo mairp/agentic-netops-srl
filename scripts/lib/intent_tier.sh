@@ -491,17 +491,26 @@ intent_tier::_grafana_apply_ops() { # <add|remove> — 0 and prints changed|unch
 # through and resets both volumes to the control plane's form; `--with-intent-tier` re-adds the two
 # lines (the patch is idempotent). A request that edits managedFields records no entry of its own.
 intent_tier::_grafana_disown() {
-  local ops out
-  ops="$(intent_tier::k get deployment "$INTENT_TIER_GRAFANA_DEPLOYMENT" -n "$INTENT_TIER_GRAFANA_NS" -o json --show-managed-fields \
-    | jq -c --arg m "$INTENT_TIER_GRAFANA_PATCH_MANAGER" '[.metadata.managedFields // [] | to_entries[] | select(.value.manager == $m) | .key]
-        | sort | reverse | map({op: "test", path: "/metadata/managedFields/\(.)/manager", value: $m}, {op: "remove", path: "/metadata/managedFields/\(.)"})')" \
-    || { log::error "intent tier: reading the managedFields of ${INTENT_TIER_GRAFANA_NS}/${INTENT_TIER_GRAFANA_DEPLOYMENT} failed"; return 1; }
-  [[ "$(jq length <<<"$ops")" -gt 0 ]] || return 0
-  if ! out="$(intent_tier::k patch deployment "$INTENT_TIER_GRAFANA_DEPLOYMENT" -n "$INTENT_TIER_GRAFANA_NS" --type=json -p "$ops" 2>&1)"; then
-    log::error "intent tier: dropping the patch's field manager from ${INTENT_TIER_GRAFANA_NS}/${INTENT_TIER_GRAFANA_DEPLOYMENT} failed:"
-    printf '%s\n' "$out" | sed 's/^/    | /' >&2
-    return 1
-  fi
+  # The entries are addressed by index, and the Deployment controller's status writes reorder
+  # managedFields between our read and our patch — the `test` op then refuses the patch (422, "the
+  # request is invalid"). So each attempt re-reads and re-derives the indices; only a failure on
+  # every one of INTENT_TIER_DISOWN_ATTEMPTS (default 5) attempts is an error (T153 r5 §24).
+  local ops out attempt max="${INTENT_TIER_DISOWN_ATTEMPTS:-5}"
+  for ((attempt = 1; attempt <= max; attempt++)); do
+    ops="$(intent_tier::k get deployment "$INTENT_TIER_GRAFANA_DEPLOYMENT" -n "$INTENT_TIER_GRAFANA_NS" -o json --show-managed-fields \
+      | jq -c --arg m "$INTENT_TIER_GRAFANA_PATCH_MANAGER" '[.metadata.managedFields // [] | to_entries[] | select(.value.manager == $m) | .key]
+          | sort | reverse | map({op: "test", path: "/metadata/managedFields/\(.)/manager", value: $m}, {op: "remove", path: "/metadata/managedFields/\(.)"})')" \
+      || { log::error "intent tier: reading the managedFields of ${INTENT_TIER_GRAFANA_NS}/${INTENT_TIER_GRAFANA_DEPLOYMENT} failed"; return 1; }
+    [[ "$(jq length <<<"$ops")" -gt 0 ]] || return 0
+    if out="$(intent_tier::k patch deployment "$INTENT_TIER_GRAFANA_DEPLOYMENT" -n "$INTENT_TIER_GRAFANA_NS" --type=json -p "$ops" 2>&1)"; then
+      return 0
+    fi
+    log::warn "intent tier: dropping the patch's field manager from ${INTENT_TIER_GRAFANA_NS}/${INTENT_TIER_GRAFANA_DEPLOYMENT}: attempt ${attempt}/${max} refused (managedFields moved under the read) — re-reading"
+    sleep "${INTENT_TIER_DISOWN_BACKOFF_SECONDS:-1}"
+  done
+  log::error "intent tier: dropping the patch's field manager from ${INTENT_TIER_GRAFANA_NS}/${INTENT_TIER_GRAFANA_DEPLOYMENT} failed:"
+  printf '%s\n' "$out" | sed 's/^/    | /' >&2
+  return 1
 }
 intent_tier::_grafana_rollout() {
   KUBE_CONTEXT="$(intent_tier::_ctx)" k8s_wait::rollout "$INTENT_TIER_GRAFANA_NS" "deployment/${INTENT_TIER_GRAFANA_DEPLOYMENT}" "$INTENT_TIER_WAIT_TIMEOUT" \
@@ -559,6 +568,9 @@ intent_tier::grafana_unpatch() {
       intent_tier::_grafana_rollout || return 1
       log::info "tier purge: the two-line patch of ${INTENT_TIER_GRAFANA_NS}/${INTENT_TIER_GRAFANA_DEPLOYMENT} reverted and rolled out"
     else
+      # a revert that stopped after its remove but before its disown leaves the patch's field
+      # manager behind with nothing left to remove — drop it on the re-run too
+      intent_tier::_grafana_disown || return 1
       log::info "tier purge: ${INTENT_TIER_GRAFANA_NS}/${INTENT_TIER_GRAFANA_DEPLOYMENT} carries no tier source — nothing reverted"
     fi
   else

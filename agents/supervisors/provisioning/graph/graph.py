@@ -34,6 +34,7 @@ from typing import Any
 from langgraph.graph import END, START, StateGraph
 from langgraph.runtime import Runtime
 
+from common import logging as tier_logging
 from common import metrics
 from common.exceptions import AgenticNetopsError
 from common.provisioning_states import WorkflowStatus
@@ -234,6 +235,10 @@ class Supervisor:
             with request_span("supervisor.request", correlation_id=correlation_id,
                               attributes={"thread_id": thread_id, "principal": principal},
                               attach=False) as span:
+                tier_logging.bind_correlation_id(span.correlation_id)  # §27: every line after
+                log.info("request accepted: POST /agent/prompt/stream on thread %s (%s)",
+                         thread_id, "new" if new else "continued",
+                         extra={"thread_id": thread_id, "correlation_id": span.correlation_id})
                 context = SupervisorContext(self.settings, self.client(), self.llm, self.clock,
                                             span.span, self.registry)
                 turn_input = {"thread_id": thread_id, "correlation_id": span.correlation_id,

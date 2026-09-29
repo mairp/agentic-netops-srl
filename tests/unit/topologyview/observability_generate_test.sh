@@ -39,7 +39,17 @@ export OBSERVABILITY_TOPOLOGYVIEW_BIN="$TMP/topologyview"
 mkdir -p "$TMP/bin"
 cat >"$TMP/bin/docker" <<'SH'
 #!/usr/bin/env bash
-# fake docker: record the argv (one arg per line, then a separator) and play clab-io-draw
+# fake docker: image/pull/tag (observability::ensure_image) go to their own log; `run` records
+# the argv (one arg per line, then a separator) and plays clab-io-draw
+case "${1:-}" in
+  image) echo "image $*" >>"$FAKE_DOCKER_LOG.aux"; [[ "${FAKE_IMAGE_ABSENT:-}" == 1 && ! -e "$FAKE_DOCKER_LOG.pulled" ]] && exit 1; exit 0 ;;
+  pull)
+    n=$(( $(cat "$FAKE_DOCKER_LOG.pulls" 2>/dev/null || echo 0) + 1 )); echo "$n" >"$FAKE_DOCKER_LOG.pulls"
+    echo "pull $2" >>"$FAKE_DOCKER_LOG.aux"
+    (( n <= ${FAKE_PULL_FAILS:-0} )) && exit 1
+    : >"$FAKE_DOCKER_LOG.pulled"; exit 0 ;;
+  tag) echo "tag $2 $3" >>"$FAKE_DOCKER_LOG.aux"; exit 0 ;;
+esac
 { printf '%s\n' "$@"; echo '--'; } >>"$FAKE_DOCKER_LOG"
 [[ "${FAKE_DOCKER_FAIL:-}" == 1 ]] && { echo "boom" >&2; exit 3; }
 dir=""; prev=""
@@ -72,6 +82,26 @@ want_seq=$'--network\nnone'
 for seq in $'-i\ntopology.clab.yml' $'-g' $'--theme\ngrafana' $'--grafana-interface-format\nethernet-{x}/{x}:e{x}-{x}'; do
   [[ "$argv" == *"$seq"* ]] && pass "argv carries ${seq//$'\n'/ }" || fail "argv lacks ${seq//$'\n'/ }" "$argv"
 done
+
+# 1b. the pinned image held locally (T151 r9): present → no pull, tagged under its pinned tag so
+#     a dangling-image prune cannot remove it; absent → pulled by the pinned ref, with retries;
+#     every pull failing → the step fails before docker run
+aux="$FAKE_DOCKER_LOG.aux"
+grep -q '^pull ' "$aux" && fail "a present image was pulled" "$(cat "$aux")" || pass "present image: not pulled"
+grep -qxF "tag $REF ${REF%@sha256:*}" "$aux" && pass "present image held under its pinned tag ${REF%@sha256:*}" \
+  || fail "pinned image not held under its tag" "$(cat "$aux")"
+: >"$FAKE_DOCKER_LOG"; : >"$aux"; rm -f "$FAKE_DOCKER_LOG.pulls" "$FAKE_DOCKER_LOG.pulled"
+log="$(FAKE_IMAGE_ABSENT=1 FAKE_PULL_FAILS=2 OBSERVABILITY_PULL_BACKOFF_S=0 bash -c "source '$LIB'; observability::generate '$TMP/out-pull'" 2>&1)"; rc=$?
+pulls="$(grep -c "^pull $REF\$" "$aux")"
+[[ $rc -eq 0 && "$pulls" == 3 && "$(grep -c '^--$' "$FAKE_DOCKER_LOG")" == 1 ]] \
+  && pass "absent image: pulled by the pinned ref, two failures retried, then run" \
+  || fail "absent image: exit $rc, $pulls pull(s)" "$log"$'\n'"$(cat "$aux")"
+: >"$FAKE_DOCKER_LOG"; : >"$aux"; rm -f "$FAKE_DOCKER_LOG.pulls" "$FAKE_DOCKER_LOG.pulled"
+log="$(FAKE_IMAGE_ABSENT=1 FAKE_PULL_FAILS=99 OBSERVABILITY_PULL_ATTEMPTS=3 OBSERVABILITY_PULL_BACKOFF_S=0 bash -c "source '$LIB'; observability::generate '$TMP/out-nopull'" 2>&1)"; rc=$?
+[[ $rc -ne 0 && ! -s "$FAKE_DOCKER_LOG" && "$(grep -c '^pull ' "$aux")" == 3 && "$log" == *"3 pull attempt(s) failed"* ]] \
+  && pass "unpullable image: 3 attempts, the step fails naming it, docker run never reached" \
+  || fail "unpullable image: exit $rc" "$log"$'\n'"$(cat "$aux")"
+: >"$aux"
 
 # 2. the outputs
 for f in gnmic-targets.txt topology.svg topology-panel.yaml topology-rules.yaml inventory-digest.txt; do

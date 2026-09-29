@@ -1067,6 +1067,47 @@ func TestPassThatCannotRun(t *testing.T) {
 	sameVersions(t, "target outage", before, versions(t, h.name))
 }
 
+// The layer stops confirming, at the same generation, a Config it had confirmed —
+// its Target still reported Ready (the layer notices a lost session in its Config
+// status first): a read-back that cannot run, Ready=Unknown/VerificationFailed and
+// Degraded=True naming the node, never Ready=False/NotConverged; lastVerifiedTime
+// frozen; zero Config writes; Ready=True again once the layer confirms (AD-40, AD-54,
+// AD-62; T151 r9's management cut read as NotConverged on the Fabric).
+func TestLayerUnconfirmsAtSameGenerationIsUnknown(t *testing.T) {
+	h := newHarness(t, "fab-unconfirm")
+	h.converge()
+	frozen := h.fabric().Status.LastVerifiedTime
+
+	for _, c := range listConfigs(t, h.name) {
+		c := c
+		if c.Labels[sdc.LabelTargetName] != "leaf02" {
+			continue
+		}
+		c.Status.Conditions = []condv1alpha1.Condition{cond(condv1alpha1.ConditionTypeReady, metav1.ConditionFalse, "NotReady", c.Generation)}
+		must(t, k8s.Status().Update(context.Background(), &c))
+	}
+	before := versions(t, h.name)
+	h.clock.Step(10 * time.Second)
+	h.reconcile()
+	neitherTrueNorFalse(t, h.wantCond("Ready", metav1.ConditionUnknown, "VerificationFailed", "leaf02"))
+	h.wantCond("Degraded", metav1.ConditionTrue, "VerificationFailed", "leaf02")
+	h.clock.Step(5 * time.Minute)
+	h.reconcile()
+	neitherTrueNorFalse(t, h.wantCond("Ready", metav1.ConditionUnknown, "VerificationFailed", "leaf02"))
+	if lv := h.fabric().Status.LastVerifiedTime; !lv.Equal(frozen) {
+		t.Fatalf("lastVerifiedTime moved while the layer did not confirm: %v -> %v", frozen, lv)
+	}
+	sameVersions(t, "layer unconfirmed", before, versions(t, h.name))
+
+	confirmConfigs(t, h.name)
+	before = versions(t, h.name)
+	h.clock.Step(10 * time.Second)
+	h.reconcile()
+	h.wantCond("Ready", metav1.ConditionTrue, "")
+	h.wantCond("Degraded", metav1.ConditionFalse, "")
+	sameVersions(t, "layer confirmed again", before, versions(t, h.name))
+}
+
 // The Degraded reason in §18's total order: TelemetryUnavailable beside a
 // Ready=True that does not move, yielding to VerificationFailed and to
 // StaleConfigurationPossible whenever either applies. (PartialFailure beside

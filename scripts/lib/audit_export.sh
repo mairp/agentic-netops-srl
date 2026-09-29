@@ -59,7 +59,8 @@
 #   or AUDIT_EXPORT_TABLES (an explicit space-separated list)
 #   AUDIT_EXPORT_TS_COLUMN Timestamp (the newest-row column; maxOrNull — NULL for an empty table)
 #   AUDIT_EXPORT_ORDER_BY "<ts column>, TraceId, SpanId" (a stable row order for the artefact)
-#   AUDIT_EXPORT_ATTEMPT (tests only: a fixed attempt identifier)
+#   AUDIT_EXPORT_ATTEMPT (a fixed attempt identifier: set by tests, and by off.sh --purge-intent-tier
+#                        so a removal's lists, export and usernames record share one attempt)
 #   CLUSTER_NAME / LAB_NAME / EVIDENCE_ROOT / EVIDENCE_DIR as scripts/lib/evidence.sh; KUBECTL.
 #
 # Command form: audit_export.sh export [cluster] | usernames | settings

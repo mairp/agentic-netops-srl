@@ -343,3 +343,121 @@ def test_manifest_checker_names_the_file_and_the_violation(
         assert problems, "the checker accepted a violating manifest"
         assert all(p.startswith("mapper.yaml: ") for p in problems)
         assert any(expected in p for p in problems), problems
+
+
+# --------------------------------------------------------------------------------------------------
+# the model call's own bound (NFR-010, T146): below the worker call, the library's retries off
+# --------------------------------------------------------------------------------------------------
+
+
+def test_the_model_call_bound_reaches_the_transport(tmp_path: Path) -> None:
+    secret = tmp_path / "llm-provider"
+    secret.mkdir()
+    (secret / "LLM_MODEL").write_text("openai/gpt-4o-mini")
+    (secret / "API_KEY").write_text("sk-test")
+    (secret / "BASE_URL").write_text("https://gateway.example/v1")
+    seen: list[dict[str, Any]] = []
+
+    def transport(**kwargs: Any) -> Any:
+        seen.append(kwargs)
+        return {"choices": [{"message": {"content": "ok"}}]}
+
+    from common.llm import LLMClient
+
+    LLMClient(secret, transport=transport, timeout=45.0).complete([{"role": "user",
+                                                                    "content": "x"}])
+    LLMClient(secret, transport=transport).complete([{"role": "user", "content": "x"}])
+    assert seen[0]["timeout"] == 45.0
+    assert "timeout" not in seen[1]
+
+
+def test_litellm_is_called_with_the_bound_and_no_retries(monkeypatch: Any) -> None:
+    import litellm
+
+    from common.llm import litellm_transport
+
+    seen: dict[str, Any] = {}
+    monkeypatch.setattr(litellm, "completion", lambda **kw: seen.update(kw) or "r")
+    litellm_transport(base_url="https://gateway.example/v1", model="openai/m", api_key="k",
+                      messages=[], timeout=45.0)
+    assert (seen["timeout"], seen["max_retries"], seen["num_retries"]) == (45.0, 0, 0)
+    assert seen["api_base"] == "https://gateway.example/v1"
+
+
+def test_the_reasoning_effort_reaches_the_transport_only_when_set(tmp_path: Path) -> None:
+    secret = tmp_path / "llm-provider"
+    secret.mkdir()
+    (secret / "LLM_MODEL").write_text("openai/gpt-5")
+    (secret / "API_KEY").write_text("sk-test")
+    (secret / "BASE_URL").write_text("https://gateway.example/v1")
+    seen: list[dict[str, Any]] = []
+
+    def transport(**kwargs: Any) -> Any:
+        seen.append(kwargs)
+        return {"choices": [{"message": {"content": "ok"}}]}
+
+    from common.llm import LLMClient
+
+    LLMClient(secret, transport=transport, reasoning_effort="low").complete(
+        [{"role": "user", "content": "x"}])
+    LLMClient(secret, transport=transport, reasoning_effort="").complete(
+        [{"role": "user", "content": "x"}])
+    assert seen[0]["reasoning_effort"] == "low"
+    assert "reasoning_effort" not in seen[1]
+
+
+@pytest.mark.parametrize("model,allowed", [("openai/gpt-5", True), ("anthropic/claude", False)])
+def test_litellm_is_asked_for_the_effort_and_drops_it_where_unsupported(
+        monkeypatch: Any, model: str, allowed: bool) -> None:
+    """NFR-008: the setting never makes a provider change more than a change of the Secret — a
+    model that takes no reasoning effort has it dropped, never refused."""
+    import litellm
+
+    from common.llm import litellm_transport
+
+    seen: dict[str, Any] = {}
+    monkeypatch.setattr(litellm, "completion", lambda **kw: seen.update(kw) or "r")
+    litellm_transport(base_url=None, model=model, api_key="k", messages=[],
+                      reasoning_effort="low")
+    assert (seen["reasoning_effort"], seen["drop_params"]) == ("low", True)
+    assert ("allowed_openai_params" in seen) is allowed
+    seen.clear()
+    litellm_transport(base_url=None, model=model, api_key="k", messages=[])
+    assert "reasoning_effort" not in seen and "drop_params" not in seen
+
+
+# (e) every agent's START-UP constructs the model client (FR-106, T168): the allocator and the
+# deployer make no model call, yet each logs its effective endpoint and refuses a gateway declared
+# without a base URL, like the supervisor and the mapper (T153 r3: only two of four logged it)
+@needs_llm
+@pytest.mark.parametrize("worker", ["allocator", "deployer"])
+def test_worker_startup_logs_endpoint_and_refuses_gateway_without_base_url(
+    worker: str, tmp_path: Path, caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import dataclasses
+
+    server = importlib.import_module(f"provisioning.{worker}.server")
+    if worker == "allocator":
+        class _Cfg:
+            vlan_pool = vni_pool = "x"
+            def describe(self) -> str: return "fake"
+        class _Alloc:
+            def __init__(self, _s: Any) -> None: pass
+            def adapter(self) -> Any: return type("A", (), {"config": _Cfg()})()
+            def handle(self, *_a: Any) -> None: return None
+        monkeypatch.setattr(server, "Allocator", _Alloc)
+    else:
+        monkeypatch.setattr(server, "make_handler", lambda _s: (lambda *_a: None))
+    settings = importlib.import_module("config.settings").Settings()
+
+    good = _write_secret(tmp_path / "good", LLM_MODEL="openai/gpt-4o", API_KEY=FIXTURE_API_KEY,
+                         BASE_URL=FIXTURE_BASE_URL)
+    with caplog.at_level(logging.INFO):
+        server._handler(dataclasses.replace(settings, llm_provider_dir=good))
+    lines = [r.getMessage() for r in caplog.records if "model endpoint" in r.getMessage()]
+    assert lines and "gateway.example" in lines[0] and "s3cret" not in caplog.text
+
+    bad = _write_secret(tmp_path / "bad", LLM_MODEL="openai/gpt-4o", API_KEY=FIXTURE_API_KEY,
+                        GATEWAY=GATEWAY)
+    with pytest.raises(importlib.import_module("common.llm").EndpointError, match=GATEWAY):
+        server._handler(dataclasses.replace(settings, llm_provider_dir=bad))

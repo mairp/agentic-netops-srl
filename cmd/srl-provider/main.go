@@ -23,6 +23,8 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"k8s.io/klog/v2"
+	stdlog "log"
 	"math/rand/v2"
 	"os"
 
@@ -72,6 +74,13 @@ func run(ctx context.Context, lookup func(string) (string, bool), out io.Writer)
 	}
 	log := telemetry.NewLogger(out, telemetry.Component, s.Debug, nil)
 	ctrl.SetLogger(log)
+	// client-go's own lines (leader election among them) go through the same JSON logger: klog's
+	// text format would be the one non-JSON line a provider writes (NFR-014, data-model.md §27).
+	klog.SetLogger(log)
+	// The standard library's log package too: net/http writes "TLS handshake error" there when the
+	// server has no ErrorLog, which controller-runtime's webhook server has not (T147 r8).
+	stdlog.SetFlags(0)
+	stdlog.SetOutput(telemetry.StdlogWriter(log))
 
 	set, err := compat.Load(s.CompatLockFile)
 	if err != nil {

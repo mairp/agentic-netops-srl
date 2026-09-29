@@ -48,3 +48,6 @@ func NewLogger(w io.Writer, component string, debug bool, now func() time.Time) 
 
 // RedactString masks credentials embedded in a string value (jsonlog.RedactString).
 func RedactString(s string) string { return jsonlog.RedactString(s) }
+
+// StdlogWriter adapts the standard library's log package to l (jsonlog.StdlogWriter).
+func StdlogWriter(l logr.Logger) io.Writer { return jsonlog.StdlogWriter(l) }

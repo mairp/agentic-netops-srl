@@ -312,13 +312,18 @@ chk_route_active() {
 # datastore (--type config). A configuration-integrity check, never applied-side behaviour: SR Linux
 # 25.7.1 does not mirror either leaf into state (AD-76; G4 part B records that), so the state read
 # AD-31 first described cannot see them. The output lines keep the form "inter-as-vpn=… …".
+# Polled with CHECK_WAIT like every other read here: a restoration is read back while the provider
+# is still re-rendering, and one read three seconds after the patch is not the answer (T151 r10).
 chk_reflector() {
   local node="$1" st iav rrc
-  st="$(_read "$node" CONFIG "/network-instance[name=default]/protocols/bgp" | jq -c "$JQLIB"' unwrap("bgp")')"
-  iav="$(jq -r "$JQLIB"' [(.["afi-safi"] // [])[] | select(.["afi-safi-name"] | idname == "evpn") | .evpn["inter-as-vpn"]] | first // "absent"' <<<"$st")"
-  rrc="$(jq -r "$JQLIB"' [(.group // [])[] | select(.["route-reflector"].client == true) | .["group-name"]] | join(",")' <<<"$st")"
-  say "inter-as-vpn=$iav route-reflector-client-groups=${rrc:-none} (configuration datastore)"
-  if [[ "$iav" == true && -n "$rrc" ]]; then
+  _judge() {
+    st="$(_read "$node" CONFIG "/network-instance[name=default]/protocols/bgp" | jq -c "$JQLIB"' unwrap("bgp")')"
+    iav="$(jq -r "$JQLIB"' [(.["afi-safi"] // [])[] | select(.["afi-safi-name"] | idname == "evpn") | .evpn["inter-as-vpn"]] | first // "absent"' <<<"$st")"
+    rrc="$(jq -r "$JQLIB"' [(.group // [])[] | select(.["route-reflector"].client == true) | .["group-name"]] | join(",")' <<<"$st")"
+    say "inter-as-vpn=$iav route-reflector-client-groups=${rrc:-none} (configuration datastore)"
+    [[ "$iav" == true && -n "$rrc" ]]
+  }
+  if _poll _judge; then
     verdict PASS reflector "$node: inter-as-vpn true, route-reflector client true on $rrc (configuration-integrity, read from config)"; return 0
   fi
   verdict FAIL reflector "$node: inter-as-vpn=$iav, route-reflector client groups=${rrc:-none} (read from config)"; return 1

@@ -35,6 +35,16 @@ DEFAULT_DEPLOYER_CALL_TIMEOUT_SECONDS = 210.0
 DEFAULT_WORKER_CALL_RETRIES = 2
 DEFAULT_WORKER_CALL_BACKOFF_SECONDS = 1.0
 DEFAULT_CONVERGENCE_TIMEOUT_SECONDS = 150.0
+# One model call, the library's own retries included: below the worker call timeout, so a provider
+# that holds a call is reported by the worker that made it, naming the model provider, before the
+# supervisor's call to that worker times out (NFR-010).
+DEFAULT_MODEL_CALL_TIMEOUT_SECONDS = 45.0
+# The reasoning effort asked of a reasoning model on every call; dropped by the client for a model
+# that takes no such parameter, so it is provider-neutral (NFR-008). "low" keeps a reasoning
+# model's interpretation inside the model call timeout above (T144 live: gpt-5 took up to 57 s at
+# its own default, 14-18 s at "low"). An empty value asks for the provider's own default.
+DEFAULT_MODEL_REASONING_EFFORT = "low"
+MODEL_REASONING_EFFORTS = frozenset({"", "minimal", "low", "medium", "high"})
 # SC-023's five minutes: the request deadline may be lowered, never raised past it.
 SC023_CEILING_SECONDS = 300.0
 
@@ -68,6 +78,8 @@ class Settings:
     worker_call_retries: int = DEFAULT_WORKER_CALL_RETRIES
     worker_call_backoff_seconds: float = DEFAULT_WORKER_CALL_BACKOFF_SECONDS
     convergence_timeout_seconds: float = DEFAULT_CONVERGENCE_TIMEOUT_SECONDS
+    model_call_timeout_seconds: float = DEFAULT_MODEL_CALL_TIMEOUT_SECONDS
+    model_reasoning_effort: str = DEFAULT_MODEL_REASONING_EFFORT
     # FR-102: the fixed cost of a failed authentication attempt.
     auth_failure_delay_seconds: float = DEFAULT_AUTH_FAILURE_DELAY_SECONDS
     # The bound of common.transport.check_transport_auth (slim-live.md).
@@ -115,6 +127,14 @@ def _number(env: Mapping[str, str], name: str, default: float, *, integer: bool,
     return value
 
 
+def _reasoning_effort(env: Mapping[str, str]) -> str:
+    value = env.get("MODEL_REASONING_EFFORT", DEFAULT_MODEL_REASONING_EFFORT).strip().lower()
+    if value not in MODEL_REASONING_EFFORTS:
+        raise ValueError(f"MODEL_REASONING_EFFORT={value!r} is not one of "
+                         f"{sorted(e for e in MODEL_REASONING_EFFORTS if e)} or empty")
+    return value
+
+
 def assert_bounds(settings: Settings) -> None:
     """The start-up assertion of data-model.md §25."""
     c = settings.convergence_timeout_seconds
@@ -131,6 +151,18 @@ def assert_bounds(settings: Settings) -> None:
         raise BoundsConfigurationError("SUPERVISOR_MAX_ITERATIONS must be at least 1")
     if settings.worker_call_retries < 0:
         raise BoundsConfigurationError("WORKER_CALL_RETRIES must not be negative")
+
+
+def assert_model_bound(settings: Settings) -> None:
+    """A model call is bounded below the worker call that contains it, so a provider that holds a
+    call is reported by the worker that made it, naming the model provider (NFR-010). Asserted at
+    start-up from the environment; a test override of one bound alone is not a deployment."""
+    if not settings.model_call_timeout_seconds < settings.worker_call_timeout_seconds:
+        raise BoundsConfigurationError(
+            f"inconsistent bounds: MODEL_CALL_TIMEOUT_SECONDS "
+            f"({settings.model_call_timeout_seconds:g}) < WORKER_CALL_TIMEOUT_SECONDS "
+            f"({settings.worker_call_timeout_seconds:g}) must hold (NFR-010); refusing to start"
+        )
 
 
 def load_settings(env: Mapping[str, str] | None = None) -> Settings:
@@ -181,6 +213,10 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
         convergence_timeout_seconds=_number(env, "DEPLOYER_CONVERGENCE_TIMEOUT_SECONDS",
                                             DEFAULT_CONVERGENCE_TIMEOUT_SECONDS, integer=False,
                                             minimum=1),
+        model_call_timeout_seconds=_number(env, "MODEL_CALL_TIMEOUT_SECONDS",
+                                           DEFAULT_MODEL_CALL_TIMEOUT_SECONDS, integer=False,
+                                           minimum=1),
+        model_reasoning_effort=_reasoning_effort(env),
         auth_failure_delay_seconds=_number(env, "OPERATOR_AUTH_FAILURE_DELAY_SECONDS",
                                            DEFAULT_AUTH_FAILURE_DELAY_SECONDS, integer=False,
                                            minimum=0),
@@ -190,6 +226,7 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
         extra=env,
     )
     assert_bounds(settings)
+    assert_model_bound(settings)
     return settings
 
 

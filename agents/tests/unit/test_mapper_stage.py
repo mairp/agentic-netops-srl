@@ -33,7 +33,13 @@ def raw(kind: str = "mac-vrf", endpoints: list[tuple[str, str, int | None]] | No
     return body
 
 
-async def interpret(tmp_path: Path, *answers: Any, text: str = "a request",
+# The operator text the fake model's answers are read against: it writes every port they name,
+# since a port the text does not name is asked for, never supplied (FR-059).
+REQUEST_TEXT = ("a request on ethernet-1/1, ethernet-1/2, ethernet-1/3, ethernet-1/49 and "
+                "ethernet-9/9")
+
+
+async def interpret(tmp_path: Path, *answers: Any, text: str = REQUEST_TEXT,
                     site: Site | None = None) -> tuple[Any, FakeLLM]:
     llm = FakeLLM(*answers)
     mapper = Mapper((site or Site(tmp_path)).settings("mapper"), llm=llm)
@@ -70,6 +76,28 @@ async def test_schema_invalid_output_twice_fails_naming_it(tmp_path: Path) -> No
     reason = failure(reply)
     assert reason.startswith("schema-invalid model output (after one retry)")
     assert len(llm.calls) == 2
+
+
+async def test_schema_invalid_output_twice_on_an_unsupported_request_is_a_refusal_naming_it(
+        tmp_path: Path) -> None:
+    # T144 live finding: a MAC acl the model could not express (no rules, then a protocol that is
+    # no IP protocol) failed schema validation twice; the operator's words name Layer 2 matching
+    text = ("Add a MAC acl on leaf02 ethernet-1/1 vlan 100 for tenant blue, ingress, that denies "
+            "frames from source mac 00:11:22:33:44:55")
+    reply, llm = await interpret(tmp_path, raw(unknown_field=1), raw(unknown_field=2), text=text)
+    reason = failure(reply)
+    assert reason.startswith("refused at interpretation: Layer 2: not supported")
+    assert "schema-invalid" not in reason and len(llm.calls) == 2
+
+
+@pytest.mark.parametrize("text", [
+    "extend vlan 100 as a mac-vrf across leaf01 ethernet-1/1 and leaf02 ethernet-1/1",
+    "a mac vrf for tenant blue on leaf01 ethernet-1/1 vlan 100",
+])
+def test_the_layer2_claim_does_not_match_a_mac_vrf(text: str) -> None:
+    from provisioning.mapper import catalogue as catalogue_mod
+    cat = catalogue_mod.load(Path("/nonexistent"))
+    assert not [c.name for c in cat.unsupported if c.found_in(text)]
 
 
 async def test_the_operator_text_reaches_the_model_only_as_data(tmp_path: Path) -> None:
@@ -315,3 +343,21 @@ async def test_an_unreadable_site_inventory_fails_the_stage(tmp_path: Path) -> N
     (site.inventory / "inventory.json").unlink()
     reply, llm = await interpret(tmp_path, raw(), site=site)
     assert failure(reply).startswith("site inventory unreadable") and llm.calls == []
+
+
+async def test_a_port_the_operator_did_not_write_is_asked_for_never_supplied(
+        tmp_path: Path) -> None:
+    """T144 live (clarify-02): "extend vlan 170 as a mac-vrf across leaf01 and leaf02" names no
+    port; a model that fills in the one access port each leaf has is not taken at its word."""
+    interp = await interpretation(tmp_path, raw(), text="extend vlan 100 across leaf01 and leaf02 "
+                                                        "for tenant blue")
+    assert "endpoints[0].attachment" in interp.missing_fields
+
+
+@pytest.mark.parametrize("written", ["ethernet-1/1", "eth1/1", "e1-1", "Ethernet 1/1", "port 1/1"])
+def test_a_port_is_recognised_in_any_written_form(written: str) -> None:
+    from provisioning.mapper.agent import port_written
+
+    assert port_written("ethernet-1/1", f"vlan 100 on leaf01 {written} for tenant blue")
+    assert not port_written("ethernet-1/1", "vlan 100 on leaf01 ethernet-1/11 for tenant blue")
+    assert not port_written("ethernet-1/1", "a mac-vrf with prefix 10.1/1")

@@ -37,6 +37,21 @@ if [[ -z "$SDK_VER" ]]; then
   jq -n '{name: "otlp_shape", status: "fail", reason: "ioa-observe-sdk is not pinned in agents/pyproject.toml"}' >"$OUT"; exit 1
 fi
 
+# The emitter's Python environment is the supervisor image's own `build` stage — agents/uv.lock
+# installed by `uv sync --frozen` (hash-verified), so the SDK is the locked one and nothing is
+# fetched from the package index inside the cluster (T151 r8 cycle 3 / T152 r7: the in-Pod
+# `pip install` stalled for 7 min twice and failed GateReady). Built on the host (the layer cache
+# makes a rebuild a no-op), `kind load`ed, run with imagePullPolicy Never. Only if that build
+# fails does the Pod fall back to installing the pinned SDK itself.
+EMIMG="vt-scratch-otlp-emitter:sdk-${SDK_VER}"
+EMCMD="/app/.venv/bin/python /probe/emit.py"
+EMPULL="Never"
+if ! gate::run OTLP.emitter-image -- sh -c "docker build -q --target build -f '$GATE_REPO_ROOT/docker/Dockerfile.supervisor' -t '$EMIMG' '$GATE_REPO_ROOT/agents' && ${KIND:-kind} load docker-image '$EMIMG' --name '${CLUSTER_NAME}'" >/dev/null 2>&1; then
+  log::warn "OTLP: locked emitter image build/load failed; falling back to installing ioa-observe-sdk==${SDK_VER} in the Pod"
+  EMIMG="$PYIMG"; EMPULL="IfNotPresent"
+  EMCMD="pip install --no-cache-dir --quiet --retries 10 --timeout 60 'ioa-observe-sdk==${SDK_VER}' && python /probe/emit.py"
+fi
+
 MF="$(gate::manifest otlp-shape.yaml)"
 cat >"$MF" <<YAML
 apiVersion: v1
@@ -117,19 +132,33 @@ spec:
   restartPolicy: Never
   containers:
   - name: emitter
-    image: ${PYIMG}
-    command: ["sh", "-c", "pip install --no-cache-dir --quiet 'ioa-observe-sdk==${SDK_VER}' && python /app/emit.py"]
+    image: ${EMIMG}
+    imagePullPolicy: ${EMPULL}
+    command: ["sh", "-c", "${EMCMD}"]
     env: [{name: OBSERVE_TELEMETRY, value: "false"}]
-    volumeMounts: [{name: app, mountPath: /app}]
+    volumeMounts: [{name: app, mountPath: /probe}]
   volumes: [{name: app, configMap: {name: vt-scratch-emitter}}]
 YAML
 
 status=pass; reason=""
 gate::run OTLP.apply --attach gate/manifests/otlp-shape.yaml -- lab::kubectl apply -f "$MF" >/dev/null || { status=fail; reason="apply failed"; }
 gate::run OTLP.collector-ready -- lab::kubectl -n "$NS" wait --for=condition=Ready pod/vt-scratch-otel --timeout=180s >/dev/null || { status=fail; reason="collector not Ready"; }
-gate::run OTLP.emitter --attach gate/manifests/otlp-emitter.yaml -- lab::kubectl apply -f "$(gate::manifest otlp-emitter.yaml)" >/dev/null || { status=fail; reason="emitter apply failed"; }
-gate::run OTLP.emitter-done -- lab::kubectl -n "$NS" wait --for=jsonpath='{.status.phase}'=Succeeded pod/vt-scratch-emitter --timeout=600s >/dev/null || { status=fail; reason="${reason:+$reason; }emitter did not complete (pip install needs the pinned SDK from the package index)"; }
-gate::run OTLP.emitter-logs -- lab::kubectl -n "$NS" logs vt-scratch-emitter --tail=100 >/dev/null 2>&1 || true
+# The emitter installs the pinned SDK from the package index; a stalled download is a transient
+# of the index, not an observation of the shape, so the Pod is replaced once, with its describe
+# and log captured first (tierup7: the only failed item of an otherwise passing gate).
+emitted=false
+for attempt in 1 2; do
+  sfx=""; [[ $attempt -eq 1 ]] || sfx=".retry"
+  gate::run "OTLP.emitter$sfx" --attach gate/manifests/otlp-emitter.yaml -- lab::kubectl apply -f "$(gate::manifest otlp-emitter.yaml)" >/dev/null || { reason="emitter apply failed"; break; }
+  if gate::run "OTLP.emitter-done$sfx" -- lab::kubectl -n "$NS" wait --for=jsonpath='{.status.phase}'=Succeeded pod/vt-scratch-emitter --timeout=420s >/dev/null; then
+    emitted=true
+  fi
+  gate::run "OTLP.emitter-logs$sfx" -- lab::kubectl -n "$NS" logs vt-scratch-emitter --tail=100 >/dev/null 2>&1 || true
+  [[ "$emitted" == true ]] && break
+  gate::run "OTLP.emitter-describe$sfx" -- lab::kubectl -n "$NS" describe pod vt-scratch-emitter >/dev/null 2>&1 || true
+  [[ $attempt -eq 2 ]] || lab::kubectl -n "$NS" delete pod vt-scratch-emitter --wait=true --timeout=120s >/dev/null 2>&1 || true
+done
+[[ "$emitted" == true ]] || { status=fail; reason="${reason:+$reason; }emitter did not complete in two attempts"; }
 sleep 5
 DBG="$EVIDENCE_DIR/gate/observed/otlp-collector-debug.txt"
 gate::run OTLP.collector-debug -- lab::kubectl -n "$NS" logs vt-scratch-otel >"$DBG" 2>/dev/null || true
@@ -194,9 +223,9 @@ gate::run OTLP.teardown -- lab::kubectl delete namespace "$NS" --wait=true --tim
 removed=false; gate::wait_ns_gone "$NS" 180 >/dev/null 2>&1 && removed=true
 [[ "$removed" == true ]] || { status=fail; reason="${reason:+$reason; }scratch namespace $NS not removed"; }
 
-jq -n --arg s "$status" --arg r "$reason" --argjson shape "$shape" --arg sdk "$SDK_VER" --arg o "$OIMG" --arg py "$PYIMG" --argjson rm "$removed" '
+jq -n --arg s "$status" --arg r "$reason" --argjson shape "$shape" --arg sdk "$SDK_VER" --arg o "$OIMG" --arg py "$PYIMG" --arg em "$EMIMG" --argjson rm "$removed" '
   {name: "otlp_shape", status: $s, reason: (if $r == "" then null else $r end),
-   sdk: {package: "ioa-observe-sdk", version: $sdk}, collector_image: $o, emitter_base_image: $py,
+   sdk: {package: "ioa-observe-sdk", version: $sdk}, collector_image: $o, emitter_base_image: $py, emitter_image: $em,
    shape: $shape, scratch_namespace_removed: $rm}' >"$OUT"
 log::info "[OTLP] status=$status spans=$(jq '.spans | length' <<<"$shape") metrics=$(jq '.metrics | length' <<<"$shape") removed=$removed"
 [[ "$status" == pass ]]

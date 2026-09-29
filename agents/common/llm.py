@@ -96,22 +96,55 @@ def load_endpoint(secret_dir: Path) -> Endpoint:
                     gateway=gateway, provider=provider_for(model))
 
 
+_LITELLM_QUIETED = False
+
+
+def _quiet_litellm(litellm: Any) -> None:
+    """LiteLLM installs its own coloured, non-JSON handlers when it is imported: removed once, so
+    its lines — warnings only — reach the one JSON handler like every other line (§27)."""
+    global _LITELLM_QUIETED
+    if _LITELLM_QUIETED:
+        return
+    litellm.suppress_debug_info = True
+    litellm.set_verbose = False
+    from common import logging as tier_logging
+
+    tier_logging.adopt_foreign_loggers()
+    _LITELLM_QUIETED = True
+
+
 def litellm_transport(*, base_url: str | None, model: str, api_key: str,
-                      messages: list[dict[str, Any]]) -> Any:
-    """The default transport: LiteLLM, the base URL passed explicitly as ``api_base``."""
+                      messages: list[dict[str, Any]], timeout: float | None = None,
+                      reasoning_effort: str | None = None) -> Any:
+    """The default transport: LiteLLM, the base URL passed explicitly as ``api_base``. With a
+    ``timeout`` the call is bounded as a whole: the client's own retries are off, so the bound
+    is the call's and not a multiple of it."""
     import litellm  # heavy; imported on the first real model call only
 
+    _quiet_litellm(litellm)
+
     kwargs: dict[str, Any] = {"model": model, "api_key": api_key or None, "messages": messages}
+    if timeout is not None:
+        kwargs.update(timeout=timeout, max_retries=0, num_retries=0)
     if base_url:
         kwargs["api_base"] = base_url
+    if reasoning_effort:
+        # Asked of a reasoning model; dropped for a model that takes no such parameter, so the
+        # setting never makes a provider change more than a change of the Secret (NFR-008).
+        kwargs.update(reasoning_effort=reasoning_effort, drop_params=True)
+        if model.split("/", 1)[0] == "openai":
+            kwargs["allowed_openai_params"] = ["reasoning_effort"]
     return litellm.completion(**kwargs)
 
 
 class LLMClient:
     def __init__(self, secret_dir: Path, *,
-                 transport: Callable[..., Any] | None = None) -> None:
+                 transport: Callable[..., Any] | None = None,
+                 timeout: float | None = None, reasoning_effort: str | None = None) -> None:
         self.secret_dir = Path(secret_dir)
         self._transport = transport or litellm_transport
+        self.timeout = timeout
+        self.reasoning_effort = reasoning_effort or None
         endpoint = load_endpoint(self.secret_dir)
         # What start-up saw decides whether a later absence is a loss (AD-49).
         self._started_with_base_url = endpoint.base_url is not None
@@ -149,8 +182,11 @@ class LLMClient:
         with tracing.model_call_span(provider=endpoint.provider, model=endpoint.model,
                                      messages=messages) as span:
             try:
+                extra: dict[str, Any] = {} if self.timeout is None else {"timeout": self.timeout}
+                if self.reasoning_effort:
+                    extra["reasoning_effort"] = self.reasoning_effort
                 response = self._transport(base_url=endpoint.base_url, model=endpoint.model,
-                                           api_key=endpoint.api_key, messages=messages)
+                                           api_key=endpoint.api_key, messages=messages, **extra)
             except Exception as exc:
                 tracing.set_attributes(span, {tracing.ATTR_OUTCOME: "failed"})
                 tracing.mark_failure(span, None, f"{type(exc).__name__}: {exc}")

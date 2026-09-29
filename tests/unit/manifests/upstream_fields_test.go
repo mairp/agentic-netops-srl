@@ -287,8 +287,10 @@ func TestKuidSeedManifestsDecodeAsKuidV0013(t *testing.T) {
 	} else if *genid[0].Spec.MaxID > 65535 {
 		t.Errorf("GENIDIndex band exceeds the device evi range 1..65535")
 	}
-	if infra["Node"] != 4 || infra["Link"] != 4 || infra["Endpoint"] != 10 {
-		t.Errorf("inventory: %v, want 4 Node, 4 Link, 10 Endpoint (the reference lab)", infra)
+	// 11 endpoints: 8 fabric ports and 3 access ports — leaf02 ethernet-1/2, client02's untagged
+	// second link, among them (AD-51, AD-68; live-findings 2026-09-26-t151r7)
+	if infra["Node"] != 4 || infra["Link"] != 4 || infra["Endpoint"] != 11 {
+		t.Errorf("inventory: %v, want 4 Node, 4 Link, 11 Endpoint (the reference lab)", infra)
 	}
 	for _, n := range []string{"fabric01-loopback", "fabric01-p2p"} {
 		if o, ok := ip[n]; ok && !strings.EqualFold(o.Namespace, "kuid-system") {

@@ -27,6 +27,7 @@ construct is reported as unknown, never guessed.
 from __future__ import annotations
 
 import functools
+import json
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
@@ -165,6 +166,11 @@ async def read_status(kube: KubeClient, name: str, *, tier_removed: bool) -> Sta
         submitted = live.submitted_hash or "(no submitted-spec hash annotation)"
         sentence = (f"Network/{name} was modified outside the intent tier: its spec hashes to "
                     f"{live.live_hash}, not the submitted {submitted}. Live state: {sentence}")
+        spec = live.obj.get("spec") if isinstance(live.obj, Mapping) else None
+        described = spec.get("description") if isinstance(spec, Mapping) else None
+        if isinstance(described, str) and described:
+            # the live record as it reads now, never the remembered one (FR-105; quickstart §26)
+            sentence += f"; its live description reads {json.dumps(described)}"
         return StatusAnswer(state, sentence, "modified", live, live.ref(), view.construct,
                             view.provenance)
     return StatusAnswer(state, sentence, None, live, live.ref(), view.construct, view.provenance)

@@ -1,0 +1,63 @@
+# FIXTURE for tests/unit/acceptance/sc_partition_test.sh — a tiny partition the executor of
+# tests/e2e/acceptance.sh runs for real, offline: trivial checks, a fake kubectl for the
+# assert-tier-absent check, and the real `make verify-evidence` closing step over what it wrote.
+schema: agentic-netops.sc-partition/v1
+retired:
+  - id: SC-900
+    reason: "fixture tombstone"
+criteria:
+  - id: SC-901
+    side: control-plane
+    checks: [ok-offline, ok-live, flaky-live]
+  - id: SC-902
+    side: tier
+    checks: [tier-live]
+  - id: SC-903
+    side: control-plane
+    checks: [absent-only]
+  - id: SC-904
+    side: both
+    control_plane: [ok-live]
+    tier: [tier-live]
+  - id: SC-905
+    side: control-plane
+    checks: [manual-check]
+  - id: SC-906
+    side: control-plane
+    aggregate: control-plane
+    checks: [assert-tier-absent]
+  - id: SC-907
+    side: control-plane
+    checks: [ok-live, deploy]
+checks:
+  ok-offline:
+    stage: offline
+    run: echo offline-ran
+  deploy:
+    stage: lifecycle
+    step: deploy
+    run: echo deploy-ran
+  ok-live:
+    stage: live
+    run: echo "${ACC_FIXTURE_OK_LIVE:-live-ran}"; exit "${ACC_FIXTURE_OK_LIVE_RC:-0}"
+  flaky-live:
+    stage: live
+    # ACC_FIXTURE_FLAKY=<dir>: fails the first time (no marker in <dir>), passes the next; unset: passes
+    run: d="${ACC_FIXTURE_FLAKY:-}"; [ -z "$d" ] && exit 0; [ -e "$d/flaky.once" ] && { echo flaky-second; exit "${ACC_FIXTURE_FLAKY_RC2:-0}"; }; mkdir -p "$d"; touch "$d/flaky.once"; echo flaky-first; exit 1
+  absent-only:
+    stage: live
+    requires: tier-absent
+    run: echo absent-only-ran
+  assert-tier-absent:
+    stage: live
+    only: control-plane-only
+    run: tests/e2e/acceptance.sh --assert-tier-absent
+  tier-live:
+    stage: live
+    run: echo tier-live-ran
+  manual-check:
+    mode: manual
+    task: T999
+  verify-evidence:
+    stage: closing
+    run: make verify-evidence

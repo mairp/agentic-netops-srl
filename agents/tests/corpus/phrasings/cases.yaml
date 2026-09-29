@@ -1,0 +1,424 @@
+# Phrasing corpus (T143; SC-020, SC-022 via T144).
+#
+# Varied natural-language phrasings of SUPPORTED requests across the four constructs — vlan,
+# mac-vrf (with and without its anycast gateway property), ip-vrf and acl (standalone, and as a
+# property of another construct) — each with the reading an expert assigns it. The live runner
+# (agents/tests/corpus/run_corpus.py --corpus phrasings, T144) sends every input ONCE, on a fresh
+# thread, reads the mapper's first confirmation (the `stage` chunk of stage `mapper`, i.e. the
+# Interpretation of contracts/interpretation.schema.json) and declines it, so nothing is ever
+# claimed or submitted. SC-020: at least 90% judged correct on the first attempt, and every other
+# case a clarifying question — never a wrong reading carried to a confirmation.
+#
+# Every node and port is the reference site's own (examples/fabric/default-fabric.yaml: leaf01 and
+# leaf02, access port ethernet-1/1, declared tagged); every VLAN an operator names is in the naming
+# band 100-999; every input is classified provisionable by the deterministic guard (so it reaches
+# the mapper); every construct and gated property used is `qualified` in the documented fabric
+# qualification record (docs/reference/qualification-record.md). The offline half
+# (agents/tests/unit/test_phrasing_corpus.py, in `make test-agents`) holds the corpus to that and
+# runs each expected reading through the mapper's deterministic review against the input text.
+#
+# Fields:
+#   id        unique
+#   style     canonical | terse | verbose | typo | synonym | passive | casual — a label for the
+#             report, not compared
+#   input     the operator text, sent verbatim
+#   expected  interpret — the tier must propose `reading`
+#             clarify   — the request lacks a field; the tier must ask for `clarify_field` (a
+#                         substring of the clarification's field list) and propose nothing
+#   reading   (interpret) the labelled fields the Interpretation must carry. Compared strictly:
+#               construct       the service_type
+#               tenant          exact
+#               endpoints       as a multiset of {node, port[, vlan]}; the port in its canonical
+#                               form; `vlan` compared when the key is present (null = none named)
+#               anycast_gateway families by value; absent here = no gateway in the reading
+#               ipv4_prefixes / ipv6_prefixes   sets by value; absent here = none
+#               acl             absent here = no acl. stage, type, default_action (key present =
+#                               compared; null = none declared) and rules: each expected rule
+#                               matched by a distinct rule on action and on every match field
+#                               (protocol, source/destination prefix and port — absent = wildcard);
+#                               a leftover rule is allowed only as the catch-all of a declared
+#                               default_action ("deny everything else"), below every matched rule
+#   reading   (clarify) optional: the partial reading, with `unknown` or an empty list where the
+#             missing field is — used offline only, to show the mapper's review asks for it
+
+version: 1
+cases:
+  # ------------------------------------------------------------------------------------ vlan
+  - id: vlan-01-canonical
+    style: canonical
+    input: "Create vlan 120 on leaf01 ethernet-1/1 for tenant acme"
+    expected: interpret
+    reading:
+      construct: vlan
+      tenant: acme
+      endpoints: [{node: leaf01, port: ethernet-1/1, vlan: 120}]
+  - id: vlan-02-terse
+    style: terse
+    input: "add vlan 310 leaf02 e-1/1 tenant acme"
+    expected: interpret
+    reading:
+      construct: vlan
+      tenant: acme
+      endpoints: [{node: leaf02, port: ethernet-1/1, vlan: 310}]
+  - id: vlan-03-verbose
+    style: verbose
+    input: >-
+      Please set up a local VLAN, number 415, on port ethernet-1/1 of leaf02. It belongs to
+      tenant globex and only needs to exist on that one switch port for now.
+    expected: interpret
+    reading:
+      construct: vlan
+      tenant: globex
+      endpoints: [{node: leaf02, port: ethernet-1/1, vlan: 415}]
+  - id: vlan-04-typos
+    style: typo
+    input: "Add vlan 230 to leaf01 ethernet 1/1 for tennant acme pls"
+    expected: interpret
+    reading:
+      construct: vlan
+      tenant: acme
+      endpoints: [{node: leaf01, port: ethernet-1/1, vlan: 230}]
+  - id: vlan-05-passive
+    style: passive
+    input: "On leaf02 ethernet-1/1, vlan 260 is to be set up for tenant initech."
+    expected: interpret
+    reading:
+      construct: vlan
+      tenant: initech
+      endpoints: [{node: leaf02, port: ethernet-1/1, vlan: 260}]
+  - id: vlan-06-acl-property
+    style: canonical
+    input: >-
+      Create vlan 140 on leaf01 ethernet-1/1 for tenant acme with an ingress ipv4 acl that
+      denies udp to port 53
+    expected: interpret
+    reading:
+      construct: vlan
+      tenant: acme
+      endpoints: [{node: leaf01, port: ethernet-1/1, vlan: 140}]
+      acl:
+        stage: ingress
+        type: ipv4
+        default_action: null
+        rules:
+          - {action: deny, protocol: udp, destination_port: "53"}
+  - id: vlan-07-acl-property-casual
+    style: casual
+    input: >-
+      make vlan 350 on leaf02 ethernet-1/1 for tenant globex and filter what comes in on it:
+      allow tcp 22 from 192.168.10.0/24, drop the rest
+    expected: interpret
+    reading:
+      construct: vlan
+      tenant: globex
+      endpoints: [{node: leaf02, port: ethernet-1/1, vlan: 350}]
+      acl:
+        stage: ingress
+        type: ipv4
+        default_action: deny
+        rules:
+          - {action: permit, protocol: tcp, source_prefix: 192.168.10.0/24,
+             destination_port: "22"}
+
+  # --------------------------------------------------------------------------------- mac-vrf
+  - id: macvrf-01-canonical
+    style: canonical
+    input: >-
+      Extend vlan 100 as a mac-vrf across leaf01 ethernet-1/1 and leaf02 ethernet-1/1 for
+      tenant blue
+    expected: interpret
+    reading:
+      construct: mac-vrf
+      tenant: blue
+      endpoints:
+        - {node: leaf01, port: ethernet-1/1, vlan: 100}
+        - {node: leaf02, port: ethernet-1/1, vlan: 100}
+  - id: macvrf-02-l2-extension
+    style: synonym
+    input: >-
+      Stretch VLAN 330 between leaf01 ethernet-1/1 and leaf02 ethernet-1/1 as an L2 extension
+      for tenant blue
+    expected: interpret
+    reading:
+      construct: mac-vrf
+      tenant: blue
+      endpoints:
+        - {node: leaf01, port: ethernet-1/1, vlan: 330}
+        - {node: leaf02, port: ethernet-1/1, vlan: 330}
+  - id: macvrf-03-allocated-vlan
+    style: canonical
+    input: >-
+      Create a mac-vrf for tenant globex across leaf01 ethernet-1/1 and leaf02 ethernet-1/1
+      and allocate its VLAN
+    expected: interpret
+    reading:
+      construct: mac-vrf
+      tenant: globex
+      endpoints:
+        - {node: leaf01, port: ethernet-1/1, vlan: null}
+        - {node: leaf02, port: ethernet-1/1, vlan: null}
+  - id: macvrf-04-l2vni
+    style: synonym
+    input: "I need an L2VNI for tenant acme joining leaf01 ethernet-1/1 and leaf02 ethernet-1/1 on vlan 440"
+    expected: interpret
+    reading:
+      construct: mac-vrf
+      tenant: acme
+      endpoints:
+        - {node: leaf01, port: ethernet-1/1, vlan: 440}
+        - {node: leaf02, port: ethernet-1/1, vlan: 440}
+  - id: macvrf-05-gateway-canonical
+    style: canonical
+    input: >-
+      Extend vlan 130 as a mac-vrf across leaf01 ethernet-1/1 and leaf02 ethernet-1/1 with an
+      anycast gateway 10.30.0.1/24 for tenant blue
+    expected: interpret
+    reading:
+      construct: mac-vrf
+      tenant: blue
+      endpoints:
+        - {node: leaf01, port: ethernet-1/1, vlan: 130}
+        - {node: leaf02, port: ethernet-1/1, vlan: 130}
+      anycast_gateway: {ipv4: 10.30.0.1/24}
+  - id: macvrf-06-gateway-one-leaf-terse
+    style: terse
+    input: "give me a mac-vrf on leaf02 ethernet-1/1, vlan 520, tenant initech, anycast gw 172.16.52.1/24"
+    expected: interpret
+    reading:
+      construct: mac-vrf
+      tenant: initech
+      endpoints: [{node: leaf02, port: ethernet-1/1, vlan: 520}]
+      anycast_gateway: {ipv4: 172.16.52.1/24}
+  - id: macvrf-07-gateway-dual-stack-verbose
+    style: verbose
+    input: >-
+      Build a layer-2 segment spanning leaf01 ethernet-1/1 and leaf02 ethernet-1/1 on VLAN 610
+      for tenant globex, and let hosts route out of it through a distributed anycast gateway at
+      10.61.0.1/24 and 2001:db8:61::1/64.
+    expected: interpret
+    reading:
+      construct: mac-vrf
+      tenant: globex
+      endpoints:
+        - {node: leaf01, port: ethernet-1/1, vlan: 610}
+        - {node: leaf02, port: ethernet-1/1, vlan: 610}
+      anycast_gateway: {ipv4: 10.61.0.1/24, ipv6: "2001:db8:61::1/64"}
+  - id: macvrf-08-acl-property-ipv6
+    style: canonical
+    input: >-
+      Extend vlan 180 as a mac-vrf across leaf01 ethernet-1/1 and leaf02 ethernet-1/1 for tenant
+      acme, with an ingress ipv6 access-list that permits icmpv6 and denies everything else
+    expected: interpret
+    reading:
+      construct: mac-vrf
+      tenant: acme
+      endpoints:
+        - {node: leaf01, port: ethernet-1/1, vlan: 180}
+        - {node: leaf02, port: ethernet-1/1, vlan: 180}
+      acl:
+        stage: ingress
+        type: ipv6
+        default_action: deny
+        rules:
+          - {action: permit, protocol: icmpv6}
+
+  # ---------------------------------------------------------------------------------- ip-vrf
+  - id: ipvrf-01-canonical
+    style: canonical
+    input: "Create an ip-vrf for tenant initech carrying 10.50.0.0/24 at leaf01 ethernet-1/1 vlan 200"
+    expected: interpret
+    reading:
+      construct: ip-vrf
+      tenant: initech
+      endpoints: [{node: leaf01, port: ethernet-1/1, vlan: 200}]
+      ipv4_prefixes: [10.50.0.0/24]
+  - id: ipvrf-02-routed-vrf
+    style: synonym
+    input: "Need a routed VRF for tenant blue advertising 10.60.0.0/24 on leaf02 ethernet-1/1 vlan 210"
+    expected: interpret
+    reading:
+      construct: ip-vrf
+      tenant: blue
+      endpoints: [{node: leaf02, port: ethernet-1/1, vlan: 210}]
+      ipv4_prefixes: [10.60.0.0/24]
+  - id: ipvrf-03-l3vni-two-leaves
+    style: synonym
+    input: >-
+      Provision an L3VNI for tenant globex on leaf01 ethernet-1/1 vlan 231 and leaf02
+      ethernet-1/1 vlan 232, prefixes 10.23.1.0/24 and 10.23.2.0/24
+    expected: interpret
+    reading:
+      construct: ip-vrf
+      tenant: globex
+      endpoints:
+        - {node: leaf01, port: ethernet-1/1, vlan: 231}
+        - {node: leaf02, port: ethernet-1/1, vlan: 232}
+      ipv4_prefixes: [10.23.1.0/24, 10.23.2.0/24]
+  - id: ipvrf-04-ipv6-terse
+    style: terse
+    input: "route 2001:db8:40::/64 for tenant acme on leaf01 ethernet-1/1 vlan 240"
+    expected: interpret
+    reading:
+      construct: ip-vrf
+      tenant: acme
+      endpoints: [{node: leaf01, port: ethernet-1/1, vlan: 240}]
+      ipv6_prefixes: ["2001:db8:40::/64"]
+  - id: ipvrf-05-dual-stack-verbose
+    style: verbose
+    input: >-
+      For tenant initech we want a layer-3 VRF with EVPN type-5 routes on leaf02 ethernet-1/1,
+      tagged with vlan 250, carrying both 10.25.0.0/24 and 2001:db8:25::/64.
+    expected: interpret
+    reading:
+      construct: ip-vrf
+      tenant: initech
+      endpoints: [{node: leaf02, port: ethernet-1/1, vlan: 250}]
+      ipv4_prefixes: [10.25.0.0/24]
+      ipv6_prefixes: ["2001:db8:25::/64"]
+  - id: ipvrf-06-acl-property
+    style: canonical
+    input: >-
+      Create an ip-vrf for tenant acme with prefix 10.70.0.0/24 on leaf01 ethernet-1/1 vlan 270
+      and an ingress ipv4 acl that permits tcp 80 and tcp 443 from anywhere and denies the rest
+    expected: interpret
+    reading:
+      construct: ip-vrf
+      tenant: acme
+      endpoints: [{node: leaf01, port: ethernet-1/1, vlan: 270}]
+      ipv4_prefixes: [10.70.0.0/24]
+      acl:
+        stage: ingress
+        type: ipv4
+        default_action: deny
+        rules:
+          - {action: permit, protocol: tcp, destination_port: "80"}
+          - {action: permit, protocol: tcp, destination_port: "443"}
+
+  # ------------------------------------------------------------------------------------- acl
+  - id: acl-01-canonical
+    style: canonical
+    input: >-
+      Add an ingress ipv4 acl on leaf01 ethernet-1/1 vlan 120 for tenant acme that permits tcp
+      to port 443 and denies everything else
+    expected: interpret
+    reading:
+      construct: acl
+      tenant: acme
+      endpoints: [{node: leaf01, port: ethernet-1/1, vlan: 120}]
+      acl:
+        stage: ingress
+        type: ipv4
+        default_action: deny
+        rules:
+          - {action: permit, protocol: tcp, destination_port: "443"}
+  - id: acl-02-access-list-block
+    style: synonym
+    input: >-
+      Block udp 161 from 10.0.9.0/24 inbound with an access list on the existing leaf02
+      ethernet-1/1 vlan 100 subinterface for tenant blue
+    expected: interpret
+    reading:
+      construct: acl
+      tenant: blue
+      endpoints: [{node: leaf02, port: ethernet-1/1, vlan: 100}]
+      acl:
+        stage: ingress
+        type: ipv4
+        default_action: null
+        rules:
+          - {action: deny, protocol: udp, source_prefix: 10.0.9.0/24, destination_port: "161"}
+  - id: acl-03-ipv6-passive
+    style: passive
+    input: >-
+      An ipv6 ingress acl permitting tcp port 22 from 2001:db8:100::/48 should be set up on
+      leaf01 ethernet-1/1 vlan 130 for tenant blue; nothing else is filtered.
+    expected: interpret
+    reading:
+      construct: acl
+      tenant: blue
+      endpoints: [{node: leaf01, port: ethernet-1/1, vlan: 130}]
+      acl:
+        stage: ingress
+        type: ipv6
+        default_action: null
+        rules:
+          - {action: permit, protocol: tcp, source_prefix: "2001:db8:100::/48",
+             destination_port: "22"}
+  - id: acl-04-explicit-priorities
+    style: verbose
+    input: >-
+      Add an acl on leaf02 ethernet-1/1 vlan 310 for tenant acme, ingress, ipv4: priority 10
+      permit tcp to port 443, priority 20 deny tcp to port 23
+    expected: interpret
+    reading:
+      construct: acl
+      tenant: acme
+      endpoints: [{node: leaf02, port: ethernet-1/1, vlan: 310}]
+      acl:
+        stage: ingress
+        type: ipv4
+        default_action: null
+        rules:
+          - {priority: 10, action: permit, protocol: tcp, destination_port: "443"}
+          - {priority: 20, action: deny, protocol: tcp, destination_port: "23"}
+  - id: acl-05-typo-accesslist
+    style: typo
+    input: >-
+      pls add an acess-list on leaf01 ethernet-1/1 vlan 140 for tenant acme: deny icmp from
+      10.99.0.0/16 inbound, ipv4
+    expected: interpret
+    reading:
+      construct: acl
+      tenant: acme
+      endpoints: [{node: leaf01, port: ethernet-1/1, vlan: 140}]
+      acl:
+        stage: ingress
+        type: ipv4
+        default_action: null
+        rules:
+          - {action: deny, protocol: icmp, source_prefix: 10.99.0.0/16}
+
+  # ------------------------------------------------------ intentionally incomplete: clarify
+  - id: clarify-01-no-tenant
+    style: canonical
+    input: "Create vlan 160 on leaf01 ethernet-1/1"
+    expected: clarify
+    clarify_field: tenant
+    reading:
+      construct: vlan
+      tenant: unknown
+      endpoints: [{node: leaf01, port: ethernet-1/1, vlan: 160}]
+  - id: clarify-02-no-ports
+    style: casual
+    input: "Extend vlan 170 as a mac-vrf across leaf01 and leaf02 for tenant blue"
+    expected: clarify
+    clarify_field: attachment
+    reading:
+      construct: mac-vrf
+      tenant: blue
+      endpoints:
+        - {node: leaf01, port: unknown, vlan: 170}
+        - {node: leaf02, port: unknown, vlan: 170}
+  - id: clarify-03-no-prefix
+    style: canonical
+    input: "Create an ip-vrf for tenant initech at leaf02 ethernet-1/1 vlan 280"
+    expected: clarify
+    clarify_field: prefixes
+    reading:
+      construct: ip-vrf
+      tenant: initech
+      endpoints: [{node: leaf02, port: ethernet-1/1, vlan: 280}]
+  - id: clarify-04-gateway-without-address
+    style: verbose
+    input: >-
+      Extend vlan 190 as a mac-vrf across leaf01 ethernet-1/1 and leaf02 ethernet-1/1 for
+      tenant acme, with an anycast gateway on it
+    expected: clarify
+    clarify_field: anycast_gateway
+    reading:
+      construct: mac-vrf
+      tenant: acme
+      endpoints:
+        - {node: leaf01, port: ethernet-1/1, vlan: 190}
+        - {node: leaf02, port: ethernet-1/1, vlan: 190}
+      anycast_gateway: {ipv4: null}

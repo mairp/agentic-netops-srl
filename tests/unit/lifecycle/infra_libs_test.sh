@@ -108,6 +108,20 @@ check "kind: delete refuses an unowned cluster" '[[ $rc -ne 0 && -f "$FAKE_STATE
 fakes::network "$NET" 172.25.25.0/24 -
 run_lib kind kind::attach_mgmt "$CL" "$NET"
 check "kind: attach refuses an unowned network" '[[ $rc -ne 0 ]] && ! calls | grep -q "network connect"'
+setup kind-nocontext
+fakes::cluster "$CL" "$CL"
+touch "$FAKE_STATE/kind/$CL.nocontext"   # kind create interrupted before the kubeconfig was written
+export FAKE_CURRENT_CONTEXT=kind-agentflow-005
+run_lib kind kind::delete_cluster "$CL"
+check "kind: an owned cluster whose context was never written is read after re-exporting it" \
+  '[[ $rc -eq 0 && ! -f "$FAKE_STATE/kind/$CL" ]] && calls | grep -q "kind export kubeconfig --name $CL"'
+check "kind: the re-export restores the operator's previous context" 'calls | grep -q "kubectl config use-context kind-agentflow-005"'
+setup kind-nocontext-foreign
+fakes::cluster "$CL" -
+touch "$FAKE_STATE/kind/$CL.nocontext"
+run_lib kind kind::delete_cluster "$CL"
+check "kind: re-exporting the context of an unowned cluster still refuses it (label decides)" \
+  '[[ $rc -ne 0 && -f "$FAKE_STATE/kind/$CL" ]] && ! calls | grep -q "delete cluster"'
 setup kind-delete
 fakes::cluster "$CL" "$CL"
 run_lib kind kind::delete_cluster "$CL"

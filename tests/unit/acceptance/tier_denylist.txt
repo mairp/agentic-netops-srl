@@ -1,0 +1,33 @@
+# tier_denylist.txt — tokens that mark a command as reaching for the intent tier (T175, SC-025).
+# Read by tests/unit/acceptance/sc_partition_test.sh through tests/e2e/lib/sc_partition.py
+# validate: a check of a control-plane criterion (or of the control-plane half of a `both` one)
+# whose `run` — or the recipe of the `make <target>` it runs — contains any of these
+# (case-insensitive substring) fails the partition. One token per line; `#` starts a comment.
+#
+# the tier's namespaces and install switch
+agentic-netops-agents
+agentic-netops-intent
+--with-intent-tier
+# the tier's workloads, stores and Secrets
+supervisor
+mapper
+allocator
+deployer
+clickhouse
+agent-otel-collector
+intent-translator
+llm-provider
+operator-credentials
+# the tier's test code and harness
+agents/tests
+cd agents
+AGENTIC_NETOPS_E2E
+uv run
+run_corpus
+tier_e2e
+chat_surface_e2e
+adversarial_live
+auth_audit
+trace_e2e
+degradation_e2e
+tier_purge

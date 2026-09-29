@@ -65,16 +65,23 @@ du::run() {
   local remove_wait=$((SUITE_REVERIFY_S + DU_HOLD_INTERVALS * SUITE_RECONCILE_S))
   snap="$EVIDENCE_DIR/du-claims-before.txt"; bogus="$EVIDENCE_DIR/du-claims-bogus.txt"
   echo "vt-scratch-no-such-claim 0" >"$bogus"
+  evidence_run "$(gate::id DU.claims-bogus)" --attach "${bogus#"$EVIDENCE_DIR"/}" -- cat "$bogus" >/dev/null
+  # the claims_empty control needs a service that DOES hold claims: the first one found in the
+  # service namespace (a name that no longer exists would pass the check and prove nothing)
+  local holder
+  holder="$(bash "$SVC_CHECKS" claims_holder "$SVC_NS" 2>/dev/null || true)"
+  [[ -n "$holder" ]] || { suite::fail "no service in $SVC_NS holds a claim: the claims_empty negative control has nothing to fail on"; suite::finish delete-unreachable; return 1; }
 
   # negative controls first
   suite::neg DU-ready cond "$SVC_NS" "$DU_ABSENT" 5 Ready=True || true
   suite::neg DU-deleting deleting_hold "$SVC_NS" "$DU_ABSENT" held 2 || true
   suite::neg DU-claims-equal claims_equal "$bogus" "$SVC_NS" "$DU_NET" || true
-  suite::neg DU-claims-empty claims_empty "$SVC_NS" lab-macvrf || true
+  suite::neg DU-claims-empty claims_empty "$SVC_NS" "$holder" || true
   suite::neg DU-event event "$SVC_NS" "$DU_ABSENT" ForceReleased Warning || true
   suite::neg DU-unreachable cond "$SVC_NS" "$DU_ABSENT" 5 "Deleting=True/TargetUnreachable~${DU_LEAF}" || true
   suite::neg DU-layer-gone config_gone "$LAB_TARGET_NS" "${FABRIC_NAME}.${DU_LEAF}" 5 || true
   suite::neg DU-finding finding "$FABRIC_NAMESPACE" "$FABRIC_NAME" "$DU_LEAF" "$SVC_NS" "$DU_ABSENT" || true
+  suite::neg DU-finding-cleared finding_cleared "$FABRIC_NAMESPACE" "$FABRIC_NAME" "$DU_LEAF" "$SVC_NS" "$DU_ABSENT" 5 || true
 
   suite::on_exit du::teardown
   suite::apply_macvrf "$DU_NET" "$DU_VLAN" "$DU_VNI" || { suite::fail "could not apply $DU_NET"; suite::finish delete-unreachable; return 1; }
@@ -114,6 +121,10 @@ du::run() {
     rc=0; suite::check DU.claims-empty DU-claims-empty --readiness -- claims_empty "$SVC_NS" "$DU_NET" >/dev/null || rc=$?
     suite::judge "$rc" "claim selector empty after force-release" "claims left after force-release"
     suite::mgmt_restore "$DU_LEAF" || suite::fail "reconnection of $DU_LEAF"
+    # the finding outlives the outage: still open at reconnection, cleared only by a scheduled
+    # read-back that finds every device object absent (T149, SC-043)
+    rc=0; suite::check DU.finding-after-return DU-finding --readiness -- finding "$FABRIC_NAMESPACE" "$FABRIC_NAME" "$DU_LEAF" "$SVC_NS" "$DU_NET" >/dev/null || rc=$?
+    suite::judge "$rc" "the finding is still open at reconnection" "the finding was gone before any read-back of $DU_LEAF could run"
     leftovers::scan || log::info "stale configuration on $DU_LEAF after force-release (the finding's warning, recorded above)"
     # The layer still holds the deleted Config and finishes its own removal once the node is
     # back (Open item 11). The device is never edited under a Config the layer still holds:
@@ -123,6 +134,8 @@ du::run() {
     if [[ "$rc" -eq 0 ]]; then
       log::info "the layer removed its deleted Config ${DU_NET}.${DU_LEAF} itself after reconnection"
       du::device_cleanup || suite::fail "removal of the scratch device objects on $DU_LEAF did not read back"
+      rc=0; suite::check DU.finding-cleared DU-finding-cleared --readiness -- finding_cleared "$FABRIC_NAMESPACE" "$FABRIC_NAME" "$DU_LEAF" "$SVC_NS" "$DU_NET" "$((SUITE_REVERIFY_S + 2 * SUITE_RECONCILE_S))" >/dev/null || rc=$?
+      suite::judge "$rc" "the finding cleared only after a clean read-back of $DU_LEAF (FindingCleared Event)" "the finding was not cleared by a read-back"
     else
       suite::fail "the layer still holds Config ${DU_NET}.${DU_LEAF} ${remove_wait}s after reconnection; the device is left untouched"
     fi

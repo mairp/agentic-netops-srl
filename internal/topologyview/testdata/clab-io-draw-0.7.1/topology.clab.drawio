@@ -38,7 +38,7 @@
       </mxCell>
     </object><object id="mid:clab-agentic-netops-fabric-leaf01:ethernet-1/49:clab-agentic-netops-fabric-spine01:ethernet-1/1" label="​">
       <mxCell style="ellipse;whiteSpace=wrap;html=1;aspect=fixed;fontColor=#FFFFFF;fontSize=6;fillColor=#BEC8D2;strokeColor=none;noLabel=1;" vertex="1" parent="1">
-          <mxGeometry x="219.08692561853738" y="404.8695404948299" width="4" height="4" as="geometry" />
+          <mxGeometry x="225.2694498494272" y="409.81555987954175" width="4" height="4" as="geometry" />
       </mxCell>
     </object><object id="link_id:clab-agentic-netops-fabric-leaf01:ethernet-1/49:clab-agentic-netops-fabric-spine01:ethernet-1/1" label="rate" source="clab-agentic-netops-fabric-leaf01:ethernet-1/49:clab-agentic-netops-fabric-spine01:ethernet-1/1" target="mid:clab-agentic-netops-fabric-leaf01:ethernet-1/49:clab-agentic-netops-fabric-spine01:ethernet-1/1">
       <mxCell style="rounded=0;orthogonalLoop=1;html=1;startSize=6;endArrow=classicThin;endFill=1;endSize=2;fontSize=14;strokeColor=#98A2AE;fontColor=#FFFFFF;textOpacity=60;labelBackgroundColor=#4D5766;jumpStyle=gap;strokeWidth=3;" edge="1" parent="1" source="clab-agentic-netops-fabric-leaf01:ethernet-1/49:clab-agentic-netops-fabric-spine01:ethernet-1/1" target="mid:clab-agentic-netops-fabric-leaf01:ethernet-1/49:clab-agentic-netops-fabric-spine01:ethernet-1/1">
@@ -58,7 +58,7 @@
       </mxCell>
     </object><object id="mid:clab-agentic-netops-fabric-leaf01:ethernet-1/50:clab-agentic-netops-fabric-spine02:ethernet-1/1" label="​">
       <mxCell style="ellipse;whiteSpace=wrap;html=1;aspect=fixed;fontColor=#FFFFFF;fontSize=6;fillColor=#BEC8D2;strokeColor=none;noLabel=1;" vertex="1" parent="1">
-          <mxGeometry x="123.0" y="378.1969227880234" width="4" height="4" as="geometry" />
+          <mxGeometry x="123.0" y="385.99508858051894" width="4" height="4" as="geometry" />
       </mxCell>
     </object><object id="link_id:clab-agentic-netops-fabric-leaf01:ethernet-1/50:clab-agentic-netops-fabric-spine02:ethernet-1/1" label="rate" source="clab-agentic-netops-fabric-leaf01:ethernet-1/50:clab-agentic-netops-fabric-spine02:ethernet-1/1" target="mid:clab-agentic-netops-fabric-leaf01:ethernet-1/50:clab-agentic-netops-fabric-spine02:ethernet-1/1">
       <mxCell style="rounded=0;orthogonalLoop=1;html=1;startSize=6;endArrow=classicThin;endFill=1;endSize=2;fontSize=14;strokeColor=#98A2AE;fontColor=#FFFFFF;textOpacity=60;labelBackgroundColor=#4D5766;jumpStyle=gap;strokeWidth=3;" edge="1" parent="1" source="clab-agentic-netops-fabric-leaf01:ethernet-1/50:clab-agentic-netops-fabric-spine02:ethernet-1/1" target="mid:clab-agentic-netops-fabric-leaf01:ethernet-1/50:clab-agentic-netops-fabric-spine02:ethernet-1/1">
@@ -78,7 +78,7 @@
       </mxCell>
     </object><object id="mid:clab-agentic-netops-fabric-leaf02:ethernet-1/49:clab-agentic-netops-fabric-spine01:ethernet-1/2" label="​">
       <mxCell style="ellipse;whiteSpace=wrap;html=1;aspect=fixed;fontColor=#FFFFFF;fontSize=6;fillColor=#BEC8D2;strokeColor=none;noLabel=1;" vertex="1" parent="1">
-          <mxGeometry x="298.0" y="410.350323814764" width="4" height="4" as="geometry" />
+          <mxGeometry x="298.0" y="386.2721277390055" width="4" height="4" as="geometry" />
       </mxCell>
     </object><object id="link_id:clab-agentic-netops-fabric-leaf02:ethernet-1/49:clab-agentic-netops-fabric-spine01:ethernet-1/2" label="rate" source="clab-agentic-netops-fabric-leaf02:ethernet-1/49:clab-agentic-netops-fabric-spine01:ethernet-1/2" target="mid:clab-agentic-netops-fabric-leaf02:ethernet-1/49:clab-agentic-netops-fabric-spine01:ethernet-1/2">
       <mxCell style="rounded=0;orthogonalLoop=1;html=1;startSize=6;endArrow=classicThin;endFill=1;endSize=2;fontSize=14;strokeColor=#98A2AE;fontColor=#FFFFFF;textOpacity=60;labelBackgroundColor=#4D5766;jumpStyle=gap;strokeWidth=3;" edge="1" parent="1" source="clab-agentic-netops-fabric-leaf02:ethernet-1/49:clab-agentic-netops-fabric-spine01:ethernet-1/2" target="mid:clab-agentic-netops-fabric-leaf02:ethernet-1/49:clab-agentic-netops-fabric-spine01:ethernet-1/2">
@@ -98,7 +98,7 @@
       </mxCell>
     </object><object id="mid:clab-agentic-netops-fabric-leaf02:ethernet-1/50:clab-agentic-netops-fabric-spine02:ethernet-1/2" label="​">
       <mxCell style="ellipse;whiteSpace=wrap;html=1;aspect=fixed;fontColor=#FFFFFF;fontSize=6;fillColor=#BEC8D2;strokeColor=none;noLabel=1;" vertex="1" parent="1">
-          <mxGeometry x="201.7137618132504" y="405.0289905493997" width="4" height="4" as="geometry" />
+          <mxGeometry x="222.9194086158568" y="388.06447310731454" width="4" height="4" as="geometry" />
       </mxCell>
     </object><object id="link_id:clab-agentic-netops-fabric-leaf02:ethernet-1/50:clab-agentic-netops-fabric-spine02:ethernet-1/2" label="rate" source="clab-agentic-netops-fabric-leaf02:ethernet-1/50:clab-agentic-netops-fabric-spine02:ethernet-1/2" target="mid:clab-agentic-netops-fabric-leaf02:ethernet-1/50:clab-agentic-netops-fabric-spine02:ethernet-1/2">
       <mxCell style="rounded=0;orthogonalLoop=1;html=1;startSize=6;endArrow=classicThin;endFill=1;endSize=2;fontSize=14;strokeColor=#98A2AE;fontColor=#FFFFFF;textOpacity=60;labelBackgroundColor=#4D5766;jumpStyle=gap;strokeWidth=3;" edge="1" parent="1" source="clab-agentic-netops-fabric-leaf02:ethernet-1/50:clab-agentic-netops-fabric-spine02:ethernet-1/2" target="mid:clab-agentic-netops-fabric-leaf02:ethernet-1/50:clab-agentic-netops-fabric-spine02:ethernet-1/2">
@@ -118,7 +118,7 @@
       </mxCell>
     </object><object id="mid:clab-agentic-netops-fabric-client01:eth1:clab-agentic-netops-fabric-leaf01:ethernet-1/1" label="​">
       <mxCell style="ellipse;whiteSpace=wrap;html=1;aspect=fixed;fontColor=#FFFFFF;fontSize=6;fillColor=#BEC8D2;strokeColor=none;noLabel=1;" vertex="1" parent="1">
-          <mxGeometry x="135.5" y="208.59971426928698" width="4" height="4" as="geometry" />
+          <mxGeometry x="135.5" y="235.3606342888192" width="4" height="4" as="geometry" />
       </mxCell>
     </object><object id="link_id:clab-agentic-netops-fabric-client01:eth1:clab-agentic-netops-fabric-leaf01:ethernet-1/1" label="rate" source="clab-agentic-netops-fabric-client01:eth1:clab-agentic-netops-fabric-leaf01:ethernet-1/1" target="mid:clab-agentic-netops-fabric-client01:eth1:clab-agentic-netops-fabric-leaf01:ethernet-1/1">
       <mxCell style="rounded=0;orthogonalLoop=1;html=1;startSize=6;endArrow=classicThin;endFill=1;endSize=2;fontSize=14;strokeColor=#98A2AE;fontColor=#FFFFFF;textOpacity=60;labelBackgroundColor=#4D5766;jumpStyle=gap;strokeWidth=3;" edge="1" parent="1" source="clab-agentic-netops-fabric-client01:eth1:clab-agentic-netops-fabric-leaf01:ethernet-1/1" target="mid:clab-agentic-netops-fabric-client01:eth1:clab-agentic-netops-fabric-leaf01:ethernet-1/1">
@@ -130,15 +130,15 @@
       </mxCell>
     </object><object id="clab-agentic-netops-fabric-client02:eth1:clab-agentic-netops-fabric-leaf02:ethernet-1/1" label="1">
       <mxCell style="ellipse;whiteSpace=wrap;html=1;aspect=fixed;fontColor=#FFFFFF;fontSize=8;strokeColor=#98A2AE;fillColor=#BEC8D2;" vertex="1" parent="group-clab-agentic-netops-fabric-client02">
-          <mxGeometry x="31.5" y="69.0" width="12" height="12" as="geometry" />
+          <mxGeometry x="19.0" y="69.0" width="12" height="12" as="geometry" />
       </mxCell>
     </object><object id="clab-agentic-netops-fabric-leaf02:ethernet-1/1:clab-agentic-netops-fabric-client02:eth1" label="1">
       <mxCell style="ellipse;whiteSpace=wrap;html=1;aspect=fixed;fontColor=#FFFFFF;fontSize=8;strokeColor=#98A2AE;fillColor=#BEC8D2;" vertex="1" parent="group-clab-agentic-netops-fabric-leaf02">
-          <mxGeometry x="31.5" y="0.0" width="12" height="12" as="geometry" />
+          <mxGeometry x="19.0" y="0.0" width="12" height="12" as="geometry" />
       </mxCell>
     </object><object id="mid:clab-agentic-netops-fabric-client02:eth1:clab-agentic-netops-fabric-leaf02:ethernet-1/1" label="​">
       <mxCell style="ellipse;whiteSpace=wrap;html=1;aspect=fixed;fontColor=#FFFFFF;fontSize=6;fillColor=#BEC8D2;strokeColor=none;noLabel=1;" vertex="1" parent="1">
-          <mxGeometry x="285.5" y="207.5873307582164" width="4" height="4" as="geometry" />
+          <mxGeometry x="273.0" y="210.27744453788597" width="4" height="4" as="geometry" />
       </mxCell>
     </object><object id="link_id:clab-agentic-netops-fabric-client02:eth1:clab-agentic-netops-fabric-leaf02:ethernet-1/1" label="rate" source="clab-agentic-netops-fabric-client02:eth1:clab-agentic-netops-fabric-leaf02:ethernet-1/1" target="mid:clab-agentic-netops-fabric-client02:eth1:clab-agentic-netops-fabric-leaf02:ethernet-1/1">
       <mxCell style="rounded=0;orthogonalLoop=1;html=1;startSize=6;endArrow=classicThin;endFill=1;endSize=2;fontSize=14;strokeColor=#98A2AE;fontColor=#FFFFFF;textOpacity=60;labelBackgroundColor=#4D5766;jumpStyle=gap;strokeWidth=3;" edge="1" parent="1" source="clab-agentic-netops-fabric-client02:eth1:clab-agentic-netops-fabric-leaf02:ethernet-1/1" target="mid:clab-agentic-netops-fabric-client02:eth1:clab-agentic-netops-fabric-leaf02:ethernet-1/1">
@@ -146,6 +146,26 @@
       </mxCell>
     </object><object id="link_id:clab-agentic-netops-fabric-leaf02:ethernet-1/1:clab-agentic-netops-fabric-client02:eth1" label="rate" source="clab-agentic-netops-fabric-leaf02:ethernet-1/1:clab-agentic-netops-fabric-client02:eth1" target="mid:clab-agentic-netops-fabric-client02:eth1:clab-agentic-netops-fabric-leaf02:ethernet-1/1">
       <mxCell style="rounded=0;orthogonalLoop=1;html=1;startSize=6;endArrow=classicThin;endFill=1;endSize=2;fontSize=14;strokeColor=#98A2AE;fontColor=#FFFFFF;textOpacity=60;labelBackgroundColor=#4D5766;jumpStyle=gap;strokeWidth=3;" edge="1" parent="1" source="clab-agentic-netops-fabric-leaf02:ethernet-1/1:clab-agentic-netops-fabric-client02:eth1" target="mid:clab-agentic-netops-fabric-client02:eth1:clab-agentic-netops-fabric-leaf02:ethernet-1/1">
+          <mxGeometry relative="1" as="geometry" />
+      </mxCell>
+    </object><object id="clab-agentic-netops-fabric-client02:eth2:clab-agentic-netops-fabric-leaf02:ethernet-1/2" label="2">
+      <mxCell style="ellipse;whiteSpace=wrap;html=1;aspect=fixed;fontColor=#FFFFFF;fontSize=8;strokeColor=#98A2AE;fillColor=#BEC8D2;" vertex="1" parent="group-clab-agentic-netops-fabric-client02">
+          <mxGeometry x="44.0" y="69.0" width="12" height="12" as="geometry" />
+      </mxCell>
+    </object><object id="clab-agentic-netops-fabric-leaf02:ethernet-1/2:clab-agentic-netops-fabric-client02:eth2" label="2">
+      <mxCell style="ellipse;whiteSpace=wrap;html=1;aspect=fixed;fontColor=#FFFFFF;fontSize=8;strokeColor=#98A2AE;fillColor=#BEC8D2;" vertex="1" parent="group-clab-agentic-netops-fabric-leaf02">
+          <mxGeometry x="44.0" y="0.0" width="12" height="12" as="geometry" />
+      </mxCell>
+    </object><object id="mid:clab-agentic-netops-fabric-client02:eth2:clab-agentic-netops-fabric-leaf02:ethernet-1/2" label="​">
+      <mxCell style="ellipse;whiteSpace=wrap;html=1;aspect=fixed;fontColor=#FFFFFF;fontSize=6;fillColor=#BEC8D2;strokeColor=none;noLabel=1;" vertex="1" parent="1">
+          <mxGeometry x="298.0" y="205.96019508889128" width="4" height="4" as="geometry" />
+      </mxCell>
+    </object><object id="link_id:clab-agentic-netops-fabric-client02:eth2:clab-agentic-netops-fabric-leaf02:ethernet-1/2" label="rate" source="clab-agentic-netops-fabric-client02:eth2:clab-agentic-netops-fabric-leaf02:ethernet-1/2" target="mid:clab-agentic-netops-fabric-client02:eth2:clab-agentic-netops-fabric-leaf02:ethernet-1/2">
+      <mxCell style="rounded=0;orthogonalLoop=1;html=1;startSize=6;endArrow=classicThin;endFill=1;endSize=2;fontSize=14;strokeColor=#98A2AE;fontColor=#FFFFFF;textOpacity=60;labelBackgroundColor=#4D5766;jumpStyle=gap;strokeWidth=3;" edge="1" parent="1" source="clab-agentic-netops-fabric-client02:eth2:clab-agentic-netops-fabric-leaf02:ethernet-1/2" target="mid:clab-agentic-netops-fabric-client02:eth2:clab-agentic-netops-fabric-leaf02:ethernet-1/2">
+          <mxGeometry relative="1" as="geometry" />
+      </mxCell>
+    </object><object id="link_id:clab-agentic-netops-fabric-leaf02:ethernet-1/2:clab-agentic-netops-fabric-client02:eth2" label="rate" source="clab-agentic-netops-fabric-leaf02:ethernet-1/2:clab-agentic-netops-fabric-client02:eth2" target="mid:clab-agentic-netops-fabric-client02:eth2:clab-agentic-netops-fabric-leaf02:ethernet-1/2">
+      <mxCell style="rounded=0;orthogonalLoop=1;html=1;startSize=6;endArrow=classicThin;endFill=1;endSize=2;fontSize=14;strokeColor=#98A2AE;fontColor=#FFFFFF;textOpacity=60;labelBackgroundColor=#4D5766;jumpStyle=gap;strokeWidth=3;" edge="1" parent="1" source="clab-agentic-netops-fabric-leaf02:ethernet-1/2:clab-agentic-netops-fabric-client02:eth2" target="mid:clab-agentic-netops-fabric-client02:eth2:clab-agentic-netops-fabric-leaf02:ethernet-1/2">
           <mxGeometry relative="1" as="geometry" />
       </mxCell>
     </object><mxCell id="group-clab-agentic-netops-fabric-leaf01" value="" style="group" vertex="1" connectable="0" parent="1">

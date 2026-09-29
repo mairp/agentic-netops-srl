@@ -9,6 +9,12 @@
     {
       "admin-state": "enable",
       "mtu": 9412,
+      "name": "ethernet-1/2",
+      "srl_nokia-interfaces-vlans:vlan-tagging": false
+    },
+    {
+      "admin-state": "enable",
+      "mtu": 9412,
       "name": "ethernet-1/49",
       "subinterface": [
         {

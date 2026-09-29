@@ -21,6 +21,7 @@ import socket
 import subprocess
 import time
 import urllib.request
+import uuid
 from collections.abc import Iterator
 from typing import Any
 
@@ -57,7 +58,10 @@ def translator() -> Iterator[str]:
 
 def translate(url: str, intent: dict[str, Any]) -> dict[str, Any]:
     request = urllib.request.Request(url, data=json.dumps(intent).encode(), method="POST",  # noqa: S310
-                                     headers={"content-type": "application/json"})
+                                     headers={"content-type": "application/json",
+                                              # each translation is a request: its sidecar lines
+                                              # carry a correlation id like the deployer's (NFR-014)
+                                              "X-Correlation-Id": uuid.uuid4().hex})
     with urllib.request.urlopen(request, timeout=30) as resp:  # noqa: S310
         return json.loads(resp.read())
 

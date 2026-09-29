@@ -1,7 +1,8 @@
 # topology.clab.yml — the one reference lab (T030; FR-001, FR-002, FR-008, R-12, RD-01, RD-10).
 #
 # Six nodes and nothing else: two route-reflecting spines (ixr-d3l), two leaves (ixr-d2l) and one
-# Linux endpoint behind each leaf. There is ONE profile and no flag selects another.
+# Linux endpoint behind each leaf — client02 on two links: ethernet-1/1 (tagged) and ethernet-1/2
+# (untagged). There is ONE profile and no flag selects another.
 #
 # Management: the owned, labelled Docker network agentic-netops-mgmt, created BEFORE this lab by
 # scripts/lib/docker_net.sh (containerlab reuses an existing network — evidence/01 §4.5). Addresses
@@ -107,3 +108,7 @@ topology:
     # access: one link per endpoint; services share it through VLAN subinterfaces
     - endpoints: ["client01:eth1", "leaf01:ethernet-1/1"]
     - endpoints: ["client02:eth1", "leaf02:ethernet-1/1"]
+    # the one UNTAGGED access port (AD-51, AD-68): the default Fabric declares leaf02 ethernet-1/2 in
+    # untaggedAccessPorts, so an ip-vrf endpoint naming no VLAN has a linked port to land on
+    # (T173 / SC-046). Every VLAN-tagged service keeps sharing ethernet-1/1.
+    - endpoints: ["client02:eth2", "leaf02:ethernet-1/2"]

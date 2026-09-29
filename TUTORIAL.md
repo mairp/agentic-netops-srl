@@ -437,7 +437,8 @@ kubectl -n monitoring port-forward svc/grafana 3000:3000 &
 ### 16. "One tagging mode per port" refusal
 
 A port's tagging mode is declared in the `Fabric` inventory: tagged unless listed in that node's
-`untaggedAccessPorts` (none are, in `examples/fabric/default-fabric.yaml`). An untagged and a tagged
+`untaggedAccessPorts` (in `examples/fabric/default-fabric.yaml` one port is: `leaf02 ethernet-1/2`, client02's
+second link). An untagged and a tagged
 attachment never share a port. The refusal comes before anything is created and **names the port and
 both services**, e.g. `port leaf01 ethernet-1/1: Network <a> asks for a untagged attachment while Network <b> holds a tagged one`;
 an attachment asking for the mode the inventory does not declare is refused listing the ports declared in that mode (FR-034).

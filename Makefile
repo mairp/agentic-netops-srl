@@ -23,6 +23,7 @@ TARGETS := \
 	verify-boundaries \
 	verify-provenance-headers \
 	verify-evidence \
+	evidence-index \
 	verify-readme \
 	test-static \
 	test-idempotence \
@@ -33,6 +34,7 @@ TARGETS := \
 	test-delete-unreachable \
 	test-provider-claims \
 	test-acceptance \
+	test-acceptance-rerun \
 	build-migration-cli \
 	sdc-onboard \
 	wait-targets \
@@ -90,6 +92,9 @@ verify-provenance-headers: ## T025: every vendored asset carries source, version
 verify-evidence: ## T012: verify one run's EVIDENCE_DIR (default: the newest under .evidence/)
 	bash scripts/lib/verify_evidence.sh $(if $(EVIDENCE_DIR),"$(EVIDENCE_DIR)")
 
+evidence-index: ## T154: verify-evidence over every P11 run dir (P11_RUNS) and write docs/media/p11-evidence-index.json (SC-040)
+	bash scripts/ci/evidence_index.sh --out docs/media/p11-evidence-index.json $(foreach x,$(P11_EXCLUDE),--exclude $(x)) $(P11_RUNS)
+
 verify-readme:
 	$(not_implemented)
 
@@ -125,8 +130,17 @@ test-delete-unreachable: ## T064: deletion blocks on an unreachable target; FORC
 test-provider-claims: ## T172: provider claims per VNI before any Config; AllocationConflict for VNI and VLAN (SC-045)
 	tests/integration/provider_claims.sh
 
-test-acceptance:
-	$(not_implemented)
+test-acceptance: ## T151/T175: leftover scan, offline checks, ACCEPTANCE_CYCLES (3) deploy→test→destroy cycles, verify-evidence, verify-pins --no-pending; CONTROL_PLANE_ONLY=1 the tier-absent pass on the standing lab (SC-025); ACCEPTANCE_DRY_RUN=1 prints the plan
+	CONTROL_PLANE_ONLY="$(CONTROL_PLANE_ONLY)" ACCEPTANCE_CYCLES="$(ACCEPTANCE_CYCLES)" ACCEPTANCE_DRY_RUN="$(ACCEPTANCE_DRY_RUN)" \
+	  bash tests/e2e/acceptance.sh
+
+test-acceptance-rerun: ## a DELTA (T151 evidence, linked to its failed step; 2026-09-28-t151-delta): re-run ONLY=<step,…> or every FAIL of FROM=<results.tsv> once on the STANDING lab — no deploy, no destroy
+	@[ -n "$(ONLY)$(FROM)" ] || { echo "test-acceptance-rerun: set ONLY=<step,…> or FROM=<results.tsv>" >&2; exit 2; }
+	ACCEPTANCE_ONLY="$(ONLY)" ACCEPTANCE_RERUN_FROM="$(FROM)" ACCEPTANCE_DELTA_OF="$(DELTA_OF)" bash tests/e2e/acceptance.sh
+
+test-acceptance-close: ## a DELTA of a stopped run's closing steps (2026-09-28-t151-cycle-from-walk): verify-evidence over each run dir of OVER=<evidence base> (EXCLUDE="<dir>=<reason>;…") and verify-pins --no-pending
+	@[ -n "$(OVER)" ] || { echo "test-acceptance-close: set OVER=<evidence base>" >&2; exit 2; }
+	ACCEPTANCE_CLOSE_OVER="$(OVER)" ACCEPTANCE_CLOSE_EXCLUDE="$(EXCLUDE)" bash tests/e2e/acceptance.sh
 
 # --- Build
 build-migration-cli: ## T096: the translator CLI → bin/migration-translator (quickstart.md §5–§7)

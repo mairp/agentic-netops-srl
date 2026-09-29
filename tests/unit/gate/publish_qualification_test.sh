@@ -39,7 +39,8 @@ chmod +x "$TMP/bin/kubectl"
 
 run_pub() { # <fake-dir> [args…]
   local fake="$1"; shift
-  env -u EVIDENCE_DIR PATH="$TMP/bin:$PATH" FAKE="$fake" CLUSTER_NAME=agentic-netops bash "$PUB" "$@"
+  env -u EVIDENCE_DIR PATH="$TMP/bin:$PATH" FAKE="$fake" CLUSTER_NAME=agentic-netops \
+    PQ_WITHDRAWALS="${PQ_WITHDRAWALS:-/nonexistent}" bash "$PUB" "$@"
 }
 
 # --- 1. content, offline (--dry-run)
@@ -114,6 +115,31 @@ echo '{"schema":"something-else"}' >"$TMP/bogus.json"
 if run_pub "$F1" --record "$TMP/bogus.json" --dry-run >/dev/null 2>&1; then
   fail "a file that is not a gate record is refused"
 else pass "a file that is not a gate record is refused"; fi
+
+# --- 7. recorded withdrawals (live findings): unqualify only, annotated, never re-qualified
+cat >"$TMP/w.json" <<'JSON'
+{"schema": "agentic-netops.qualification-withdrawals/v1",
+ "withdrawals": [{"property": "mac-vrf.evpn-type2", "finding": "fx-finding", "reason": "fx reason"}]}
+JSON
+cm="$(PQ_WITHDRAWALS="$TMP/w.json" run_pub "$F1" --record "$FIX" --dry-run 2>/dev/null)"
+if jq -e '.data["mac-vrf.evpn-type2"] == "unqualified" and .data["mac-vrf"] == "unqualified"
+          and .metadata.annotations["agentic-netops.io/qualification-override"] == "mac-vrf.evpn-type2=unqualified"
+          and .metadata.annotations["agentic-netops.io/qualification-override-reason"] == "fx reason"
+          and (.data["qualification.json"] | fromjson | .constructs["mac-vrf"].properties["evpn-type2"].withdrawn.finding == "fx-finding")' <<<"$cm" >/dev/null; then
+  pass "a recorded withdrawal publishes a property the gate passed as unqualified, annotated with its finding and reason"
+else fail "a recorded withdrawal publishes a property the gate passed as unqualified, annotated with its finding and reason" "$cm"; fi
+cm="$(run_pub "$F1" --record "$FIX" --dry-run 2>/dev/null)"
+if jq -e '.data["mac-vrf.evpn-type2"] == "qualified" and (.metadata.annotations | has("agentic-netops.io/qualification-override") | not)' <<<"$cm" >/dev/null; then
+  pass "negative control: without the withdrawal the same property is qualified and no override is annotated"
+else fail "negative control: without the withdrawal the same property is qualified and no override is annotated" "$cm"; fi
+echo '{"withdrawals": [{"property": "acl.no-such", "finding": "x", "reason": "y"}]}' >"$TMP/wbad.json"
+if PQ_WITHDRAWALS="$TMP/wbad.json" run_pub "$F1" --record "$FIX" --dry-run >/dev/null 2>&1; then
+  fail "a withdrawal naming a property the record does not carry fails the publish"
+else pass "a withdrawal naming a property the record does not carry fails the publish"; fi
+if jq -e '[.withdrawals[] | select(.property == "acl.egress" and .finding == "2026-09-24-acl-egress-unqualified")] | length == 1' \
+     "$ROOT/tests/gate/qualification-withdrawals.json" >/dev/null 2>&1; then
+  pass "the tracked withdrawals carry acl.egress (live finding 2026-09-24-acl-egress-unqualified)"
+else fail "the tracked withdrawals carry acl.egress (live finding 2026-09-24-acl-egress-unqualified)"; fi
 
 [[ "$fails" -eq 0 ]] || { echo "publish_qualification_test: $fails FAILED"; exit 1; }
 echo "publish_qualification_test: all passed"

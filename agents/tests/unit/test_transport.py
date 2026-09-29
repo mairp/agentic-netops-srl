@@ -536,3 +536,84 @@ async def test_serve_passes_the_request_fields_to_the_handler(settings: Any, gat
     assert request.thread_id == "thread-1"
     assert request.idempotency_key == "thread-1:create"
     assert request.data == {"text": "extend vlan 100"}
+
+
+# --------------------------------------------------------------------------------------------------
+# the transport itself down: named as the transport, and re-joined unaided (NFR-010, T146)
+# --------------------------------------------------------------------------------------------------
+
+
+class GatewayBackend(RecordingBackend):
+    """A scripted backend whose gateway can be taken away and brought back."""
+
+    def __init__(self, script: list[Any]) -> None:
+        super().__init__(script)
+        self.up = True
+        self.closed = 0
+
+    async def gateway_reachable(self) -> bool:
+        return self.up
+
+    async def close(self) -> None:
+        self.closed += 1
+
+
+async def test_transport_down_is_named_as_the_transport(settings: Any, sleeps: Sleeps) -> None:
+    backend = GatewayBackend(["unreachable"] * 5)
+    backend.up = False
+    client = t.TransportClient(settings, backend, sleep=sleeps)
+    with pytest.raises(WorkerUnreachableError) as caught:
+        await _call(client)
+    text = str(caught.value)
+    assert text.startswith("worker unreachable: mapper — transport unavailable: ")
+    assert "SLIM gateway at http://slim.agentic-netops-agents.svc:46357" in text
+    assert caught.value.retryable is True
+
+
+async def test_a_silent_worker_behind_a_live_gateway_does_not_blame_the_transport(
+        settings: Any, sleeps: Sleeps) -> None:
+    """The negative control of the case above: the gateway answers, one worker does not."""
+    backend = GatewayBackend(["unreachable"] * 5)
+    client = t.TransportClient(settings, backend, sleep=sleeps)
+    with pytest.raises(WorkerUnreachableError) as caught:
+        await _call(client)
+    assert str(caught.value) == "worker unreachable: mapper"
+    assert backend.closed == 0
+
+
+async def test_the_client_reconnects_once_the_gateway_is_back(settings: Any,
+                                                               sleeps: Sleeps) -> None:
+    backend = GatewayBackend(["unreachable"] * 3 + [_ok_bytes()])
+    backend.up = False
+    client = t.TransportClient(settings, backend, sleep=sleeps)
+    with pytest.raises(WorkerUnreachableError):
+        await _call(client)
+    assert backend.closed == 0  # nothing to reconnect to yet
+    backend.up = True
+    result = await _call(client)
+    assert backend.closed == 1  # the dead connection dropped, a new one opened on use
+    assert result.data.service_id == INTERPRETATION["service_id"]
+
+
+async def test_health_names_the_transport_when_the_gateway_is_gone(settings: Any,
+                                                                   sleeps: Sleeps) -> None:
+    backend = GatewayBackend([])
+    backend.up = False
+    client = t.TransportClient(settings, backend, sleep=sleeps)
+    with pytest.raises(t.DeliveryError, match=r"SLIM gateway .* accepts no connection"):
+        await client.health()
+    backend.up = True
+    backend.script = [t.encode(t.reply_ok("ok", {"status": "ok"}))] * 3
+    health = await client.health()
+    assert backend.closed == 1 and set(health.values()) == {"ok"}
+
+
+async def test_every_worker_silent_reconnects_on_the_next_check(settings: Any,
+                                                                sleeps: Sleeps) -> None:
+    """A gateway that restarted between two checks: reachable, but it forgot this process."""
+    backend = GatewayBackend(["unreachable"] * 3)
+    client = t.TransportClient(settings, backend, sleep=sleeps)
+    assert set((await client.health()).values()) == {"unreachable"}
+    backend.script = [t.encode(t.reply_ok("ok", {"status": "ok"}))] * 3
+    assert set((await client.health()).values()) == {"ok"}
+    assert backend.closed == 1

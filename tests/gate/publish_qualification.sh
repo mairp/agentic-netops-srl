@@ -23,6 +23,14 @@
 # and an unqualified one is refused by name at interpretation (FR-097) while the construct stays
 # qualified. A property the gate did not observe is unqualified — never assumed.
 #
+# Withdrawals: tests/gate/qualification-withdrawals.json (PQ_WITHDRAWALS overrides) lists recorded
+# live findings that withdraw a property the gate observed passing (docs/decisions/live-findings.md,
+# e.g. 2026-09-24-acl-egress-unqualified). Every publish applies them — the property is published
+# unqualified with `withdrawn: {finding, reason}` in qualification.json and the annotations
+# agentic-netops.io/qualification-override (`<construct>.<property>=unqualified`, comma-separated)
+# and …-override-reason — so a fresh gate run never re-qualifies it. A withdrawal only ever turns a
+# property unqualified; it can never qualify one (CR-007).
+#
 # Usage: publish_qualification.sh [--record <gate-record.json>] [--dry-run] [--output <file>]
 #   --dry-run   build and print the ConfigMap, apply nothing (no cluster needed)
 # Environment: EVIDENCE_DIR, CLUSTER_NAME, KUBECTL, KUBE_CONTEXT.
@@ -37,6 +45,7 @@ source "$PQ_ROOT/scripts/lib/log.sh"
 PQ_NAMESPACE="agentic-netops-system"
 PQ_NAME="fabric-qualification"
 PQ_FIELD_MANAGER="agentic-netops-gate"
+PQ_WITHDRAWALS="${PQ_WITHDRAWALS:-$PQ_ROOT/tests/gate/qualification-withdrawals.json}"
 
 record="${EVIDENCE_DIR:+$EVIDENCE_DIR/gate-record.json}"; dry=0; output=""
 while [[ $# -gt 0 ]]; do
@@ -122,6 +131,23 @@ pq::qualification() {
       }' "$1"
 }
 
+# pq::withdraw <qualification.json> — apply the recorded withdrawals (unqualify only), recompute the
+# construct verdicts; an entry naming a property the record does not carry fails the publish.
+pq::withdraw() {
+  local w='{"withdrawals": []}'
+  [[ -f "$PQ_WITHDRAWALS" ]] && w="$(cat "$PQ_WITHDRAWALS")"
+  jq -S --argjson w "$w" '
+    reduce ($w.withdrawals // [])[] as $x (.;
+      ($x.property | split(".")) as $p
+      | if (.constructs[$p[0]].properties[$p[1]] // null) == null
+        then error("withdrawal names \($x.property), which the qualification record does not carry")
+        else .constructs[$p[0]].properties[$p[1]] += {qualified: false, withdrawn: {finding: $x.finding, reason: $x.reason}}
+        end)
+    | .constructs |= with_entries(.value.qualified = (.value.qualified
+          and ([.value.properties[] | select((.gated // false) | not) | .qualified] | all)))
+    | .withdrawals = [($w.withdrawals // [])[] | {property, finding}]' "$1"
+}
+
 # pq::configmap <qualification.json> <record-sha256> — the ConfigMap (JSON)
 pq::configmap() {
   jq -S --arg ns "$PQ_NAMESPACE" --arg name "$PQ_NAME" --arg cluster "$CLUSTER_NAME" --arg sha "$2" '
@@ -135,16 +161,21 @@ pq::configmap() {
        metadata: {name: $name, namespace: $ns,
                   labels: {"app.kubernetes.io/part-of": "agentic-netops", "app.kubernetes.io/component": "qualification-record",
                            "agentic-netops.io/owned-by": $cluster},
-                  annotations: {"agentic-netops.io/gate-result": $q.gate.result,
+                  annotations: ({"agentic-netops.io/gate-result": $q.gate.result,
                                 "agentic-netops.io/gate-record-sha256": $sha,
                                 "agentic-netops.io/device-image-digest": ($q.gate.device_image_digest // ""),
-                                "agentic-netops.io/schema": $q.schema}},
+                                "agentic-netops.io/schema": $q.schema}
+                               + (if ($q.withdrawals // []) | length > 0 then
+                                    {"agentic-netops.io/qualification-override": ([$q.withdrawals[] | "\(.property)=unqualified"] | join(",")),
+                                     "agentic-netops.io/qualification-override-reason": ([$q.constructs | to_entries[] | .value.properties | to_entries[] | select(.value.withdrawn) | .value.withdrawn.reason] | join(" | "))}
+                                  else {} end))},
        data: (. + {"qualification.json": ($q | tojson)})}' "$1"
 }
 
 qual="$(mktemp)"; cm="$(mktemp)"
 trap 'rm -f "$qual" "$cm"' EXIT
-pq::qualification "$record" >"$qual"
+pq::qualification "$record" >"$qual.raw"
+pq::withdraw "$qual.raw" >"$qual"; rm -f "$qual.raw"
 pq::configmap "$qual" "$(sha256sum "$record" | awk '{print $1}')" >"$cm"
 
 if [[ -n "$output" ]]; then cp "$cm" "$output"; fi

@@ -238,7 +238,18 @@ rbac::boundary() {
   while [[ -e "$EVIDENCE_DIR/$id.json" ]]; do n=$((n + 1)); id="rbac.apply-${n}"; done
   evidence_run "$id" -- bash "$RBAC_ROOT/scripts/lib/rbac.sh" apply \
     || { log::error "boundary step: applying the safety boundary failed — the tier phase is aborted"; return 1; }
-  log::info "boundary step: running the denial probes (${RBAC_PROBES#"$RBAC_ROOT"/}) before any agent workload is created"
+  # an idempotent re-run on a STANDING tier (quickstart §1, §20): the agents already exist, so the
+  # probes run in their standing-tier mode (BP_TIER_DEPLOYED=1, T150) — T070's four policies present,
+  # every other one declared by a tier manifest, the denials re-proven with the agents running —
+  # rather than refusing a re-run the phase is required to accept (FR-010)
+  local standing=""
+  standing="$(rbac::k get deployments,statefulsets -n "${TIER_NS:-agentic-netops-agents}" -o name 2>/dev/null)" || standing=""
+  if [[ -n "$standing" ]]; then
+    export BP_TIER_DEPLOYED=1
+    log::info "boundary step: the tier is already standing ($(echo "$standing" | wc -l) workloads) — re-proving the denials in standing-tier mode (BP_TIER_DEPLOYED=1)"
+  else
+    log::info "boundary step: running the denial probes (${RBAC_PROBES#"$RBAC_ROOT"/}) before any agent workload is created"
+  fi
   if ! bash "$RBAC_PROBES"; then
     log::error "boundary step: a denial was NOT observed (see the probe evidence) — the tier phase is aborted before any agent workload is created"
     return 1

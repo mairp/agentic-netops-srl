@@ -13,6 +13,8 @@
 #   * a first-party workload whose tag is not the tree's content hash            → the workload
 #   * a first-party workload whose image ID is not the one the build recorded    → the workload
 #   * no image ID recorded in this run's evidence                                → the workload
+#   * a standing lab (no build in this run, no COMPAT_BUILD_EVIDENCE_DIR): the provisioning run's
+#     records stamped with the live cluster's UID count; another cluster's never do
 #   * the provider not running                                                   → the provider
 #   * first-party selected: the allocation authority (agentic-netops-allocation/allocation-authority,
 #     the provider's image) is held to the same content-hash rule, and not running → named
@@ -211,6 +213,88 @@ expect_fail "provider running an image ID the build did not record" "$t" "worklo
 
 t="$TMP/norecord"; make_tree "$t"; rm "$t/evidence/image-build.srl-provider.${HASH:0:12}.json"
 expect_fail "no image ID recorded in this run's evidence" "$t" 'records no image ID for srl-provider:0123456789ab'
+
+# the standing lab (CONTROL_PLANE_ONLY on T152's re-provisioned lab): the build records live in the
+# provisioning run's directory, named by COMPAT_BUILD_EVIDENCE_DIR (T152 r8)
+t="$TMP/buildrun"; make_tree "$t"; mkdir -p "$t/provisioning"
+mv "$t/evidence/image-build.srl-provider.${HASH:0:12}".* "$t/provisioning/"
+rc=0; ( cd "$t" && PATH="$t/bin:$PATH" STUB_KUBE="$t/kube" KUBECTL="$t/bin/kubectl" EVIDENCE_DIR="$t/evidence" \
+    COMPAT_BUILD_EVIDENCE_DIR="$t/provisioning" CLUSTER_NAME=agentic-netops bash scripts/ci/verify_compat.sh ) >"$t/out" 2>&1 || rc=$?
+if [[ "$rc" -eq 0 ]] && grep -q "PASS images: workload agentic-netops-system/srl-provider-7d9f-abcde runs\|PASS images: workload agentic-netops-system/srl-provider-7d9f-abcde container manager runs srl-provider:${HASH}" "$t/out"; then
+  pass "build record read from the provisioning run (COMPAT_BUILD_EVIDENCE_DIR) when this run holds none"
+else
+  fail "build record in COMPAT_BUILD_EVIDENCE_DIR should satisfy the image-ID check (rc=$rc)" "$(cat "$t/out")"
+fi
+expect_fail "the same tree without COMPAT_BUILD_EVIDENCE_DIR" "$t" 'records no image ID for srl-provider:0123456789ab'
+
+# a quickstart walk's closing CONTROL_PLANE_ONLY pass (acceptance-20260928T103226Z): the lab was
+# provisioned by an earlier run (§1), later runs of the walk built nothing (§20 tier purge /
+# re-provision), the acceptance run's own directory holds no build record, and no
+# COMPAT_BUILD_EVIDENCE_DIR is named. The records of the run that provisioned THIS cluster
+# (stamped with its kube-system UID) are found under the lab's evidence root; records of another
+# cluster of the same name never count.
+LIVE_UID="c104c133-935b-4e84-858e-057fee49dcb0"
+OLD_UID="0aba14ea-5923-4c7d-9fb7-4db1601d4903"
+record_at() {  # record_at <dir> <name> <image-id> <utc> <cluster-uid> [suffix]
+  local d="$1" id="image-build.$2.${HASH:0:12}${6:-}"
+  mkdir -p "$d"; echo "$3" >"$d/$id.stdout"; : >"$d/$id.stderr"
+  jq -n --arg o "$id.stdout" --arg t "$4" --arg u "$5" '{kind: "run", exit_status: 0, utc_time: $t,
+      cluster: {name: "agentic-netops", uid: $u}, raw_output: {stdout: {file: $o}}}' >"$d/$id.json"
+}
+walk_tree() {  # walk_tree <dir> — provider + schema-mirror running; build records only in the §1 run
+  local t="$1" lab="$1/evroot/agentic-netops_agentic-netops-fabric"
+  make_tree "$t"; rm -f "$t/evidence"/image-build.*
+  jq -n --arg u "$LIVE_UID" '{kind: "Namespace", metadata: {name: "kube-system", uid: $u}}' >"$t/kube/namespace-kube-system.json"
+  jq --arg img "schema-mirror:$HASH" --arg iid "docker.io/library/schema-mirror@$IMGID" '.items += [
+    {metadata: {namespace: "sdc-system", name: "schema-mirror-78786b4c74-xrhwf"},
+     spec: {containers: [{name: "schema-mirror", image: $img}]},
+     status: {phase: "Running", containerStatuses: [{name: "schema-mirror", imageID: $iid}]}}]' \
+    "$t/kube/pods.json" >"$t/x" && mv "$t/x" "$t/kube/pods.json"
+  record_at "$lab/20260928T095353Z" srl-provider "$IMGID" 2026-09-28T09:58:20Z "$LIVE_UID"
+  record_at "$lab/20260928T095353Z" schema-mirror "$IMGID" 2026-09-28T09:58:27Z "$LIVE_UID"
+  mkdir -p "$lab/20260928T103054Z" "$lab/20260928T103204Z" "$lab/acceptance-20260928T103226Z/standing"
+  # an earlier lab of the same name, same content hash, another image ID — and a NEWER record
+  record_at "$lab/20260929T120000Z-other" schema-mirror "$OTHERID" 2026-09-29T12:00:00Z "$OLD_UID"
+  record_at "$lab/20260929T120000Z-other" srl-provider "$OTHERID" 2026-09-29T12:00:00Z "$OLD_UID"
+}
+walk_run() {  # walk_run <tree> — as acceptance.sh runs it: EVIDENCE_DIR = its standing dir
+  local lab="$1/evroot/agentic-netops_agentic-netops-fabric"
+  ( cd "$1" && PATH="$1/bin:$PATH" STUB_KUBE="$1/kube" KUBECTL="$1/bin/kubectl" \
+      EVIDENCE_DIR="$lab/acceptance-20260928T103226Z/standing" EVIDENCE_ROOT="$1/evroot" \
+      CLUSTER_NAME=agentic-netops LAB_NAME=agentic-netops-fabric bash scripts/ci/verify_compat.sh ) >"$1/out" 2>&1
+}
+walk_fail() {  # walk_fail <label> <tree> <pattern>
+  local rc=0; walk_run "$2" || rc=$?
+  if [[ "$rc" -eq 1 ]] && grep -qE -- "$3" "$2/out"; then
+    pass "$1 → fails naming it: $(grep -E -- "$3" "$2/out" | head -n1 | sed 's/.*FAIL //' | cut -c1-110)"
+  else
+    fail "$1 → should fail (rc=1) naming /$3/ (rc=$rc)" "$(cat "$2/out")"
+  fi
+}
+t="$TMP/walk"; walk_tree "$t"
+rc=0; walk_run "$t" || rc=$?
+if [[ "$rc" -eq 0 ]] && grep -q "PASS images: workload sdc-system/schema-mirror-78786b4c74-xrhwf container schema-mirror runs schema-mirror:${HASH} (${IMGID})" "$t/out" \
+   && grep -q "PASS images: workload agentic-netops-system/srl-provider-7d9f-abcde container manager runs srl-provider:${HASH} (${IMGID})" "$t/out"; then
+  pass "standing lab, no COMPAT_BUILD_EVIDENCE_DIR: the build records of the run that provisioned this cluster are found"
+else
+  fail "the walk's closing acceptance pass should find this cluster's build records (rc=$rc)" "$(cat "$t/out")"
+fi
+t="$TMP/walk-stale"; walk_tree "$t"
+jq --arg iid "docker.io/library/schema-mirror@$OTHERID" '(.items[] | select(.metadata.name | startswith("schema-mirror")) | .status.containerStatuses[0].imageID) = $iid' \
+  "$t/kube/pods.json" >"$t/x" && mv "$t/x" "$t/kube/pods.json"
+walk_fail "standing lab: schema-mirror runs the image ID another cluster's build recorded" "$t" \
+  "workload sdc-system/schema-mirror-78786b4c74-xrhwf container schema-mirror runs image ID ${OTHERID}, not ${IMGID}"
+t="$TMP/walk-foreign"; walk_tree "$t"
+rm -rf "$t/evroot/agentic-netops_agentic-netops-fabric/20260928T095353Z"
+walk_fail "standing lab: only another cluster recorded a build of this content hash" "$t" \
+  "workload sdc-system/schema-mirror-78786b4c74-xrhwf container schema-mirror: .*records no image ID for schema-mirror:${HASH}, and no run of this lab \\(cluster uid ${LIVE_UID}\\)"
+t="$TMP/walk-nouid"; walk_tree "$t"; rm "$t/kube/namespace-kube-system.json"
+walk_fail "standing lab: the cluster's identity cannot be read" "$t" "records no image ID for schema-mirror:${HASH}.*cluster uid unreadable"
+t="$TMP/walk-tag"; walk_tree "$t"
+jq '(.items[] | select(.metadata.name | startswith("schema-mirror")) | .spec.containers[0].image) = "schema-mirror:dev"' \
+  "$t/kube/pods.json" >"$t/x" && mv "$t/x" "$t/kube/pods.json"
+walk_fail "standing lab: schema-mirror running a tag other than the content hash" "$t" \
+  "workload sdc-system/schema-mirror-78786b4c74-xrhwf container schema-mirror runs schema-mirror:dev, not schema-mirror:${HASH}"
 
 t="$TMP/norun"; make_tree "$t"; pods "$t" "srl-provider:$HASH" "docker.io/library/srl-provider@$IMGID" Pending
 expect_fail "provider not running" "$t" 'provider agentic-netops-system/srl-provider|no running first-party workload'

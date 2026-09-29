@@ -44,6 +44,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/klog/v2"
 	"k8s.io/utils/clock"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -59,6 +60,7 @@ import (
 	"github.com/mairp/agentic-netops-srl/internal/model"
 	"github.com/mairp/agentic-netops-srl/internal/status"
 	"github.com/mairp/agentic-netops-srl/internal/telemetry"
+	"github.com/mairp/agentic-netops-srl/internal/telemetry/jsonlog"
 	"github.com/mairp/agentic-netops-srl/internal/verify"
 	"github.com/mairp/agentic-netops-srl/internal/webhook"
 	"github.com/mairp/agentic-netops-srl/pkg/kuid"
@@ -205,7 +207,48 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Watches(&configv1alpha1.Deviation{}, handler.EnqueueRequestsFromMapFunc(r.deviationToNetworks)).
 		Watches(&configv1alpha1.Target{}, all).
 		Watches(&fabricv1.Fabric{}, all).
+		WithLogConstructor(requestLogger(mgr.GetLogger(), mgr.GetCache(), mgr.GetAPIReader())).
 		Complete(r)
+}
+
+// requestLogger is the controller's per-request logger: the fields controller-runtime's default
+// constructor sets, plus correlation_id when the Network carries the correlation label, so the
+// framework's own lines about a request — "Reconciler error" among them — carry it too (NFR-014,
+// data-model.md §27). The label is read from the readers in order (the informer cache, then the
+// API server); a request none of them can read — a Network being deleted, or one the cache has not
+// caught up with — keeps the correlation id last seen for that request (T151 r8: a conflict on a
+// deleting tier Network logged "Reconciler error" with none).
+func requestLogger(base logr.Logger, readers ...client.Reader) func(*reconcile.Request) logr.Logger {
+	base = base.WithValues("controller", "network", "controllerGroup", fabricv1.GroupVersion.Group, "controllerKind", "Network")
+	var seen sync.Map // types.NamespacedName -> correlation id
+	return func(req *reconcile.Request) logr.Logger {
+		if req == nil {
+			return base
+		}
+		log := base.WithValues("Network", klog.KRef(req.Namespace, req.Name), "namespace", req.Namespace, "name", req.Name)
+		cid := ""
+		for _, r := range readers {
+			n := &fabricv1.Network{}
+			if r == nil || r.Get(context.Background(), req.NamespacedName, n) != nil {
+				continue
+			}
+			if cid = n.Labels[jsonlog.LabelCorrelationID]; cid != "" {
+				seen.Store(req.NamespacedName, cid)
+			} else {
+				seen.Delete(req.NamespacedName)
+			}
+			break
+		}
+		if cid == "" {
+			if v, ok := seen.Load(req.NamespacedName); ok {
+				cid = v.(string)
+			}
+		}
+		if cid != "" {
+			log = log.WithValues(jsonlog.FieldCorrelationID, cid)
+		}
+		return log
+	}
 }
 
 func (r *Reconciler) allNetworks(ctx context.Context, _ client.Object) []reconcile.Request {

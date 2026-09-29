@@ -30,7 +30,9 @@ def _handler(settings: Settings) -> WorkerHandler:
     # start, and the effective endpoint is logged once (FR-106); every call re-reads the Secret.
     from common.llm import LLMClient
 
-    return Mapper(settings, llm=LLMClient(settings.llm_provider_dir)).handle
+    return Mapper(settings, llm=LLMClient(settings.llm_provider_dir,
+                                          timeout=settings.model_call_timeout_seconds,
+            reasoning_effort=settings.model_reasoning_effort)).handle
 
 
 def main() -> None:

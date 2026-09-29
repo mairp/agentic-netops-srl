@@ -123,6 +123,7 @@ data:
         {"name": "multicast VPN", "patterns": ["\\bmvpn\\b", "multicast vpn", "\\bmulticast\\b"]},
         {"name": "complex QoS", "patterns": ["\\bqos\\b", "quality of service", "traffic shaping", "\\bpolicer\\b"]},
         {"name": "service chaining", "patterns": ["service[- ]chain"]},
-        {"name": "raw device CLI", "patterns": ["\\braw (?:device )?cli\\b", "\\bcli command"]}
+        {"name": "raw device CLI", "patterns": ["\\braw (?:device )?cli\\b", "\\bcli command"]},
+        {"name": "Layer 2", "patterns": ["\\bmac (?:acl|access[- ]?list|filter)", "\\b(?:source|destination|src|dst) mac\\b", "\\bmac address(?:es)? (?:filter|match)", "\\bethertype\\b", "\\blayer[- ]?2 (?:acl|access[- ]?list|filter)"]}
       ]
     }

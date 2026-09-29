@@ -66,6 +66,10 @@
 #        boundary_probes.sh reconcile <mgmt-ports.json>   step 2 alone (exit 1 names the port)
 #        boundary_probes.sh expect <no|yes|timeout|http <code>|admission-denied|accepted|list <json>> -- <cmd…>
 #                                            the judged command of one check (what evidence_run runs)
+# BP_TIER_DEPLOYED=1 — the re-run on a STANDING tier (T150, SC-029): step 1 then requires T070's four
+# NetworkPolicies among the live ones and every live one declared by a manifest under deploy/agents/ or
+# deploy/rbac/, and records the running agent workloads instead of refusing them; every denial after
+# step 1 is the same. Unset (the default, T073/T076): the boundary is proven before any agent exists.
 # Environment (beyond tests/lib/lab.sh and suite.sh): BP_CONTRACT (the contract file),
 #   BP_OBSERVED (tests/gate/observed/mgmt-ports.json), BP_DIAL_TIMEOUT (5 s), BP_POD_TIMEOUT (180 s),
 #   TIER_NS (agentic-netops-agents), INTENT_NS (agentic-netops-intent), BP_CTL_NS
@@ -583,14 +587,33 @@ bp::run() {
     || suite::fail "the tier's NetworkPolicies cannot be read"
   local have
   have="$(bp::k get networkpolicies -n "$TIER_NS" -o json | jq -r '[.items[].metadata.name] | sort | join(" ")')" || have=""
-  [[ "$have" == "allow-egress-scoped apiserver-egress-cluster-clients deny-all-by-default slim-ingress" ]] \
-    || suite::fail "the tier's NetworkPolicies are [${have}], not exactly the four of T070"
+  if [[ "${BP_TIER_DEPLOYED:-0}" == 1 ]]; then
+    # the re-run on a STANDING tier (T150): T070's four are still there, and every other policy is
+    # one the tier's own manifests under deploy/agents/ declare — nothing hand-added
+    local p declared
+    declared="$(grep -h -A3 '^kind: NetworkPolicy' "$BP_ROOT"/deploy/agents/*.yaml "$BP_ROOT"/deploy/rbac/*.yaml 2>/dev/null | sed -n 's/^  name: *//p' | sort -u | tr '\n' ' ')"
+    for p in allow-egress-scoped apiserver-egress-cluster-clients deny-all-by-default slim-ingress; do
+      [[ " $have " == *" $p "* ]] || suite::fail "T070's NetworkPolicy ${p} is absent from ${TIER_NS} (have: [${have}])"
+    done
+    for p in $have; do
+      [[ " $declared " == *" $p "* ]] || suite::fail "NetworkPolicy ${p} in ${TIER_NS} is declared by no manifest under deploy/agents/ or deploy/rbac/"
+    done
+    log::info "standing tier (BP_TIER_DEPLOYED=1): T070's four present; every policy declared by a tier manifest: [${have}]"
+  else
+    [[ "$have" == "allow-egress-scoped apiserver-egress-cluster-clients deny-all-by-default slim-ingress" ]] \
+      || suite::fail "the tier's NetworkPolicies are [${have}], not exactly the four of T070"
+  fi
   gate::run BP.policy-drops-mgmt-cidr -- bash -c "$(printf '%q ' "${BP_K[@]}") get networkpolicy allow-egress-scoped -n ${TIER_NS} -o json | jq -e --arg c '${MGMT_CIDR}' '[.spec.egress[] | select(any(.to[]?; .ipBlock))] as \$ip | (\$ip | length) == 1 and (\$ip[0].ports == null) and (\$ip[0].to | length) == 1 and \$ip[0].to[0].ipBlock.cidr == \"0.0.0.0/0\" and (\$ip[0].to[0].ipBlock.except | index(\$c) != null)'" >/dev/null 2>&1 \
     || suite::fail "allow-egress-scoped does not drop the whole management CIDR ${MGMT_CIDR} on every port (one ipBlock rule, no port list)"
   gate::run BP.admission-policy -- "${BP_K[@]}" get validatingadmissionpolicy,validatingadmissionpolicybinding "$BP_VAP" -o yaml >/dev/null 2>&1 \
     || suite::fail "the ValidatingAdmissionPolicy ${BP_VAP} or its binding is absent"
-  gate::run BP.no-agent-workload -- bash -c "out=\$($(printf '%q ' "${BP_K[@]}") get deployments,statefulsets,daemonsets,replicasets -n ${TIER_NS} -o name) && echo \"workloads: [\${out}]\" && [ -z \"\${out}\" ]" >/dev/null 2>&1 \
-    || suite::fail "an agent workload already exists in ${TIER_NS}: the boundary is proven BEFORE any agent is deployed"
+  if [[ "${BP_TIER_DEPLOYED:-0}" == 1 ]]; then
+    # the re-run (T150): the denials are re-proven WITH the agents running; their inventory is recorded
+    gate::run BP.agent-workloads-standing -- "${BP_K[@]}" get deployments,statefulsets -n "$TIER_NS" -o wide >/dev/null 2>&1 || true
+  else
+    gate::run BP.no-agent-workload -- bash -c "out=\$($(printf '%q ' "${BP_K[@]}") get deployments,statefulsets,daemonsets,replicasets -n ${TIER_NS} -o name) && echo \"workloads: [\${out}]\" && [ -z \"\${out}\" ]" >/dev/null 2>&1 \
+      || suite::fail "an agent workload already exists in ${TIER_NS}: the boundary is proven BEFORE any agent is deployed"
+  fi
 
   # ---- 2. the port set, from the contract; reconciled against G2
   local -a PORTS=()

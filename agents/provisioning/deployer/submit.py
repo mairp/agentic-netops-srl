@@ -40,6 +40,7 @@ from typing import Any
 
 import httpx
 
+from common import tracing
 from provisioning.deployer.kube import (
     ClusterUnavailableError,
     KubeAPIError,
@@ -53,6 +54,8 @@ log = logging.getLogger("agentic_netops.deployer.submit")
 
 DEFAULT_TRANSLATOR_URL = "http://127.0.0.1:8090"
 TRANSLATE_PATH = "/v1/translate"
+# The sidecar logs the request under this correlation id (NFR-014; cmd/intent-translator).
+CORRELATION_HEADER = "X-Correlation-Id"
 # The VLAN bands (AD-33): a VLAN the operator names is drawn from the naming band and is never
 # claimed; one the authority allocates comes only from the allocation band. They are disjoint, so
 # the pre-flight never has an allocated-versus-named VLAN collision to look for.
@@ -117,7 +120,9 @@ async def translate(client: httpx.AsyncClient, base_url: str,
                     intent: Mapping[str, Any]) -> list[dict[str, Any]]:
     url = base_url.rstrip("/") + TRANSLATE_PATH
     try:
-        response = await client.post(url, json=dict(intent))
+        cid = tracing.current_correlation_id()
+        response = await client.post(url, json=dict(intent),
+                                     headers={CORRELATION_HEADER: cid} if cid else None)
     except httpx.TransportError as exc:
         raise DependencyUnavailableError(
             "translator sidecar", f"translator sidecar unavailable at {url}: "

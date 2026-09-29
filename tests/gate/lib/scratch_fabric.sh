@@ -7,7 +7,7 @@
 # a scratch underlay + overlay + tenant of its own, observes what it must, and removes all of it with
 # the removal read back — FabricReady never starts on a dirty device.
 #
-# The scratch plan mirrors the default Fabric (examples/fabric/fabric01.yaml) so that what G8 observes
+# The scratch plan mirrors the default Fabric (examples/fabric/default-fabric.yaml) so that what G8 observes
 # is what the rendered fabric will rest on:
 #   loopbacks (system0.0)  spine01 10.0.0.11, spine02 10.0.0.12, leaf01 10.0.0.1, leaf02 10.0.0.2
 #   underlay eBGP          spines AS 65100 (both), leaves 65101/65102, numbered /31s from
@@ -347,6 +347,27 @@ scratch::_dev() {
   evidence_run "$id" -- "${LAB_ARGV[@]}" "$@"
 }
 
+# scratch::_all_redacted — the whole running datastore of the node LAB_ARGV addresses, every
+# credential-bearing leaf (password, secret, psk, private or authentication key) replaced by
+# "<redacted>" before it reaches evidence, exactly as leftovers::_datastore_redacted does: the
+# removal check needs vt-scratch- names, never a device user's password hash (FR-079, SC-031;
+# live-findings 2026-09-25-leftover-scan-redaction, extended 2026-09-26-t151r7).
+scratch::_all_redacted() {
+  local out
+  out="$("${LAB_ARGV[@]}" get --type config --path /)" || return $?
+  jq 'walk(if type == "object" then with_entries(
+        if (.key | test("password|secret|psk|private-key|authentication-key|^key$"; "i"))
+           and (.value | type) == "string"
+        then .value = "<redacted>" else . end) else . end)' <<<"$out"
+}
+# scratch::_dev_all_redacted <id> <node> — scratch::_all_redacted through the run's evidence
+scratch::_dev_all_redacted() {
+  local id="$1" node="$2"
+  lab::gnmic_argv "$node" || return 1
+  declare -F gate::id >/dev/null && id="$(gate::id "$id")"
+  evidence_run "$id" -- scratch::_all_redacted
+}
+
 # scratch::snapshot_node <node> <plan> <tag> — read and store each root's config (null = absent)
 scratch::snapshot_node() {
   local node="$1" plan="$2" tag="$3" dir root out val
@@ -428,7 +449,7 @@ scratch::verify_restored() {
       bad=1
     fi
   done <"$dir/roots.txt"
-  out="$(scratch::_dev "${tag}.readback.${node}.all" "$node" get --type config --path / 2>/dev/null)" || { echo "scratch: $node datastore unreadable" >&2; return 1; }
+  out="$(scratch::_dev_all_redacted "${tag}.readback.${node}.all" "$node" 2>/dev/null)" || { echo "scratch: $node datastore unreadable" >&2; return 1; }
   if grep -q "$LAB_SCRATCH_PREFIX" <<<"$out"; then
     echo "scratch: $node still carries vt-scratch- configuration:" >&2
     grep -o "\"[^\"]*${LAB_SCRATCH_PREFIX}[^\"]*\"" <<<"$out" | sort -u | head -20 >&2

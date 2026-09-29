@@ -24,7 +24,7 @@ import json
 from typing import Any
 
 import pytest
-from conftest import AGENTS_NS, kjson, kubectl, record, wait_for
+from conftest import AGENTS_NS, kjson, kubectl, pod_ready, record, supervisor_pod, wait_for
 from obsflow import failing_spans, spans_named, wait_trace
 from tierflow import ask, claims_of, request_to_confirmation
 
@@ -70,6 +70,10 @@ def scale(name: str, replicas: int) -> None:
     if replicas:
         kubectl("-n", AGENTS_NS, "rollout", "status", f"deployment/{name}", "--timeout=300s",
                 timeout=320)
+        # the supervisor goes NotReady while a worker is away (T089) and the published port
+        # routes only to a Ready pod: the next request waits for it, never for a reset
+        # connection (T151 r9: the deployer case was reset right after the allocator returned)
+        wait_for("the supervisor Ready again", lambda: pod_ready(supervisor_pod()), timeout=300)
     else:
         wait_for(f"{name} at zero", lambda: not kjson(
             "-n", AGENTS_NS, "get", "pods", "-l", f"app.kubernetes.io/name={name}")["items"],

@@ -28,6 +28,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"regexp"
 	"syscall"
 	"time"
 
@@ -102,6 +103,13 @@ func run(ctx context.Context, args []string, stdout io.Writer) int {
 	}
 }
 
+// CorrelationHeader carries the request's correlation id — the deployer's trace id — so the
+// sidecar's lines for a request carry it (NFR-014). A value that is not 32 lower-case hex digits
+// is ignored rather than logged.
+const CorrelationHeader = "X-Correlation-Id"
+
+var correlationID = regexp.MustCompile(`^[0-9a-f]{32}$`)
+
 // translateResponse is the 200 body.
 type translateResponse struct {
 	Manifests []json.RawMessage `json:"manifests"`
@@ -120,6 +128,11 @@ func newHandler(opt migration.Options, log logr.Logger) http.Handler {
 	})
 	mux.HandleFunc("/v1/translate", func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
+		log := log
+		if cid := r.Header.Get(CorrelationHeader); correlationID.MatchString(cid) {
+			// every line of a request carries its correlation id (NFR-014, data-model.md §27)
+			log = log.WithValues("correlation_id", cid)
+		}
 		if r.Method != http.MethodPost {
 			w.Header().Set("Allow", "POST")
 			writeJSON(w, http.StatusMethodNotAllowed, migration.StructuredError{Error: "method", Causes: []string{"/v1/translate answers POST with a normalized service intent"}})

@@ -18,3 +18,22 @@ deploy/allocation/kustomization.yaml
 tests/
 docs/
 specs/
+
+# Every kustomization a build writes a tag into, not only the provider's own (T152 r9: provisioning
+# the tier rewrote deploy/agents/kustomization.yaml, the provider's hash moved under the running
+# provider and the control-plane-only make verify-compat failed). And every other directory neither
+# repository-root Dockerfile COPYs — the agents, the UI, the manifests, the scripts — so that no
+# edit or build output outside the Go sources and the lock can move a running image off the tree's
+# hash (docs/decisions/live-findings.md 2026-09-28-root-context).
+deploy/
+agents/
+ui/
+scripts/
+examples/
+lab/
+config/
+hack/
+testautomation/
+.github/
+TUTORIAL.md
+README.md

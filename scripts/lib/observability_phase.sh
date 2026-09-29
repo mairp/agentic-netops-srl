@@ -279,21 +279,31 @@ observability_phase::wait_ready() {
   k8s_wait::until "$t" 2 "Prometheus ${OBS_NS}/prometheus answering /-/ready" -- observability_phase::prom_get /-/ready || return 1
 }
 
-# observability_phase::provider_otlp_hook — INTEGRATOR HOOK (T133/T134): when OBS_PROVIDER_OTLP_ENDPOINT
-# is set, it is written as `otlp-endpoint` into agentic-netops-system/srl-provider-settings (the
-# provider's traces go to the collector of T129 directly). Unset → nothing is written: the integrator
-# decides whether the lab sets it (and whether the provider needs a restart to read it).
+# observability_phase::provider_otlp_hook — the provider's otlp-endpoint setting (T133/T134): the
+# provider's traces go to the collector of T129 directly, and that export's health is the
+# telemetry-health input Degraded=True/TelemetryUnavailable is set from (data-model.md §18). Default
+# OBS_PROVIDER_OTLP_ENDPOINT=http://device-metrics.monitoring.svc:4317 (the collector's OTLP gRPC
+# port); `none` writes nothing. A fresh lab left it unset before, so its provider exported nothing
+# and reported telemetry healthy through a collector outage (T151 r5 cycle 1, verify-metrics). The
+# value is written as `otlp-endpoint` into agentic-netops-system/srl-provider-settings and, when it
+# changed, the provider is restarted (its environment is read at start) and the rollout read back.
 observability_phase::provider_otlp_hook() {
+  local want="${OBS_PROVIDER_OTLP_ENDPOINT-http://device-metrics.monitoring.svc:4317}" have
+  [[ -n "$want" && "$want" != none ]] || { log::info "provider otlp-endpoint: not set (OBS_PROVIDER_OTLP_ENDPOINT=${want:-empty})"; return 0; }
   # an OTLP endpoint URL: the provider's exporter (otlptracegrpc.WithEndpointURL) takes the scheme as
   # the transport security — `http://` is plaintext to the in-cluster collector; a bare host:port is
   # not a URL and every export fails (observed live, phase 12)
-  if [[ -n "${OBS_PROVIDER_OTLP_ENDPOINT:-}" && "$OBS_PROVIDER_OTLP_ENDPOINT" != http://* && "$OBS_PROVIDER_OTLP_ENDPOINT" != https://* ]]; then
-    log::error "OBS_PROVIDER_OTLP_ENDPOINT must be an http:// or https:// URL (got ${OBS_PROVIDER_OTLP_ENDPOINT})"; return 1
+  if [[ "$want" != http://* && "$want" != https://* ]]; then
+    log::error "OBS_PROVIDER_OTLP_ENDPOINT must be an http:// or https:// URL (got ${want})"; return 1
   fi
-  [[ -n "${OBS_PROVIDER_OTLP_ENDPOINT:-}" ]] || { log::info "provider otlp-endpoint: not set (OBS_PROVIDER_OTLP_ENDPOINT unset)"; return 0; }
-  log::info "provider otlp-endpoint: ${OBS_PROVIDER_OTLP_ENDPOINT}"
+  have="$(observability_phase::k get configmap srl-provider-settings -n agentic-netops-system \
+    -o jsonpath='{.data.otlp-endpoint}' 2>/dev/null)" || have=""
+  if [[ "$have" == "$want" ]]; then log::info "provider otlp-endpoint: ${want} (no change)"; return 0; fi
+  log::info "provider otlp-endpoint: ${want} (was ${have:-unset}); restarting the provider to read it"
   observability_phase::k patch configmap srl-provider-settings -n agentic-netops-system --type merge \
-    -p "$(jq -cn --arg e "$OBS_PROVIDER_OTLP_ENDPOINT" '{data: {"otlp-endpoint": $e}}')" >/dev/null
+    -p "$(jq -cn --arg e "$want" '{data: {"otlp-endpoint": $e}}')" >/dev/null || return 1
+  observability_phase::k rollout restart deployment/srl-provider -n agentic-netops-system >/dev/null || return 1
+  observability_phase::k rollout status deployment/srl-provider -n agentic-netops-system --timeout=300s >&2
 }
 
 # observability_phase::_need <function> <library> — source scripts/lib/<library>.sh when the

@@ -79,7 +79,8 @@ def _default_llm(settings: Settings) -> Any | None:
         return None
     from common.llm import LLMClient
 
-    return LLMClient(settings.llm_provider_dir)
+    return LLMClient(settings.llm_provider_dir, timeout=settings.model_call_timeout_seconds,
+            reasoning_effort=settings.model_reasoning_effort)
 
 
 def create_app(settings: Settings | None = None, *,
@@ -190,7 +191,10 @@ def main() -> None:
     except EndpointError as exc:
         log.error("refusing to start: %s", exc)
         raise SystemExit(2) from exc
-    uvicorn.run(app, host="0.0.0.0", port=settings.port, log_config=None)  # noqa: S104
+    # No access log: uvicorn writes it outside the request, where its correlation id is not known;
+    # the request's own first line ("request accepted: ...") carries it instead (§27, NFR-014).
+    uvicorn.run(app, host="0.0.0.0", port=settings.port, log_config=None,  # noqa: S104
+                access_log=False)
 
 
 if __name__ == "__main__":

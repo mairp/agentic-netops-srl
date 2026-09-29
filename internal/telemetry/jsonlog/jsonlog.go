@@ -258,3 +258,21 @@ func RedactString(s string) string {
 	s = bearer.ReplaceAllString(s, "$1 "+Redacted)
 	return kvSecret.ReplaceAllString(s, "$1="+Redacted)
 }
+
+// StdlogWriter adapts the standard library's log package to l: every line the log package writes
+// becomes one warn record whose msg is that line. net/http's server writes its "TLS handshake
+// error" lines through log.Printf when the server carries no ErrorLog, and controller-runtime's
+// webhook server carries none — those were the provider's only non-JSON lines (T147 r8,
+// NFR-014). Callers set log.SetFlags(0) so the line carries no second timestamp.
+func StdlogWriter(l logr.Logger) io.Writer { return stdlogWriter{l} }
+
+type stdlogWriter struct{ l logr.Logger }
+
+func (w stdlogWriter) Write(p []byte) (int, error) {
+	for _, line := range strings.Split(strings.TrimRight(string(p), "\n"), "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			Warn(w.l, line, "source", "stdlib-log")
+		}
+	}
+	return len(p), nil
+}

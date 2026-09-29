@@ -82,10 +82,17 @@ class WorkerUnreachableError(WorkerError):
 
     retryable = True
 
-    def __init__(self, worker: str, *, after_send: bool = False, cause: str | None = None) -> None:
-        super().__init__(worker, f"worker unreachable: {worker}")
+    def __init__(self, worker: str, *, after_send: bool = False, cause: str | None = None,
+                 transport: str | None = None) -> None:
+        # ``transport``: set when the transport itself is what failed — the gateway accepts no
+        # connection — so the failure names its own dependency and not only the worker (NFR-010).
+        message = f"worker unreachable: {worker}"
+        if transport:
+            message += f" — transport unavailable: {transport}"
+        super().__init__(worker, message)
         self.after_send = after_send
         self.cause = cause
+        self.transport = transport
 
 
 class WorkerFailedError(WorkerError):

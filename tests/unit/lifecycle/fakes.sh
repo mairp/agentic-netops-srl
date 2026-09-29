@@ -181,6 +181,9 @@ case "$1 ${2:-}" in
       [[ -f "$f" ]] && jq --arg c "${name}-control-plane" 'del(.Containers[$c])' "$f" >"$f.t" && mv "$f.t" "$f"
     done
     rm -f "$FAKE_STATE/docker/containers/${name}-control-plane.json" ;;
+  "export kubeconfig")
+    [[ -f "$FAKE_STATE/kind/$name" ]] || { echo "ERROR: could not locate any control plane nodes" >&2; exit 1; }
+    rm -f "$FAKE_STATE/kind/$name.nocontext" ;;
   "load docker-image")
     [[ -f "$FAKE_STATE/kind/$name" ]] || { echo "ERROR: no nodes found for cluster \"$name\"" >&2; exit 1; }
     [[ -f "$FAKE_STATE/docker/images/${3//\//%2F}" ]] || { echo "ERROR: image: \"$3\" not present locally" >&2; exit 1; } ;;
@@ -250,7 +253,7 @@ if [[ "$verb" == config ]]; then
 fi
 cluster="${ctx#kind-}"
 K="$FAKE_STATE/k8s/$cluster"
-[[ -n "$cluster" && -d "$K" ]] || { echo "error: context \"$ctx\" does not exist or the cluster is unreachable" >&2; exit 1; }
+[[ -n "$cluster" && -d "$K" && ! -f "$FAKE_STATE/kind/$cluster.nocontext" ]] || { echo "error: context \"$ctx\" does not exist or the cluster is unreachable" >&2; exit 1; }
 norm() {
   case "$1" in
     ns|namespace|namespaces) echo namespace ;; secret|secrets) echo secret ;; node|nodes) echo node ;;

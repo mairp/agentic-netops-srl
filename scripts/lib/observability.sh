@@ -96,8 +96,32 @@ observability::_sha256() { sha256sum "$1" | awk '{print $1}'; }
 # as the calling user; it writes topology.clab.drawio, topology.clab.grafana.flow_panel.yaml and
 # topology.clab.grafana.json beside it (the committed fixture internal/topologyview/testdata/
 # clab-io-draw-0.7.1/ is this function's output over lab/topology.clab.yml).
+# observability::ensure_image <ref> — the pinned generator image present locally, pulled by its digest
+# with bounded retries when it is not (T151 r9: absent from the cache — an untagged image is what a
+# dangling-image prune removes — while the registry refused connections), then held under its
+# pinned tag so it is no longer dangling. The digest is what runs; the tag is only a hold.
+observability::ensure_image() {
+  local ref="${1:?usage: observability::ensure_image <ref>}" d="${DOCKER:-docker}" i
+  local tries="${OBSERVABILITY_PULL_ATTEMPTS:-5}" wait="${OBSERVABILITY_PULL_BACKOFF_S:-30}"
+  if ! "$d" image inspect "$ref" >/dev/null 2>&1; then
+    for ((i = 1; ; i++)); do
+      "$d" pull "$ref" >/dev/null 2>&1 && break
+      if (( i >= tries )); then
+        log::error "observability: pinned image ${ref} is not present and ${tries} pull attempt(s) failed"
+        return 1
+      fi
+      log::warn "observability: pull of ${ref} failed (attempt ${i}/${tries}); retrying in ${wait}s"
+      sleep "$wait"
+    done
+  fi
+  if [[ "$ref" == *:*@sha256:* ]]; then
+    "$d" tag "$ref" "${ref%@sha256:*}" >/dev/null 2>&1 || true
+  fi
+}
+
 observability::draw() {
   local ref="${1:?usage: observability::draw <ref> <dir>}" dir="${2:?usage: observability::draw <ref> <dir>}" log rc
+  observability::ensure_image "$ref" || return 1
   log="$(mktemp "${TMPDIR:-/tmp}/clab-io-draw.XXXXXX.log")" || return 1
   "${DOCKER:-docker}" run --rm --network none --user "$(id -u):$(id -g)" \
     -v "$dir:/data" "$ref" \

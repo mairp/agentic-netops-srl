@@ -76,6 +76,87 @@ OPTIONAL_MATCH_PATH = re.compile(
     r"^acl\.rules(?:\[\d+\])?\.(?:source|destination)_(?:prefix|port)$")
 _NOT_STATED = frozenset({"", "unknown", "any", "none", "null", "na", "n/a", "*", "unspecified",
                          "notstated", "notspecified", "not-stated", "not-specified"})
+# what a model writes for "any port" / "any address" — a match on it is no match (T144 live
+# finding: ports "0" and prefixes "::/0" on an icmpv6 rule the operator stated no port for)
+_ANY_PORT = frozenset({"0", "0-0", "0-65535", "1-65535"})
+_ANY_PREFIX = frozenset({"0.0.0.0/0", "::/0"})
+# a Layer 2 match the model wrote into a rule (T144 live finding: a MAC acl's protocol was not an
+# IP protocol at all, so the request failed schema validation instead of being refused by name)
+_LAYER2_WORDS = frozenset({"mac", "l2", "ethernet", "layer2", "ethertype", "arp", "macaddress"})
+
+
+PRIORITY_STEP = 10
+_LABEL_CHARS = re.compile(r"[^a-z0-9]+")
+
+
+def _any_prefix(value: str) -> bool:
+    """A prefix of length zero matches every address of its family — '::/0', '0::/0',
+    '0.0.0.0/0' alike (T151 r9 live finding: '0::/0' on a rule the operator gave no destination):
+    a match on it is no match."""
+    try:
+        return ipaddress.ip_network(value.strip(), strict=False).prefixlen == 0
+    except ValueError:
+        return False
+
+
+def _unstated(value: Any) -> bool:
+    return value is None or (isinstance(value, str) and _fold_key(value) in _NOT_STATED)
+
+
+def rule_label(rule: dict[str, Any]) -> str:
+    """A rule's label derived from what the rule itself states — its action, protocol, prefixes
+    and ports — for a rule the operator did not name. A name is a label carried into the entry's
+    description, never an identity (construct-vocabulary.md §acl), so deriving it substitutes no
+    service-defining value (FR-059)."""
+    parts = [rule.get("action"), rule.get("protocol"), rule.get("source_prefix"),
+             rule.get("source_port"), rule.get("destination_prefix"), rule.get("destination_port")]
+    words = [_LABEL_CHARS.sub("-", str(p).lower()).strip("-") for p in parts if p not in (None, "")]
+    return "-".join(w for w in words if w)[:200] or "rule"
+
+
+def _label_and_order(rules: list[Any], missing: list[str]) -> None:
+    """Rule names the operator did not give are derived labels; rule priorities the operator did
+    not give are the order the rules were stated in (10, 20, ...) when **no** rule states one — the
+    stated order is the operator's evaluation order, repeated back in words at the first
+    confirmation — and are asked for, never guessed, when only some rules state one (FR-059)."""
+    dicts = [(i, r) for i, r in enumerate(rules) if isinstance(r, dict)]
+    for _, rule in dicts:  # a priority typed as digits is the number the operator typed
+        value = rule.get("priority")
+        if isinstance(value, str) and value.strip().isdigit():
+            rule["priority"] = int(value.strip())
+    unstated = [(i, r) for i, r in dicts if type(r.get("priority")) is not int]
+    derived = {f"acl.rules[{i}].priority" for i, _ in unstated}
+    if unstated and len(unstated) == len(dicts):
+        for n, (_, rule) in enumerate(dicts, start=1):
+            rule["priority"] = PRIORITY_STEP * n
+    else:
+        taken = {r.get("priority") for _, r in dicts}
+        spare = PRIORITY_MAX
+        for i, rule in unstated:  # asked for: an unused in-range stand-in keeps the schema whole
+            while spare in taken:
+                spare -= 1
+            rule["priority"] = spare
+            taken.add(spare)
+            path = f"acl.rules[{i}].priority"
+            if path not in missing:
+                missing.append(path)
+        derived = set()
+    used: set[str] = {r["name"] for _, r in dicts
+                      if isinstance(r.get("name"), str) and not _unstated(r.get("name"))}
+    for i, rule in dicts:
+        if not _unstated(rule.get("name")):
+            continue
+        base = label = rule_label(rule)
+        n = 2
+        while label in used:
+            label, n = f"{base}-{n}", n + 1
+        rule["name"] = label
+        used.add(label)
+        derived.add(f"acl.rules[{i}].name")
+    missing[:] = [m for m in missing if m not in derived and not RULE_NAME_PATH.match(m)]
+
+
+RULE_NAME_PATH = re.compile(r"^acl\.rules(?:\[\d+\])?\.name$")
 
 
 def prepare(data: dict[str, Any]) -> list[str]:
@@ -94,21 +175,61 @@ def prepare(data: dict[str, Any]) -> list[str]:
             "scope — the acl construct is defined over the IP address families, so a list is "
             f"{FAMILY_WORDS}; ask for an ipv4 or an ipv6 list")
         acl["type"] = "ipv4"  # stand-in: the request is refused
+    elif _unstated(raw_type):
+        # the operator named no family: it is the family of the prefixes the operator wrote, or
+        # of the ICMP version named — read off the request, never chosen — and asked for when the
+        # request carries neither (FR-059; T144 live finding: 'unknown' refused a stated list)
+        family = _stated_family(acl.get("rules"))
+        if family is None:
+            missing = data.get("missing_fields")
+            if not isinstance(missing, list):
+                missing = []
+            missing = [m for m in missing if isinstance(m, str)]
+            if "acl.type" not in missing:
+                missing.append("acl.type")
+            data["missing_fields"] = missing
+            family = "ipv4"  # stand-in: the family is asked for
+        elif isinstance(data.get("missing_fields"), list):
+            # read off the request: never asked for, even if the model listed it (T153 §11e)
+            data["missing_fields"] = [m for m in data["missing_fields"] if m != "acl.type"]
+        acl["type"] = family
     elif isinstance(raw_type, str):
         causes.append(f"acl.type: '{raw_type}' is not an address family this construct carries; "
                       f"an access list is {FAMILY_WORDS}")
         acl["type"] = "ipv4"  # stand-in: the request is refused
     rules = acl.get("rules")
+    if isinstance(rules, list) and _strip_layer2(rules) and not any("Layer 2" in c for c in causes):
+        causes.append(
+            "acl.rules: a Layer 2 (MAC) match is out of this platform's declared scope — the acl "
+            f"construct is defined over the IP address families, so a list is {FAMILY_WORDS} and "
+            "matches IP prefixes, protocols and ports; ask for an ipv4 or an ipv6 list")
     if isinstance(rules, list):
+        missing = data.get("missing_fields")
+        missing = [m for m in missing if isinstance(m, str)] if isinstance(missing, list) else []
+        for rule in rules:
+            if not isinstance(rule, dict):
+                continue
+            for key in _OPTIONAL_MATCH:  # a placeholder the model wrote for "not stated" is absent
+                value = rule.get(key)
+                if isinstance(value, int) and not isinstance(value, bool) and key.endswith("_port"):
+                    value = str(value)
+                    rule[key] = value
+                if not isinstance(value, str):
+                    continue
+                folded = _fold_key(value)
+                if (folded in _NOT_STATED
+                        or (key.endswith("_port") and folded in _ANY_PORT)
+                        or (key.endswith("_prefix") and (folded in _ANY_PREFIX
+                                                         or _any_prefix(value)))):
+                    del rule[key]
+        # labelled after the placeholders are gone, so a label names only what the rule states
+        _label_and_order(rules, missing)
+        data["missing_fields"] = missing
         taken = {r.get("priority") for r in rules if isinstance(r, dict)}
         spare = PRIORITY_MAX
         for i, rule in enumerate(rules):
             if not isinstance(rule, dict):
                 continue
-            for key in _OPTIONAL_MATCH:  # a placeholder the model wrote for "not stated" is absent
-                value = rule.get(key)
-                if isinstance(value, str) and _fold_key(value) in _NOT_STATED:
-                    del rule[key]
             priority = rule.get("priority")
             if type(priority) is not int:
                 continue
@@ -125,6 +246,47 @@ def prepare(data: dict[str, Any]) -> list[str]:
         data["unsupported_properties"] = [*(unsupported if isinstance(unsupported, list)
                                             else []), *causes]
     return causes
+
+
+def _stated_family(rules: Any) -> str | None:
+    """The one address family the rules' own prefixes — or, with none, the ICMP version they name
+    — state; None when they state none or more than one."""
+    if not isinstance(rules, list):
+        return None
+    found: set[str] = set()
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        for key in ("source_prefix", "destination_prefix"):
+            value = rule.get(key)
+            if isinstance(value, str) and (fam := _family_of(value)) is not None:
+                found.add(fam)
+    if not found:
+        for rule in rules:
+            proto = rule.get("protocol") if isinstance(rule, dict) else None
+            if isinstance(proto, str) and _fold_key(proto) in ("icmpv6", "icmp6"):
+                found.add("ipv6")
+            elif isinstance(proto, str) and _fold_key(proto) == "icmp":
+                found.add("ipv4")
+    return found.pop() if len(found) == 1 else None
+
+
+def _strip_layer2(rules: list[Any]) -> bool:
+    """Remove a Layer 2 match the model wrote into a rule — a MAC or ethertype field, or a
+    protocol naming one — so the request reaches its refusal by name. True when one was found."""
+    found = False
+    for rule in rules:
+        if not isinstance(rule, dict):
+            continue
+        for key in list(rule):
+            if "mac" in key.lower() or "ethertype" in key.lower():
+                del rule[key]
+                found = True
+        proto = rule.get("protocol")
+        if isinstance(proto, str) and _fold_key(proto).replace("-", "") in _LAYER2_WORDS:
+            rule["protocol"] = "any"  # stand-in: the request is refused
+            found = True
+    return found
 
 
 def _family_of(prefix: str) -> str | None:
