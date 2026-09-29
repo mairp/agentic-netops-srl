@@ -29,11 +29,10 @@ for d in api/fabric/v1alpha1 api/v1alpha1 \
   examples/fabric examples/constructs examples/migrations \
   tests/unit tests/golden tests/envtest tests/gate tests/integration tests/e2e tests/lib \
   scripts/lib scripts/ci docs/decisions docs/images docs/media docs/reference \
-  docs/operations testautomation/video; do
+  docs/operations; do
   check "T001 dir $d" test -d "$d"
 done
-for pat in 'bin/' '.evidence/' 'testautomation/video/takes/' 'testautomation/video/shots/' \
-  'testautomation/video/snap/' '*.log' '.env'; do
+for pat in '/bin/' '.evidence/' 'specs/' '.specstride/' '.specify/' 'testautomation/' '*.log' '.env'; do
   check "T001 .gitignore has '$pat'" grep -qxF "$pat" .gitignore
 done
 
@@ -144,7 +143,7 @@ for h in '## Operator-facing rationale' '## Tests run' '## `make verify-pins` re
   check "T165 template section '$h'" grep -qxF "$h" "$pr"
 done
 check "T165 template safety checkbox" grep -qF -- '- [ ] This PR changes confirmations, refusal logic or transaction phases → operator review requested and lab run attached' "$pr"
-for p in /agents/supervisors/provisioning/graph/ /agents/common/guards/ /agents/provisioning/deployer/ /deploy/rbac/ /.specify/memory/constitution.md; do
+for p in /agents/supervisors/provisioning/graph/ /agents/common/guards/ /agents/provisioning/deployer/ /deploy/rbac/; do
   check "T165 CODEOWNERS $p" grep -qE "^${p//./\\.}[[:space:]]+@" .github/CODEOWNERS
 done
 check "T165 owner handle is a marked stop-and-ask placeholder" grep -qF 'STOP-AND-ASK' .github/CODEOWNERS

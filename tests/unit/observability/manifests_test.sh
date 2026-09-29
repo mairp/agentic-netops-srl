@@ -97,7 +97,9 @@ fi
   || fail "collector exporter metric_expiration / send_timestamps changed" "$(yq '.exporters.prometheus' <<<"$ocfg")"
 
 # 3. the filter: literal prefixes, no pattern
-prefix="$(grep -oE '`agentic_netops_agent_`' "$ROOT/specs/004-agentic-netops-composite/data-model.md" | head -1 | tr -d '`')"
+# data-model.md §21 names the prefix; specs/ is local (.gitignore), so without it the fixed literal is used
+dm="$ROOT/specs/004-agentic-netops-composite/data-model.md"
+if [[ -f "$dm" ]]; then prefix="$(grep -oE '`agentic_netops_agent_`' "$dm" | head -1 | tr -d '`')"; else prefix=agentic_netops_agent_; fi
 conds="$(yq -r '.processors[] | select(has("metrics")) | .metrics.metric[]' <<<"$ocfg")"
 if [[ "$prefix" == agentic_netops_agent_ ]] \
   && grep -qF "HasPrefix(name, \"$prefix\")" <<<"$conds" && grep -qF 'HasPrefix(name, "srl_nokia_")' <<<"$conds" \

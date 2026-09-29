@@ -1,0 +1,307 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentic-netops.io/schemas/004/normalized-service-intent.json",
+  "title": "NormalizedServiceIntent",
+  "description": "The allocator's output and the ONLY contract by which agent-assigned resources reach the fabric (FR-060). This shape is not invented here: it is the input the single translator already consumes. The strict parser rejects unknown fields, so additionalProperties is false on every object and the Python model must forbid extras to match. SUPERSEDED-RESOLVED: the 'type' enum carries the four datacenter constructs, not the retired service-provider names (D-10, superseding 002:contracts/normalized-service-intent.schema.json:11); 'endpoints.minItems' is 1, not 2, with the per-construct minimum enforced in validation (D-26, superseding the same file's line 36); identifier claims come from the served *.be.kuid.dev index groups (D-22, superseding 002:research.md:231-235). Retargeted (RD-05, RD-09): the route distinguisher is gone (the device derives it), route targets are derived and read-only, the access-list address family is the device's own ipv4/ipv6, and rule priorities are the device's own ascending sequence numbers.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["serviceId", "type", "tenant", "endpoints"],
+  "properties": {
+    "serviceId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 15,
+      "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$",
+      "description": "Carried from the interpretation. Unique within a batch. A DNS-1123 label of at most 15 characters, no dot: it becomes the Network name migr-<serviceId> and part of every claim name (AD-56)."
+    },
+    "type": {
+      "description": "The construct, after alias folding. The wire value is always canonical; a retired service-provider name is an accepted spelling on INPUT to the interpretation stage only, and never appears here (FR-024, FR-026, FR-044).",
+      "enum": ["vlan", "mac-vrf", "ip-vrf", "acl"]
+    },
+    "tenant": {
+      "type": "string",
+      "minLength": 1,
+      "description": "RFC 1123 label. Required, never defaulted (FR-059).",
+      "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
+    },
+    "routeTargets": {
+      "description": "DERIVED, READ-ONLY. Required on mac-vrf and ip-vrf; forbidden on vlan and acl. Each value is target:<fabricASN>:<vni>, computed from the claimed VNI and the fabric-wide ASN constant, never claimed and never supplied by the operator; a request that supplies it is refused (FR-033). It is carried here, and shown in the assignment, so the second confirmation covers exactly what will be rendered (FR-062). There is NO route distinguisher: the device derives it from the attachment leaf's system address and the EVPN instance identifier, and it is neither claimed nor rendered (RD-09).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["importRT", "exportRT"],
+      "properties": {
+        "importRT": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+        "exportRT": { "type": "array", "items": { "type": "string" }, "minItems": 1 }
+      }
+    },
+    "l2vni": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 65535,
+      "description": "Required for mac-vrf; forbidden on every other construct. From a claim on the VNI index (managed band 10000-20000). The ceiling is the range the device's EVPN instance identifier can carry, because that identifier is derived from the VNI; a VNI outside the band is refused naming the VNI and the band (FR-034, RD-09)."
+    },
+    "l3vni": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 65535,
+      "description": "Required for ip-vrf and for a gateway-bearing mac-vrf; forbidden on vlan and acl. From a claim on the same VNI index and subject to the same containment rule as l2vni. There is no routed-instance sub-band: this platform derives no routed-instance VLAN (RD-09)."
+    },
+    "addressFamilies": {
+      "description": "Required for ip-vrf, with at least one prefix across both families.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "ipv4Prefixes": { "type": "array", "items": { "type": "string" } },
+        "ipv6Prefixes": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "anycastGateway": {
+      "description": "Only on mac-vrf. Its presence is what makes the service symmetric IRB (FR-032). At least one address family; an unrequested family is never added.",
+      "type": "object",
+      "additionalProperties": false,
+      "anyOf": [{ "required": ["gatewayIPv4"] }, { "required": ["gatewayIPv6"] }],
+      "properties": {
+        "ipVrf": { "type": "string", "minLength": 1 },
+        "gatewayIPv4": { "type": "string", "minLength": 1 },
+        "gatewayIPv6": { "type": "string", "minLength": 1 }
+      }
+    },
+    "acl": {
+      "description": "The filter this service carries. Required when type is acl; optional on any other construct, where it binds to that service's own attachment subinterfaces (FR-035, FR-036). The attachment subinterface is the only binding point (FR-037).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["stage", "type", "rules"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "A label, not an identity. An access list belongs to exactly one service and cannot be referenced by another."
+        },
+        "stage": {
+          "description": "Renders as the device's input or output direction. egress is refused when the fabric qualification record does not show it qualified on the pinned profile (FR-097).",
+          "enum": ["ingress", "egress"]
+        },
+        "type": {
+          "description": "The address family, in the device's own spelling, and part of the filter's key together with its name. The operator spellings l3, l3v6, ip and ipv6 are folded to ipv4/ipv6 at the interpretation stage. A Layer 2 (MAC) list is refused as out of scope: the construct is defined over address families, not because the device lacks the type (FR-038, RD-05).",
+          "enum": ["ipv4", "ipv6"]
+        },
+        "defaultAction": {
+          "enum": ["permit", "deny"],
+          "description": "When declared, rendered explicitly as a terminal match-all entry at the reserved last position (FR-041). When absent, the device accepts unmatched traffic and the confirmation must say so."
+        },
+        "evaluationOrder": {
+          "description": "Informational, carried so the confirmation can state it (FR-039). Rules are evaluated in ascending priority number and the first match wins.",
+          "const": "ascending-first-match"
+        },
+        "unmatchedTraffic": {
+          "description": "Informational, carried so the confirmation can state what happens to traffic no rule matches (FR-041). accept-platform-default means no default action was declared and the device accepts unmatched traffic; permit and deny mean a terminal entry is rendered at the reserved last position.",
+          "enum": ["accept-platform-default", "permit", "deny"]
+        },
+        "rules": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "priority", "action"],
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "description": "A label carried into the device entry's description. The identity of a rule is its priority."
+              },
+              "priority": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 65534,
+                "description": "Distinct within the list, and rendered unchanged as the device's entry sequence number so that what the operator wrote is what the device shows. Rules are evaluated in ascending priority number with the first match winning. 65535 is the reserved last position for the default action and is refused to a rule, with 1-65534 stated as usable (FR-039, FR-040, RD-05)."
+              },
+              "action": { "enum": ["permit", "deny"] },
+              "protocol": {
+                "description": "Any IP protocol the device can match: a known name or a number 0-255. ICMPv6 is accepted (FR-040); icmpv6 folds to the device's own icmp6 spelling. An L4 port match requires tcp or udp.",
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "any", "ipv6-hop", "icmp", "igmp", "ggp", "ipv4", "st", "tcp", "egp", "igp",
+                      "udp", "ipv6", "idrp", "rsvp", "gre", "esp", "ah", "icmp6", "icmpv6",
+                      "no-next-hdr", "ipv6-dest-opts", "eigrp", "ospf", "pim", "vrrp", "l2tp",
+                      "sctp", "mpls-in-ip", "rohc"
+                    ]
+                  },
+                  { "type": "integer", "minimum": 0, "maximum": 255 }
+                ]
+              },
+              "sourcePrefix": {
+                "type": "string",
+                "minLength": 1,
+                "description": "A prefix in the list's own address family; a wrong-family prefix is refused (FR-040)."
+              },
+              "destinationPrefix": {
+                "type": "string",
+                "minLength": 1,
+                "description": "A prefix in the list's own address family; a wrong-family prefix is refused (FR-040)."
+              },
+              "sourcePort": {
+                "type": "string",
+                "pattern": "^[0-9]{1,5}(-[0-9]{1,5})?$",
+                "description": "A single value or a lo-hi range. Accepted only with tcp or udp (FR-040)."
+              },
+              "destinationPort": {
+                "type": "string",
+                "pattern": "^[0-9]{1,5}(-[0-9]{1,5})?$",
+                "description": "A single value or a lo-hi range. Accepted only with tcp or udp (FR-040)."
+              },
+              "description": { "type": "string", "maxLength": 255 }
+            }
+          }
+        }
+      }
+    },
+    "endpoints": {
+      "description": "minItems is 1, superseding the earlier floor of 2. Three of the four constructs are legitimately single-attachment; the per-construct minimum is enforced by validation, which already states the cause (D-26).",
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["node", "attachment"],
+        "properties": {
+          "node": {
+            "type": "string",
+            "minLength": 1,
+            "description": "A node this site has, e.g. leaf01. A name not in the inventory is a refusal enumerating the real names, never a creation (CR-003). A spine is never an attachment point."
+          },
+          "attachment": {
+            "type": "string",
+            "minLength": 1,
+            "description": "A port the site inventory lists for that node, in the device's own naming, e.g. ethernet-1/1."
+          },
+          "vlan": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 4094,
+            "description": "Required and identical across every endpoint for vlan and mac-vrf; optional per attachment for ip-vrf, where it is always a VLAN the operator named - absent means the untagged subinterface, and the allocator never allocates one (AD-51). On an acl endpoint it names which subinterface of the port to bind and creates nothing; absent, the binding is the untagged subinterface. Node, port and VLAN together resolve to one attachment subinterface with exactly one owner (FR-034, FR-037). Named by the operator (100-999) or allocated by the authority (1000-4000), the value arrives here as the same bare integer: this contract carries no provenance field and none is added, so the translator checks the platform range 100-4000 only, refusing a value outside it with both bands stated, and the naming band is enforced earlier, by the mapper at interpretation (AD-41). The numeric bounds of this property, 1-4094, are the structural 802.1Q range the CRD also uses: the band rules are the mapper's and the translator's, never this schema's, so that a refusal always states both bands (AD-56)."
+          },
+          "vrf": { "type": "string", "minLength": 1, "description": "Required for ip-vrf." }
+        }
+      }
+    },
+    "policies": {
+      "description": "Source-scoped policy. Meaningful only for an input that arrived in the point-to-point migration alias vocabulary (FR-047).",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "vpwsLimitedEquivalence": { "type": "boolean" }
+      }
+    },
+    "unsupported": {
+      "description": "Any present field is terminal and named. Warning-only semantic loss is prohibited (FR-045). An unqualified construct or property is named here (FR-097).",
+      "type": "object"
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "type": { "const": "mac-vrf" } }, "required": ["type"] },
+      "then": { "required": ["l2vni", "routeTargets"] }
+    },
+    {
+      "if": { "properties": { "type": { "const": "ip-vrf" } }, "required": ["type"] },
+      "then": {
+        "required": ["l3vni", "routeTargets", "addressFamilies"],
+        "not": { "anyOf": [{ "required": ["l2vni"] }, { "required": ["anycastGateway"] }] }
+      }
+    },
+    {
+      "if": { "properties": { "type": { "const": "acl" } }, "required": ["type"] },
+      "then": {
+        "required": ["acl"],
+        "not": {
+          "anyOf": [
+            { "required": ["l2vni"] },
+            { "required": ["l3vni"] },
+            { "required": ["routeTargets"] },
+            { "required": ["anycastGateway"] }
+          ]
+        }
+      }
+    },
+    {
+      "if": { "properties": { "type": { "const": "vlan" } }, "required": ["type"] },
+      "then": {
+        "not": {
+          "anyOf": [
+            { "required": ["l2vni"] },
+            { "required": ["l3vni"] },
+            { "required": ["routeTargets"] },
+            { "required": ["anycastGateway"] }
+          ]
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "type": { "const": "mac-vrf" } },
+        "required": ["type", "anycastGateway"]
+      },
+      "then": { "required": ["l3vni"] }
+    }
+  ],
+  "examples": [
+    {
+      "serviceId": "svc-macvrf-01",
+      "type": "mac-vrf",
+      "tenant": "blue",
+      "routeTargets": { "importRT": ["target:65000:10021"], "exportRT": ["target:65000:10021"] },
+      "l2vni": 10021,
+      "endpoints": [
+        { "node": "leaf01", "attachment": "ethernet-1/1", "vlan": 100 },
+        { "node": "leaf02", "attachment": "ethernet-1/1", "vlan": 100 }
+      ]
+    },
+    {
+      "serviceId": "svc-vlan-01",
+      "type": "vlan",
+      "tenant": "acme",
+      "endpoints": [{ "node": "leaf01", "attachment": "ethernet-1/1", "vlan": 120 }]
+    },
+    {
+      "serviceId": "svc-ipvrf-01",
+      "type": "ip-vrf",
+      "tenant": "initech",
+      "routeTargets": { "importRT": ["target:65000:10022"], "exportRT": ["target:65000:10022"] },
+      "l3vni": 10022,
+      "addressFamilies": { "ipv4Prefixes": ["10.50.0.0/24"] },
+      "endpoints": [
+        { "node": "leaf01", "attachment": "ethernet-1/1", "vlan": 200, "vrf": "vrf-svc-ipvrf-01" }
+      ]
+    },
+    {
+      "serviceId": "svc-acl-01",
+      "type": "acl",
+      "tenant": "acme",
+      "acl": {
+        "name": "web-only",
+        "stage": "ingress",
+        "type": "ipv4",
+        "defaultAction": "deny",
+        "evaluationOrder": "ascending-first-match",
+        "unmatchedTraffic": "deny",
+        "rules": [
+          {
+            "name": "allow-https",
+            "priority": 100,
+            "action": "permit",
+            "protocol": "tcp",
+            "sourcePrefix": "10.0.0.0/24",
+            "destinationPort": "443"
+          }
+        ]
+      },
+      "endpoints": [
+        { "node": "leaf01", "attachment": "ethernet-1/1", "vlan": 100 },
+        { "node": "leaf02", "attachment": "ethernet-1/1", "vlan": 100 }
+      ]
+    }
+  ]
+}
