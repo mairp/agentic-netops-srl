@@ -96,7 +96,7 @@ verify-evidence: ## T012: verify one run's EVIDENCE_DIR (default: the newest und
 evidence-index: ## T154: verify-evidence over every P11 run dir (P11_RUNS) and write docs/media/p11-evidence-index.json (SC-040)
 	bash scripts/ci/evidence_index.sh --out docs/media/p11-evidence-index.json $(foreach x,$(P11_EXCLUDE),--exclude $(x)) $(P11_RUNS)
 
-verify-no-session-links: ## no claude.ai link or Claude-Session trailer in a tracked file or commit message
+verify-no-session-links: ## no AI-assistant conversation link or session trailer in a tracked file or commit message
 	bash scripts/ci/verify_no_session_links.sh
 
 verify-readme: ## T156: README.md against contracts/readme-and-walkthrough.md §6 (reports the asset-URL placeholder)

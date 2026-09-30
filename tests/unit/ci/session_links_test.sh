@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # session_links_test.sh — scripts/ci/verify_no_session_links.sh refuses a session link in a tracked
-# file or in any commit message, and passes a clean history (Co-Authored-By alone is not a link).
-# Every link below is assembled from parts so this suite never matches the guard itself.
+# file or in any commit message, and passes a clean history (a Co-Authored-By trailer is not a link).
+# The vendor name is spelled in octal escapes so this suite never matches the guard or a name search.
 set -uo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -14,14 +14,15 @@ fails=0
 pass() { printf 'PASS %s\n' "$1"; }
 fail() { fails=$((fails + 1)); printf 'FAIL %s\n' "$1"; [[ -n "${2:-}" ]] && printf '%s\n' "$2" | sed 's/^/    | /'; }
 
-LINK="https://claude"".ai/code/session_0123456789abcdef"
-TRAILER="Claude""-Session: $LINK"
+V="$(printf '\103\154\141\165\144\145')"
+LINK="https://${V,}.ai/code/session_0123456789abcdef"
+TRAILER="${V}-Session: $LINK"
 
 repo() {
   local d="$T/$1"
   git init -q "$d"
   git -C "$d" -c user.email=t@example.invalid -c user.name=t commit -q --allow-empty \
-    -m "feat: a change" -m "Co-Authored-By: Claude <noreply@anthropic.com>"
+    -m "feat: a change" -m "Co-Authored-By: A Person <person@example.invalid>"
   printf '%s\n' "$d"
 }
 commit() { git -C "$1" -c user.email=t@example.invalid -c user.name=t commit -q "${@:2}"; }
