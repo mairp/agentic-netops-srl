@@ -168,11 +168,11 @@ func TestMain(m *testing.M) {
 
 func upstreamCRDs() ([]*apiextensionsv1.CustomResourceDefinition, error) {
 	files := []string{
-		"config-server/crds/config.sdcio.dev_configs.yaml",
-		"config-server/crds/config.sdcio.dev_targets.yaml",
-		"config-server/crds/config.sdcio.dev_deviations.yaml",
-		"config-server/crds/config.sdcio.dev_runningconfigs.yaml",
-		"config-server/artifacts/inv.sdcio.dev_schemas.yaml",
+		"deploy/sdc/upstream/config.sdcio.dev_configs.yaml",
+		"deploy/sdc/upstream/config.sdcio.dev_targets.yaml",
+		"deploy/sdc/upstream/config.sdcio.dev_deviations.yaml",
+		"deploy/sdc/upstream/config.sdcio.dev_runningconfigs.yaml",
+		"deploy/sdc/upstream/inv.sdcio.dev_schemas.yaml",
 	}
 	var out []*apiextensionsv1.CustomResourceDefinition
 	for _, f := range files {
