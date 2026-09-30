@@ -113,6 +113,8 @@ PROVISION_LIB="$PROVISION_ROOT/scripts/lib"
 source "$PROVISION_LIB/log.sh"
 # shellcheck source=lib/dotenv.sh
 source "$PROVISION_LIB/dotenv.sh"
+# shellcheck source=lib/llm_env.sh
+source "$PROVISION_LIB/llm_env.sh"
 # shellcheck source=lib/evidence.sh
 source "$PROVISION_LIB/evidence.sh"
 # shellcheck source=lib/k8s_wait.sh
@@ -608,6 +610,8 @@ provision::main() {
   done
   dotenv::load
   dotenv::noninteractive
+  # .env's provider-native LLM settings (.env.example) → AGENTIC_NETOPS_LLM_* (llm-provider Secret)
+  llm_env::resolve || exit 2
   provision::defaults
   evidence::ensure_dir || exit 1
   log::info "cluster ${CLUSTER_NAME}, lab ${LAB_NAME}, management ${MGMT_NETWORK} ${MGMT_CIDR}, evidence ${EVIDENCE_DIR}"

@@ -135,6 +135,12 @@ The run-captured evidence behind these results is indexed in
   (default `172.25.25.0/24`). Provisioning stops before any change, naming the colliding Docker
   network, route, pod or service CIDR, if that range overlaps one. Pick another range with
   `MGMT_CIDR=…`.
+- **The model provider.** Copy `.env.example` to `.env` and fill in one provider block:
+  `LLM_MODEL=<provider>/<model>` plus that provider's own key (and endpoint, for a gateway), as in
+  the AGNTCY reference apps. Provisioning turns it into the Secret
+  `agentic-netops-agents/llm-provider` ([scripts/lib/llm_env.sh](scripts/lib/llm_env.sh)); exported
+  `AGENTIC_NETOPS_LLM_*` variables, as in the Quickstart below, still work and win. `.env` is
+  git-ignored.
 - **The operator login.** The console and the supervisor take a generated credential. The username
   defaults to `operator` and the password is always generated, never read from a flag, a variable or
   a file. Both live in the Secret `agentic-netops-agents/operator-credentials`. They are lab
@@ -161,7 +167,7 @@ Add the agent tier:
 
 ```bash
 # the model provider: these become Secret/llm-provider at provision time, never a manifest
-export AGENTIC_NETOPS_LLM_MODEL="openai/gpt-5"     # or anthropic/…, azure/…
+export AGENTIC_NETOPS_LLM_MODEL="openai/gpt-5"     # or anthropic/…, groq/…; or set .env instead
 export AGENTIC_NETOPS_LLM_API_KEY="…"
 export AGENTIC_NETOPS_LLM_BASE_URL="…"             # required for gateway providers
 MGMT_CIDR=172.25.25.0/24 ./scripts/provision.sh --cluster-name agentic-netops --with-intent-tier
