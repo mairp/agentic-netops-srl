@@ -1,7 +1,0 @@
-{
-  "ai": "codex",
-  "ai_skills": true,
-  "integration": "codex",
-  "script": "sh",
-  "speckit_version": "0.14.3.dev0"
-}
