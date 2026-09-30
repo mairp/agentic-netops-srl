@@ -11,7 +11,7 @@
 // ./tests/envtest/...).
 //
 // Upstream CRDs: config.sdcio.dev Config/Target/Deviation/RunningConfig from
-// config-server/crds/ and inv.sdcio.dev Schema from config-server/artifacts/,
+// deploy/sdc/upstream/ (vendored at the pinned config-server commit) and inv.sdcio.dev Schema,
 // read unchanged from the checked-out v0.0.58 sources. One in-memory fix is
 // made and only here: crds/config.sdcio.dev_targets.yaml marks BOTH its
 // versions `storage: true`, which an API server refuses; the internal `config`
@@ -138,11 +138,11 @@ func TestMain(m *testing.M) {
 
 func upstreamCRDs() ([]*apiextensionsv1.CustomResourceDefinition, error) {
 	files := []string{
-		"config-server/crds/config.sdcio.dev_configs.yaml",
-		"config-server/crds/config.sdcio.dev_targets.yaml",
-		"config-server/crds/config.sdcio.dev_deviations.yaml",
-		"config-server/crds/config.sdcio.dev_runningconfigs.yaml",
-		"config-server/artifacts/inv.sdcio.dev_schemas.yaml",
+		"deploy/sdc/upstream/config.sdcio.dev_configs.yaml",
+		"deploy/sdc/upstream/config.sdcio.dev_targets.yaml",
+		"deploy/sdc/upstream/config.sdcio.dev_deviations.yaml",
+		"deploy/sdc/upstream/config.sdcio.dev_runningconfigs.yaml",
+		"deploy/sdc/upstream/inv.sdcio.dev_schemas.yaml",
 	}
 	var out []*apiextensionsv1.CustomResourceDefinition
 	for _, f := range files {
