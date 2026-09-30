@@ -55,7 +55,7 @@
     <path d="M858,280 H890 V125"/>
     <path d="M242,530 H210 V125"/>
     <path d="M998,530 H1030 V125"/>
-    <path d="M342,790 H420 V895"/>
+    <path d="M282,790 H360 V895"/>
     <path d="M898,790 H820 V895"/>
   </g>
   <g fill="#4bdd33" fill-opacity="0.85" font-family="'DejaVu Sans Mono', monospace" font-size="17">
@@ -63,13 +63,13 @@
     <text x="897" y="272">.12</text>
     <text x="203" y="522" text-anchor="end">.21</text>
     <text x="1037" y="522">.22</text>
-    <text x="364" y="782">.31</text>
+    <text x="304" y="782">.31</text>
     <text x="876" y="782" text-anchor="end">.32</text>
   </g>
   <g fill="#4bdd33" fill-opacity="0.8" stroke="#3a4352" stroke-width="1.5">
     <circle cx="350" cy="125" r="4"/><circle cx="890" cy="125" r="4"/>
     <circle cx="210" cy="125" r="4"/><circle cx="1030" cy="125" r="4"/>
-    <circle cx="420" cy="895" r="4"/><circle cx="820" cy="895" r="4"/>
+    <circle cx="360" cy="895" r="4"/><circle cx="820" cy="895" r="4"/>
   </g>
 
   <!-- ===== fabric links (grey): leafNN e1-49 -> spine01 e1-N, leafNN e1-50 -> spine02 e1-N ===== -->
@@ -78,47 +78,33 @@
     <line x1="448" y1="330" x2="932" y2="480"/>
     <line x1="792" y1="330" x2="308" y2="480"/>
     <line x1="828" y1="330" x2="968" y2="480"/>
-    <!-- leaf01 e1-1 - client01 eth1 (VLAN-tagged services) -->
-    <path d="M290,580 V722"/>
-    <!-- leaf02 e1-1 - client02 eth1 (tagged), leaf02 e1-2 - client02 eth2 (the untagged port) -->
+    <!-- leaf01 e1-1 - client01 eth1 -->
+    <path d="M272,580 V650 H230 V722"/>
+    <!-- leaf02 e1-1 - client02 eth1 (tagged), leaf02 e1-2 - client02 eth2 (untagged) -->
     <path d="M932,580 V722"/>
     <path d="M968,580 V722"/>
   </g>
-  <g fill="#c9d1db" font-size="15" font-style="italic">
-    <text x="302" y="662">tagged</text>
-    <text x="920" y="662" text-anchor="end">tagged</text>
-    <text x="980" y="662">untagged</text>
-  </g>
 
   <!-- ===== spines ===== -->
-  <text x="430" y="196" fill="#fff" font-size="30" text-anchor="middle">spine01</text>
-  <text x="430" y="220" fill="#c9d1db" font-size="15" text-anchor="middle">ixr-d3l · RR</text>
+  <text x="430" y="200" fill="#fff" font-size="30" text-anchor="middle">spine01</text>
   <use href="#router" x="430" y="280"/>
-  <text x="810" y="196" fill="#fff" font-size="30" text-anchor="middle">spine02</text>
-  <text x="810" y="220" fill="#c9d1db" font-size="15" text-anchor="middle">ixr-d3l · RR</text>
+  <text x="810" y="200" fill="#fff" font-size="30" text-anchor="middle">spine02</text>
   <use href="#router" x="810" y="280"/>
 
   <!-- ===== leaves ===== -->
   <use href="#router" x="290" y="530"/>
-  <text x="356" y="540" fill="#fff" font-size="30">leaf01</text>
-  <text x="356" y="564" fill="#c9d1db" font-size="15">ixr-d2l</text>
+  <text x="290" y="625" fill="#fff" font-size="30" text-anchor="middle">leaf01</text>
   <use href="#router" x="950" y="530"/>
-  <text x="884" y="540" fill="#fff" font-size="30" text-anchor="end">leaf02</text>
-  <text x="884" y="564" fill="#c9d1db" font-size="15" text-anchor="end">ixr-d2l</text>
+  <text x="950" y="625" fill="#fff" font-size="30" text-anchor="middle">leaf02</text>
 
-  <!-- ===== fabric label ===== -->
-  <g font-family="'DejaVu Sans Mono', monospace" font-size="15" fill="#c9d1db" text-anchor="middle">
-    <text x="620" y="455">eBGP underlay (dual-stack)</text>
-    <text x="620" y="477">iBGP EVPN / VXLAN overlay</text>
-  </g>
 
   <!-- ===== clients ===== -->
   <g fill="#fff" font-size="26" text-anchor="middle">
-    <use href="#laptop" x="290" y="760"/><text x="290" y="835">client01</text>
+    <use href="#laptop" x="230" y="760"/><text x="230" y="835">client01</text>
     <use href="#laptop" x="950" y="760"/><text x="950" y="835">client02</text>
   </g>
   <g fill="#fff" font-size="14" font-weight="bold" text-anchor="middle" letter-spacing="1">
-    <text x="290" y="762">EVPN</text>
+    <text x="230" y="762">EVPN</text>
     <text x="950" y="762">EVPN</text>
   </g>
 
@@ -130,7 +116,7 @@
     <use href="#port" x="828" y="330"/><text x="828" y="335">2</text>
     <use href="#port" x="272" y="480"/><text x="272" y="485">49</text>
     <use href="#port" x="308" y="480"/><text x="308" y="485">50</text>
-    <use href="#port" x="290" y="580"/><text x="290" y="585">1</text>
+    <use href="#port" x="272" y="580"/><text x="272" y="585">1</text>
     <use href="#port" x="932" y="480"/><text x="932" y="485">49</text>
     <use href="#port" x="968" y="480"/><text x="968" y="485">50</text>
     <use href="#port" x="932" y="580"/><text x="932" y="585">1</text>
@@ -138,7 +124,7 @@
   </g>
   <!-- client interface pills -->
   <g font-size="13" font-weight="bold" fill="#fff" text-anchor="middle">
-    <rect x="267" y="712" width="46" height="20" rx="5" fill="#4bdd33"/><text x="290" y="727">eth1</text>
+    <rect x="207" y="712" width="46" height="20" rx="5" fill="#4bdd33"/><text x="230" y="727">eth1</text>
     <rect x="907" y="712" width="44" height="20" rx="5" fill="#4bdd33"/><text x="929" y="727">eth1</text>
     <rect x="953" y="712" width="44" height="20" rx="5" fill="#4bdd33"/><text x="975" y="727">eth2</text>
   </g>
