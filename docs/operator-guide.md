@@ -217,6 +217,8 @@ not production-safe.**
 
 ### 6. Model-provider Secret
 
+The inputs can also come from `.env` (copy `.env.example`): `LLM_MODEL=<provider>/<model>` and the provider's own key and endpoint, mapped by `scripts/lib/llm_env.sh`; an exported `AGENTIC_NETOPS_LLM_*` wins.
+
 Secret `llm-provider` in `agentic-netops-agents`, from `AGENTIC_NETOPS_LLM_MODEL`, `AGENTIC_NETOPS_LLM_API_KEY`,
 `AGENTIC_NETOPS_LLM_BASE_URL`, `AGENTIC_NETOPS_LLM_GATEWAY`. Declaring a gateway **requires a base URL** — otherwise refused
 before the tier is created. The base URL is **preserved on re-provisioning** because the Secret is merged key by key. Change it

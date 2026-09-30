@@ -283,6 +283,7 @@ CLUSTER_NAME=agentic-netops bash scripts/lib/intent_secrets.sh operator-credenti
 
 ### 6. Model-provider Secret
 
+- The inputs can also come from `.env` (copy `.env.example`): `LLM_MODEL=<provider>/<model>` and the provider's own key and endpoint, mapped by `scripts/lib/llm_env.sh`; an exported `AGENTIC_NETOPS_LLM_*` wins.
 - Secret `llm-provider` in `agentic-netops-agents`, from `AGENTIC_NETOPS_LLM_MODEL`, `AGENTIC_NETOPS_LLM_API_KEY`,
   `AGENTIC_NETOPS_LLM_BASE_URL` and `AGENTIC_NETOPS_LLM_GATEWAY` (keys `LLM_MODEL`, `API_KEY`, `BASE_URL`, `GATEWAY`).
 - **Declaring a gateway requires a base URL**: a gateway with no base URL (given or stored) is refused before anything
