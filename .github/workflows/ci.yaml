@@ -51,6 +51,8 @@ jobs:
         run: |
           for i in 1 2 3 4; do go mod download && exit 0; echo "go mod download failed (attempt $i); retrying in $((i*15))s" >&2; sleep $((i*15)); done
           exit 1
+      - name: "No session links in files or commit messages"
+        run: bash scripts/ci/verify_no_session_links.sh
       - name: go build ./...
         run: go build ./...
       - name: Offline gates
