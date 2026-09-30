@@ -47,9 +47,12 @@ jobs:
           fi
           docker pull "${refs[0]}"
           echo "PROMETHEUS_IMAGE=${refs[0]}" >> "$GITHUB_ENV"
+      # Fetch every module the build and the tests need, retried: the module proxy occasionally
+      # drops a stream. `go list` under -mod=readonly never writes go.sum (`go mod download` adds
+      # entries to it, and verify-pins then sees a go.sum that is not the one the lock records).
       - name: Download modules (retried — the module proxy occasionally drops a stream)
         run: |
-          for i in 1 2 3 4; do go mod download && exit 0; echo "go mod download failed (attempt $i); retrying in $((i*15))s" >&2; sleep $((i*15)); done
+          for i in 1 2 3 4; do GOFLAGS=-mod=readonly go list -deps -test -tags envtest ./... >/dev/null && exit 0; echo "module download failed (attempt $i); retrying in $((i*15))s" >&2; sleep $((i*15)); done
           exit 1
       - name: "No session links in files or commit messages"
         run: bash scripts/ci/verify_no_session_links.sh
