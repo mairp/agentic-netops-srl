@@ -231,3 +231,8 @@ reference, and on a host tool whose version differs from the one recorded.
 **Evidence** — a result counts only as captured by the run that claims it, with a negative control
 recorded for every readiness check. `make verify-evidence` fails on a missing field, a post-edit or
 a missing control.
+
+**No conversation links** — `make verify-no-session-links` fails when a tracked file or a commit
+message carries an AI-assistant conversation link or session trailer. Spec-kit artefacts, the
+walkthrough recorder and local run state (`specs/`, `.specify/`, `.specstride/`, `testautomation/`)
+are kept out of the repository.
