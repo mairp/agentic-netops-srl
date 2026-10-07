@@ -1,13 +1,13 @@
 # agentic-netops-srl - Autonomous intent-to-fabric operations.
 
 [![CI](https://github.com/mairp/agentic-netops-srl/actions/workflows/ci.yaml/badge.svg)](https://github.com/mairp/agentic-netops-srl/actions/workflows/ci.yaml)
-[![Mergify](https://img.shields.io/endpoint.svg?url=https://api.mergify.com/v1/badges/mairp/agentic-netops-srl&style=flat)](.mergify.yml)
 [![SR Linux](https://img.shields.io/badge/SR%20Linux-25.7.1-blue)](versions.lock.yaml)
 [![SDC](https://img.shields.io/badge/SDC-config--server%20v0.0.58-blue)](versions.lock.yaml)
 [![KUID](https://img.shields.io/badge/KUID-substituted%20(recorded)-lightgrey)](docs/decisions/allocator-substitution.md)
 [![Kubernetes](https://img.shields.io/badge/Kubernetes-v1.32.2-326ce5)](versions.lock.yaml)
 [![containerlab](https://img.shields.io/badge/containerlab-nokia__srlinux-0a7bbb)](lab/topology.clab.yml)
 [![Tutorial](https://img.shields.io/badge/docs-TUTORIAL.md-green)](TUTORIAL.md)
+[![Built with Specstride](https://img.shields.io/badge/built%20with-Specstride-7c3aed)]
 
 [![AGNTCY](https://img.shields.io/badge/AGNTCY-intent%20tier-6f42c1)](agents/supervisors/provisioning)
 [![LangGraph](https://img.shields.io/badge/LangGraph-supervisor-1c3c3c)](agents/supervisors/provisioning/graph)
